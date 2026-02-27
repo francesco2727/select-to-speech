@@ -1,0 +1,90 @@
+"""Configuration management for select-to-speech"""
+
+import os
+from pathlib import Path
+from typing import Optional
+
+import yaml
+from pydantic import BaseModel, Field
+
+
+class AudioConfig(BaseModel):
+    """Audio playback configuration"""
+
+    device_id: Optional[int] = Field(None, description="Audio device ID (None for default)")
+    speed: float = Field(1.0, ge=0.5, le=2.0, description="Speech speed multiplier")
+    pitch: float = Field(1.0, ge=0.5, le=2.0, description="Speech pitch multiplier")
+    volume: float = Field(1.0, ge=0.0, le=2.0, description="Audio volume multiplier")
+
+
+class VoiceConfig(BaseModel):
+    """Voice configuration"""
+
+    model: str = Field("it_IT-paola-medium", description="Piper voice model name")
+    language: str = Field("it", description="Language code")
+    language_models: dict[str, str] = Field(
+        default_factory=lambda: {
+            "it": "it_IT-paola-medium",
+            "en": "en_US-hfc_female-medium"
+        },
+        description="Map of language codes to model names"
+    )
+
+
+class KeyboardConfig(BaseModel):
+    """Keyboard shortcut configuration"""
+
+    modifier_key: str = Field("alt", description="Modifier key: 'alt', 'ctrl', 'shift'")
+    trigger_key: str = Field("esc", description="Trigger key when combined with modifier")
+
+
+class AppConfig(BaseModel):
+    """Main application configuration"""
+
+    voice: VoiceConfig = Field(default_factory=VoiceConfig)
+    audio: AudioConfig = Field(default_factory=AudioConfig)
+    keyboard: KeyboardConfig = Field(default_factory=KeyboardConfig)
+    debug: bool = Field(False, description="Enable debug logging")
+
+    class Config:
+        """Pydantic config"""
+
+        yaml_loader = yaml.SafeLoader
+
+
+def get_config_dir() -> Path:
+    """Get configuration directory path"""
+    config_dir = Path.home() / ".config" / "select-to-speech"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    return config_dir
+
+
+def get_data_dir() -> Path:
+    """Get data/cache directory path"""
+    data_dir = Path.home() / ".local" / "share" / "select-to-speech"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir
+
+
+def load_config(config_path: Optional[Path] = None) -> AppConfig:
+    """Load configuration from YAML file or use defaults"""
+    if config_path is None:
+        config_path = get_config_dir() / "config.yaml"
+
+    if config_path.exists():
+        with open(config_path) as f:
+            config_dict = yaml.safe_load(f) or {}
+        return AppConfig(**config_dict)
+
+    return AppConfig()
+
+
+def save_config(config: AppConfig, config_path: Optional[Path] = None) -> None:
+    """Save configuration to YAML file"""
+    if config_path is None:
+        config_path = get_config_dir() / "config.yaml"
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(config_path, "w") as f:
+        yaml.dump(config.model_dump(), f, default_flow_style=False)

@@ -1,0 +1,35 @@
+[tool.poetry]
+name = "select-to-speach"
+version = "0.1.0"
+description = "A Wayland-native text-to-speech app for reading selected text with keyboard shortcut"
+authors = ["Francesco <francescov@example.com>"]
+readme = "README.md"
+packages = [{include = "select_to_speech", from = "src"}]
+include = ["src"]
+# System dependencies (CachyOS/Arch):
+#   - wl-clipboard: for Wayland primary selection access
+#   - pulseaudio or pipewire: for audio playback (usually pre-installed)
+
+[tool.poetry.dependencies]
+python = "^3.14"
+piper-tts = "^1.4.1"
+pynput = "^1.7.6"
+pyaudio = "^0.2.13"
+pydantic = "^2.0"
+pyyaml = "^6.0"
+langdetect = "^1.0.9"
+pedalboard = "^0.9.8"
+
+[tool.poetry.scripts]
+select-to-speech = "select_to_speech.main:main"
+select-to-speech-check = "select_to_speech.system_check:check_system_dependencies"
+select-to-speech-audio = "select_to_speech.system_check:list_audio_devices"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.0.2,<10.0.0)"
+]
