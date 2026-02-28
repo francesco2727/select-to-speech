@@ -20,12 +20,13 @@ class AudioConfig(BaseModel):
 class VoiceConfig(BaseModel):
     """Voice configuration"""
 
-    model: str = Field("it_IT-paola-medium", description="Piper voice model name")
+    engine: str = Field("kokoro", description="TTS engine to use ('kokoro' or 'piper')")
+    model: str = Field("kokoro-v1.0", description="Voice model name")
     language: str = Field("it", description="Language code")
     language_models: dict[str, str] = Field(
         default_factory=lambda: {
-            "it": "it_IT-paola-medium",
-            "en": "en_US-hfc_female-medium"
+            "it": "if_sara",
+            "en": "af_heart"
         },
         description="Map of language codes to model names"
     )

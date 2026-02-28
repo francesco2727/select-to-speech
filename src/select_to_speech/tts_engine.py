@@ -1,90 +1,81 @@
-"""Text-to-Speech engine using Piper TTS"""
+"""Text-to-Speech engine implementations"""
 
 import io
 import logging
 import re
 import wave
+import json
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional, Tuple, Dict
+import threading
 
-from piper.voice import PiperVoice
-from piper.config import SynthesisConfig
+import requests
+import soundfile as sf
+import numpy as np
 
 from .config import get_data_dir, VoiceConfig
-
 
 logger = logging.getLogger(__name__)
 
 
-class TTSEngine:
-    """Text-to-Speech engine wrapper for Piper TTS"""
+class BaseTTSEngine(ABC):
+    """Abstract base class for TTS engines"""
 
     def __init__(self, voice_config: VoiceConfig):
-        """
-        Initialize the TTS engine.
-
-        Args:
-            voice_config: Voice configuration with model name
-        """
         self.voice_config = voice_config
-        self.voices: Dict[str, PiperVoice] = {}
-        self.current_model: str = self.voice_config.model
         self.voices_dir = get_data_dir() / "voices"
         self.voices_dir.mkdir(parents=True, exist_ok=True)
 
-    def _get_voice_path(self, model_name: str) -> Path:
-        """Get the path to the voice model file"""
-        return self.voices_dir / f"{model_name}.onnx"
-
     def _sanitize_text(self, text: str) -> str:
-        """
-        Sanitize text for TTS processing.
-        
-        Args:
-            text: Raw text
-            
-        Returns:
-            Sanitized text safe for TTS
-        """
-        # Replace triple quotes with single quotes
+        """Sanitize text for TTS processing."""
         text = text.replace('"""', '"')
         text = text.replace("'''", "'")
-        
-        # Normalize whitespace (collapse multiple spaces/newlines)
         text = re.sub(r'\s+', ' ', text)
-        
-        # Remove non-printable characters except basic punctuation
-        # Keep: letters, numbers, spaces, and common punctuation
         text = re.sub(r'[^\w\s.,!?;:\'\"-]', '', text)
-        
-        # Strip leading/trailing whitespace
         text = text.strip()
-        
         logger.debug(f"Sanitized: '{text[:100]}{'...' if len(text) > 100 else ''}'")
         return text
 
     def get_model_for_language(self, language: str) -> str:
-        """
-        Get model name for a specific language.
-        Falls back to default model if language not configured.
-        """
+        """Get model name for a specific language."""
         model = self.voice_config.language_models.get(language)
         if model:
             return model
-        
         logger.warning(f"No voice model configured for language '{language}', using default: {self.voice_config.model}")
         return self.voice_config.model
 
+    @abstractmethod
+    def synthesize(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0) -> Optional[Tuple[bytes, int]]:
+        """Synthesize text to speech."""
+        pass
+
+    @abstractmethod
+    def stop(self) -> None:
+        """Stop the TTS engine and cleanup"""
+        pass
+
+
+class PiperEngine(BaseTTSEngine):
+    """Text-to-Speech engine wrapper for Piper TTS"""
+
+    def __init__(self, voice_config: VoiceConfig):
+        super().__init__(voice_config)
+        self.voices: Dict[str, "PiperVoice"] = {}
+        try:
+            from piper.voice import PiperVoice
+            self.PiperVoice = PiperVoice
+        except ImportError:
+            logger.error("piper-tts is not installed. PiperEngine cannot be used.")
+            self.PiperVoice = None
+
+    def _get_voice_path(self, model_name: str) -> Path:
+        return self.voices_dir / f"{model_name}.onnx"
+
     def ensure_voice_loaded(self, model_name: str) -> bool:
-        """
-        Ensure a specific voice model is loaded.
+        if not self.PiperVoice:
+            return False
 
-        Args:
-            model_name: Name of the model to load
-
-        Returns:
-            True if successful, False otherwise
-        """
         if model_name in self.voices:
             return True
 
@@ -100,7 +91,7 @@ class TTSEngine:
                 return False
 
             logger.info(f"Loading voice model: {model_name}")
-            voice = PiperVoice.load(str(voice_path))
+            voice = self.PiperVoice.load(str(voice_path))
             self.voices[model_name] = voice
             return True
 
@@ -109,28 +100,16 @@ class TTSEngine:
             return False
 
     def synthesize(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0) -> Optional[Tuple[bytes, int]]:
-        """
-        Synthesize text to speech.
-
-        Args:
-            text: Text to synthesize
-            language: Optional language code to select voice
-            speed: Speech speed multiplier
-            volume: Audio volume multiplier
-
-        Returns:
-            Tuple of (audio_bytes, sample_rate) or None if failed
-        """
         if not text:
             return None
 
-        # Determine model based on language
+        from piper.config import SynthesisConfig
+
         target_model = self.voice_config.model
         if language:
             target_model = self.get_model_for_language(language)
 
         if not self.ensure_voice_loaded(target_model):
-            # Fallback to default if target failed to load and was different
             if target_model != self.voice_config.model:
                 logger.warning(f"Failed to load {target_model}, falling back to default {self.voice_config.model}")
                 target_model = self.voice_config.model
@@ -146,30 +125,24 @@ class TTSEngine:
                 logger.warning("Empty text provided for synthesis")
                 return None
 
-            # Sanitize text for TTS processing
-            original_text = text
             text = self._sanitize_text(text)
             
             if not text:
-                logger.warning(f"Text became empty after sanitization. Original: '{original_text[:100]}'")
                 return None
 
             logger.debug(f"Synthesizing text with model {target_model}: '{text[:100]}{'...' if len(text) > 100 else ''}'")
             
-            # Create synthesis config for speed and volume
             syn_config = SynthesisConfig(
                 length_scale=1.0 / speed if speed > 0 else 1.0,
                 volume=volume
             )
             
-            # Synthesize to WAV using synthesize_wav which properly writes WAV data
             with io.BytesIO() as output:
                 with wave.open(output, "wb") as wav_file:
                     voice.synthesize_wav(text, wav_file, syn_config=syn_config)
                 
                 audio_bytes = output.getvalue()
                 
-            # Get sample rate from voice
             sample_rate = voice.config.sample_rate
 
             logger.info(f"Synthesized {len(text)} chars to {len(audio_bytes)} bytes at {sample_rate}Hz using {target_model}")
@@ -177,10 +150,154 @@ class TTSEngine:
             return audio_bytes, sample_rate
 
         except Exception as e:
-            logger.error(f"TTS Engine failed to synthesize text. Check if the voice model is corrupted or missing. Error: {e}", exc_info=True)
+            logger.error(f"TTS Engine failed to synthesize text. Error: {e}", exc_info=True)
             return None
 
     def stop(self) -> None:
-        """Stop the TTS engine and cleanup"""
         self.voices.clear()
-        logger.info("TTS engine stopped")
+        logger.info("Piper TTS engine stopped")
+
+
+class KokoroEngine(BaseTTSEngine):
+    """Text-to-Speech engine wrapper for Kokoro ONNX"""
+
+    def __init__(self, voice_config: VoiceConfig):
+        super().__init__(voice_config)
+        self.model_path = self.voices_dir / "kokoro-v1.0.onnx"
+        self.voices_bin_path = self.voices_dir / "voices-v1.0.bin"
+        
+        self.kokoro = None
+        self._lock = threading.Lock()
+        
+    def _download_file(self, url: str, path: Path) -> bool:
+        """Download a file with streaming to handle large files"""
+        try:
+            logger.info(f"Downloading {path.name} from {url}...")
+            response = requests.get(url, stream=True)
+            response.raise_for_status()
+            
+            with open(path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            logger.info(f"Successfully downloaded {path.name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to download {url}: {e}")
+            if path.exists():
+                path.unlink()
+            return False
+
+    def ensure_model_downloaded(self) -> bool:
+        """Download kokoro model and voices.bin if they don't exist"""
+        if self.model_path.exists() and self.voices_bin_path.exists():
+            return True
+            
+        logger.info("Checking Kokoro models. They will be downloaded if missing (approx 350MB)...")
+        self.voices_dir.mkdir(parents=True, exist_ok=True)
+        
+        files_to_download = [
+            ("https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx", self.model_path),
+            ("https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin", self.voices_bin_path)
+        ]
+        
+        for url, path in files_to_download:
+            if not path.exists():
+                if not self._download_file(url, path):
+                    return False
+        
+        return True
+
+    def _init_kokoro(self) -> bool:
+        if self.kokoro is not None:
+            return True
+            
+        if not self.ensure_model_downloaded():
+            return False
+            
+        try:
+            from kokoro_onnx import Kokoro
+            with self._lock:
+                if self.kokoro is None:
+                    logger.info("Initializing Kokoro ONNX model...")
+                    self.kokoro = Kokoro(str(self.model_path), str(self.voices_bin_path))
+            return True
+        except ImportError:
+            logger.error("kokoro-onnx is not installed. KokoroEngine cannot be used.")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to initialize Kokoro: {e}", exc_info=True)
+            return False
+
+    def synthesize(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0) -> Optional[Tuple[bytes, int]]:
+        if not text:
+            return None
+
+        target_voice = self.voice_config.model
+        if language:
+            target_voice = self.get_model_for_language(language)
+
+        if not self._init_kokoro():
+            return None
+
+        try:
+            if not text.strip():
+                logger.warning("Empty text provided for synthesis")
+                return None
+
+            text = self._sanitize_text(text)
+            if not text:
+                return None
+
+            logger.debug(f"Synthesizing text with voice {target_voice}: '{text[:100]}{'...' if len(text) > 100 else ''}'")
+            
+            lang_code = "en-us"
+            if language == "it":
+                lang_code = "it"
+            elif language == "fr":
+                lang_code = "fr"
+            elif language == "es":
+                lang_code = "es"
+
+            with self._lock:
+                # Kokoro returns samples in [-1, 1] range, and sample_rate
+                samples, sample_rate = self.kokoro.create(
+                    text,
+                    voice=target_voice,
+                    speed=speed,
+                    lang=lang_code
+                )
+            
+            # Apply volume scaling
+            if volume != 1.0:
+                samples = samples * volume
+                # Clip to prevent overflow
+                samples = np.clip(samples, -1.0, 1.0)
+                
+            # Convert to WAV bytes using soundfile
+            with io.BytesIO() as output:
+                sf.write(output, samples, sample_rate, format='WAV', subtype='PCM_16')
+                audio_bytes = output.getvalue()
+
+            logger.info(f"Synthesized {len(text)} chars to {len(audio_bytes)} bytes at {sample_rate}Hz using {target_voice}")
+            
+            return audio_bytes, sample_rate
+
+        except Exception as e:
+            logger.error(f"Kokoro Engine failed to synthesize text. Error: {e}", exc_info=True)
+            return None
+
+    def stop(self) -> None:
+        self.kokoro = None
+        logger.info("Kokoro engine stopped")
+
+
+def get_tts_engine(config: VoiceConfig) -> BaseTTSEngine:
+    """Factory function to get the configured TTS engine"""
+    if config.engine == "kokoro":
+        return KokoroEngine(config)
+    elif config.engine == "piper":
+        return PiperEngine(config)
+    else:
+        logger.warning(f"Unknown TTS engine '{config.engine}', falling back to Kokoro")
+        return KokoroEngine(config)
+

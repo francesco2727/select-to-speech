@@ -13,7 +13,7 @@ from langdetect import detect, DetectorFactory
 from .config import load_config, AppConfig
 from .keyboard_handler import KeyboardHandler
 from .selection_listener import WaylandSelectionListener
-from .tts_engine import TTSEngine
+from .tts_engine import get_tts_engine
 from .audio_player import AudioPlayer
 
 
@@ -39,7 +39,7 @@ class SelectToSpeechApp:
         logger.info("Initializing Select-to-Speech application")
 
         # Initialize components
-        self.tts_engine = TTSEngine(self.config.voice)
+        self.tts_engine = get_tts_engine(self.config.voice)
         self.audio_player = AudioPlayer(self.config.audio.device_id)
         self.selection_listener = WaylandSelectionListener(
             on_selection_change=self._on_text_selected
