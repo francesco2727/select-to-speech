@@ -7,7 +7,7 @@ import wave
 import json
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, Iterator
 import threading
 
 import requests
@@ -37,6 +37,44 @@ class BaseTTSEngine(ABC):
         logger.debug(f"Sanitized: '{text[:100]}{'...' if len(text) > 100 else ''}'")
         return text
 
+    def _chunk_text(self, text: str, max_chars: int = 180) -> list[str]:
+        """Split text into logical, speakable chunks for streaming TTS."""
+        text = self._sanitize_text(text)
+        
+        # 1. Split by strong sentence boundaries (. ! ?) keeping the punctuation attached
+        raw_sentences = re.split(r'(?<=[.!?])\s+', text)
+        
+        chunks = []
+        current_chunk = ""
+        
+        for sentence in raw_sentences:
+            sentence = sentence.strip()
+            if not sentence: continue
+                
+            # 2. If a sentence is still too long, break it by weak boundaries (, ; : —)
+            if len(sentence) > max_chars:
+                weak_parts = re.split(r'(?<=[,;:—])\s+', sentence)
+                for part in weak_parts:
+                    part = part.strip()
+                    if not part: continue
+                    
+                    if len(current_chunk) + len(part) < max_chars:
+                        current_chunk += (" " + part) if current_chunk else part
+                    else:
+                        if current_chunk: chunks.append(current_chunk)
+                        current_chunk = part
+            else:
+                if len(current_chunk) + len(sentence) < max_chars:
+                    current_chunk += (" " + sentence) if current_chunk else sentence
+                else:
+                    if current_chunk: chunks.append(current_chunk)
+                    current_chunk = sentence
+                    
+        if current_chunk:
+            chunks.append(current_chunk)
+            
+        return chunks
+
     def get_model_for_language(self, language: str) -> str:
         """Get model name for a specific language."""
         model = self.voice_config.language_models.get(language)
@@ -48,6 +86,11 @@ class BaseTTSEngine(ABC):
     @abstractmethod
     def synthesize(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0) -> Optional[Tuple[bytes, int]]:
         """Synthesize text to speech."""
+        pass
+
+    @abstractmethod
+    def synthesize_stream(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0) -> Iterator[Tuple[bytes, int]]:
+        """Synthesize text to speech as a stream."""
         pass
 
     @abstractmethod
@@ -152,6 +195,50 @@ class PiperEngine(BaseTTSEngine):
         except Exception as e:
             logger.error(f"TTS Engine failed to synthesize text. Error: {e}", exc_info=True)
             return None
+
+    def synthesize_stream(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0) -> Iterator[Tuple[bytes, int]]:
+        if not text:
+            return
+
+        from piper.config import SynthesisConfig
+
+        target_model = self.voice_config.model
+        if language:
+            target_model = self.get_model_for_language(language)
+
+        if not self.ensure_voice_loaded(target_model):
+            if target_model != self.voice_config.model:
+                logger.warning(f"Failed to load {target_model}, falling back to default {self.voice_config.model}")
+                target_model = self.voice_config.model
+                if not self.ensure_voice_loaded(target_model):
+                    return
+            else:
+                return
+        
+        voice = self.voices[target_model]
+
+        syn_config = SynthesisConfig(
+            length_scale=1.0 / speed if speed > 0 else 1.0,
+            volume=volume
+        )
+        
+        for chunk in self._chunk_text(text):
+            try:
+                if not chunk.strip():
+                    continue
+
+                with io.BytesIO() as output:
+                    with wave.open(output, "wb") as wav_file:
+                        voice.synthesize_wav(chunk, wav_file, syn_config=syn_config)
+                    
+                    audio_bytes = output.getvalue()
+                    
+                sample_rate = voice.config.sample_rate
+                logger.debug(f"Synthesized streaming chunk: {len(chunk)} chars")
+                yield audio_bytes, sample_rate
+
+            except Exception as e:
+                logger.error(f"Failed synthesising chunk. Error: {e}", exc_info=True)
 
     def stop(self) -> None:
         self.voices.clear()
@@ -285,6 +372,58 @@ class KokoroEngine(BaseTTSEngine):
         except Exception as e:
             logger.error(f"Kokoro Engine failed to synthesize text. Error: {e}", exc_info=True)
             return None
+
+    def synthesize_stream(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0) -> Iterator[Tuple[bytes, int]]:
+        if not text:
+            return
+
+        target_voice = self.voice_config.model
+        if language:
+            target_voice = self.get_model_for_language(language)
+
+        if not self._init_kokoro():
+            return
+
+        lang_code = "en-us"
+        if language == "it":
+            lang_code = "it"
+        elif language == "fr":
+            lang_code = "fr"
+        elif language == "es":
+            lang_code = "es"
+
+        for chunk in self._chunk_text(text):
+            try:
+                if not chunk.strip():
+                    continue
+
+                logger.debug(f"Synthesizing stream chunk with voice {target_voice}: '{chunk[:100]}{'...' if len(chunk) > 100 else ''}'")
+                
+                with self._lock:
+                    # Kokoro returns samples in [-1, 1] range, and sample_rate
+                    samples, sample_rate = self.kokoro.create(
+                        chunk,
+                        voice=target_voice,
+                        speed=speed,
+                        lang=lang_code
+                    )
+                
+                # Apply volume scaling
+                if volume != 1.0:
+                    samples = samples * volume
+                    # Clip to prevent overflow
+                    samples = np.clip(samples, -1.0, 1.0)
+                    
+                # Convert to WAV bytes using soundfile
+                with io.BytesIO() as output:
+                    sf.write(output, samples, sample_rate, format='WAV', subtype='PCM_16')
+                    audio_bytes = output.getvalue()
+
+                logger.debug(f"Synthesized streaming chunk: {len(chunk)} chars")
+                yield audio_bytes, sample_rate
+
+            except Exception as e:
+                logger.error(f"Failed synthesising chunk. Error: {e}", exc_info=True)
 
     def stop(self) -> None:
         self.kokoro = None

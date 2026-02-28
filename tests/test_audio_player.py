@@ -163,6 +163,30 @@ class TestAudioPlayerPlayback:
         assert result is True
         mock_stream.write.assert_called_once()
 
+    @patch('select_to_speech.audio_player.pyaudio.PyAudio')
+    def test_play_stream(self, mock_pyaudio_class):
+        """Test streaming audio playback"""
+        import queue
+        mock_pyaudio = MagicMock()
+        mock_stream = MagicMock()
+        mock_pyaudio.open.return_value = mock_stream
+        mock_pyaudio.get_format_from_width.return_value = 8
+        mock_pyaudio_class.return_value = mock_pyaudio
+        
+        player = AudioPlayer()
+        audio_data = self.create_valid_wav_data()
+        
+        q = queue.Queue()
+        q.put((audio_data, 22050))
+        q.put(None)  # EOF
+        
+        result = player.play_stream(q)
+        
+        assert result is True
+        mock_stream.write.assert_called_once()
+        mock_stream.stop_stream.assert_called_once()
+        mock_stream.close.assert_called_once()
+
 
 class TestAudioPlayerDeviceHandling:
     """Test device handling and fallback mechanisms"""

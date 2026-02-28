@@ -5,6 +5,7 @@ import os
 import signal
 import sys
 import threading
+import queue
 from pathlib import Path
 from typing import Optional
 
@@ -169,32 +170,33 @@ class SelectToSpeechApp:
         except Exception as e:
             logger.warning(f"Language detection failed: {e}")
 
-        # Synthesize text
         if stop_event.is_set():
             return False
             
-        result = self.tts_engine.synthesize(
-            text, 
-            language=language,
-            speed=self.config.audio.speed,
-            volume=self.config.audio.volume
-        )
-        if not result:
-            logger.error("Synthesis failed - TTS returned None")
-            return False
+        audio_queue = queue.Queue(maxsize=10)
+        
+        # Background worker generating TTS chunks
+        def generator():
+            try:
+                for chunk_data in self.tts_engine.synthesize_stream(
+                    text, 
+                    language=language,
+                    speed=self.config.audio.speed,
+                    volume=self.config.audio.volume
+                ):
+                    if stop_event.is_set():
+                        break
+                    audio_queue.put(chunk_data)
+            except Exception as e:
+                logger.error(f"Stream generation error: {e}")
+            finally:
+                audio_queue.put(None)  # EOF
 
-        if stop_event.is_set():
-            return False
+        threading.Thread(target=generator, daemon=True).start()
 
-        audio_data, sample_rate = result
-        logger.debug(f"Received from TTS: {len(audio_data) if audio_data else 0} bytes, {sample_rate}Hz")
-
-        # Play audio
-        if stop_event.is_set():
-            return False
-            
-        if not self.audio_player.play(audio_data, sample_rate, pitch=self.config.audio.pitch):
-            logger.error(f"Playback failed - audio_data was {'empty' if not audio_data else f'{len(audio_data)} bytes'}")
+        # Play audio stream
+        if not self.audio_player.play_stream(audio_queue, pitch=self.config.audio.pitch):
+            logger.error("Stream playback failed or was interrupted")
             return False
 
         if stop_event.is_set():

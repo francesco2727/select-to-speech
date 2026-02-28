@@ -2,6 +2,7 @@
 
 import logging
 import subprocess
+import threading
 from typing import Optional, Callable
 
 
@@ -58,11 +59,19 @@ class WaylandSelectionListener:
         """
         Called when keyboard shortcut is triggered.
 
-        Retrieves the current primary selection and passes it to the callback.
+        Retrieves the current primary selection and passes it to the callback in a background thread.
         
         Args:
             force: If True, triggers the callback even if the selection hasn't changed.
         """
+        threading.Thread(
+            target=self._process_trigger, 
+            args=(force,), 
+            daemon=True
+        ).start()
+
+    def _process_trigger(self, force: bool) -> None:
+        """Actually retrieves and dispatches the selection."""
         selection = self.get_primary_selection()
 
         if selection:

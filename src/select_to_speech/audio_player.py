@@ -205,6 +205,111 @@ class AudioPlayer:
         except:
             return "unknown"
 
+    def play_stream(self, audio_generator_queue, pitch: float = 1.0) -> bool:
+        """
+        Play audio stream from a queue.
+
+        Args:
+            audio_generator_queue: Queue containing (audio_data, sample_rate) tuples
+            pitch: Pitch multiplier (1.0 is normal)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            self.is_playing = True
+            self._stop_requested = False
+            stream_opened = False
+            first_chunk = True
+
+            while not self._stop_requested:
+                chunk_data = audio_generator_queue.get()
+                if chunk_data is None:  # EOF
+                    break
+                
+                audio_data, sample_rate = chunk_data
+                
+                if not audio_data:
+                    continue
+
+                # Parse WAV header to extract raw PCM data
+                audio_buffer = io.BytesIO(audio_data)
+                with wave.open(audio_buffer, "rb") as wav_file:
+                    n_channels = wav_file.getnchannels()
+                    sample_width = wav_file.getsampwidth()
+                    frame_rate = wav_file.getframerate()
+                    frames = wav_file.readframes(wav_file.getnframes())
+
+                if not frames:
+                    continue
+
+                # Apply pitch shifting if needed
+                if pitch != 1.0:
+                    try:
+                        if sample_width == 2:
+                            audio_int16 = np.frombuffer(frames, dtype=np.int16)
+                            audio_float = audio_int16.astype(np.float32) / 32768.0
+                            semitones = 12 * math.log2(pitch)
+                            board = Pedalboard([PitchShift(semitones=semitones)])
+                            processed_audio = board(audio_float, sample_rate=frame_rate, reset=False)
+                            processed_int16 = (processed_audio * 32767.0).astype(np.int16)
+                            frames = processed_int16.tobytes()
+                    except Exception as e:
+                        logger.error(f"Failed to apply pitch shift: {e}", exc_info=True)
+
+                if first_chunk:
+                    # Open stream on the first valid chunk
+                    devices_to_try = []
+                    if self.device_id is not None:
+                        devices_to_try.append(self.device_id)
+                    devices_to_try.extend([6, 7, 8, None])
+                    
+                    for attempt, device_id in enumerate(devices_to_try, 1):
+                        try:
+                            self.stream = self.pyaudio.open(
+                                format=self.pyaudio.get_format_from_width(sample_width),
+                                channels=n_channels,
+                                rate=frame_rate,
+                                output=True,
+                                output_device_index=device_id,
+                            )
+                            stream_opened = True
+                            first_chunk = False
+                            break
+                        except Exception as device_error:
+                            continue
+
+                    if not stream_opened:
+                        logger.error("❌ All audio devices are busy or unavailable.")
+                        return False
+
+                # Write chunks to the open stream
+                chunk_size = 4096
+                for i in range(0, len(frames), chunk_size):
+                    if self._stop_requested:
+                        break
+                    self.stream.write(frames[i:i + chunk_size])
+
+            # Cleanup stream after finishing queue or stopping
+            if self.stream:
+                self.stream.stop_stream()
+                self.stream.close()
+                self.stream = None
+            self.is_playing = False
+            return not self._stop_requested
+            
+        except Exception as e:
+            logger.error(f"Fatal stream playback error: {e}", exc_info=True)
+            if self.stream:
+                try:
+                    self.stream.stop_stream()
+                    self.stream.close()
+                except:
+                    pass
+                self.stream = None
+            self.is_playing = False
+            return False
+
     def stop(self) -> None:
         """Stop playback and cleanup"""
         self._stop_requested = True
