@@ -114,34 +114,29 @@ class SelectToSpeechApp:
     def _on_shortcut_pressed(self) -> None:
         """Callback when keyboard shortcut is pressed"""
         logger.info("Shortcut pressed, processing selection...")
+        
+        is_playing = self.audio_player.is_playing or (self._process_thread and self._process_thread.is_alive())
+        
+        current_selection = self.selection_listener.get_primary_selection()
+        current_text = current_selection.strip() if current_selection else ""
+        
+        # If currently playing and the selection hasn't changed, do nothing
+        if is_playing and current_text == self.selection_listener.last_selection:
+            logger.info("Playing and selection unchanged. Ignoring trigger (use stop shortcut to stop).")
+            return
 
-        # If currently playing or processing, stop it
-        was_playing = False
-        if self.audio_player.is_playing or (self._process_thread and self._process_thread.is_alive()):
-            was_playing = True
-            logger.info("Stopping current playback...")
+        # If currently playing and we have new text selected, stop old playback
+        if is_playing:
+            logger.info("Stopping current playback for new selection...")
             self._stop_event.set()
             self.audio_player.stop()
             
             # Wait briefly for thread to stop
             if self._process_thread and self._process_thread.is_alive():
                 self._process_thread.join(timeout=0.5)
-                
-            # If we just stopped playback, we don't want to immediately restart
-            # unless the user has selected new text.
-            # We check if the selection has changed. If it hasn't, we just return
-            # (which completes the "stop" action).
-            current_selection = self.selection_listener.get_primary_selection()
-            if current_selection:
-                current_text = current_selection.strip()
-                if current_text == self.selection_listener.last_selection:
-                    logger.info("Selection unchanged, stopping only.")
-                    return
 
         # Get current selection (this will trigger _on_text_selected if there's text)
-        # If we weren't playing, we force the trigger even if the selection hasn't changed
-        # so the user can replay the same text.
-        self.selection_listener.on_trigger(force=not was_playing)
+        self.selection_listener.on_trigger(force=not is_playing)
 
     def _on_pause_pressed(self) -> None:
         """Callback when pause shortcut is pressed"""
