@@ -46,9 +46,13 @@ class SelectToSpeechApp:
             on_selection_change=self._on_text_selected
         )
         self.keyboard_handler = KeyboardHandler(
-            on_shortcut=self._on_shortcut_pressed,
+            on_play=self._on_shortcut_pressed,
+            on_pause=self._on_pause_pressed,
+            on_stop=self._on_stop_pressed,
             modifier=self.config.keyboard.modifier_key,
             trigger_key=self.config.keyboard.trigger_key,
+            pause_key=self.config.keyboard.pause_key,
+            stop_key=self.config.keyboard.stop_key,
         )
 
         self.should_exit = False
@@ -139,6 +143,23 @@ class SelectToSpeechApp:
         # so the user can replay the same text.
         self.selection_listener.on_trigger(force=not was_playing)
 
+    def _on_pause_pressed(self) -> None:
+        """Callback when pause shortcut is pressed"""
+        if self.audio_player.is_playing:
+            if self.audio_player.is_paused:
+                logger.info("Resuming playback...")
+                self.audio_player.resume()
+            else:
+                logger.info("Pausing playback...")
+                self.audio_player.pause()
+
+    def _on_stop_pressed(self) -> None:
+        """Callback when stop shortcut is pressed"""
+        if self.audio_player.is_playing or (self._process_thread and self._process_thread.is_alive()):
+            logger.info("Explicit stop requested...")
+            self._stop_event.set()
+            self.audio_player.stop()
+
     def process_text(self, text: str, stop_event: threading.Event) -> bool:
         """
         Process text through TTS and play audio.
@@ -186,7 +207,15 @@ class SelectToSpeechApp:
                 ):
                     if stop_event.is_set():
                         break
-                    audio_queue.put(chunk_data)
+                    
+                    # Instead of blocking indefinitely, we use loop with timeout 
+                    # so we can check the stop_event frequently while waiting to enqueue
+                    while not stop_event.is_set():
+                        try:
+                            audio_queue.put(chunk_data, timeout=0.1)
+                            break
+                        except queue.Full:
+                            continue
             except Exception as e:
                 logger.error(f"Stream generation error: {e}")
             finally:
@@ -195,8 +224,14 @@ class SelectToSpeechApp:
         threading.Thread(target=generator, daemon=True).start()
 
         # Play audio stream
-        if not self.audio_player.play_stream(audio_queue, pitch=self.config.audio.pitch):
-            logger.error("Stream playback failed or was interrupted")
+        success = self.audio_player.play_stream(audio_queue, pitch=self.config.audio.pitch)
+
+        if stop_event.is_set():
+            logger.info("Playback stopped by user")
+            return False
+
+        if not success:
+            logger.error("Stream playback failed")
             return False
 
         if stop_event.is_set():

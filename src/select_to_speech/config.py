@@ -37,6 +37,8 @@ class KeyboardConfig(BaseModel):
 
     modifier_key: str = Field("alt", description="Modifier key: 'alt', 'ctrl', 'shift'")
     trigger_key: str = Field("esc", description="Trigger key when combined with modifier")
+    pause_key: str = Field("w", description="Pause/Resume toggle key when combined with modifier")
+    stop_key: str = Field("s", description="Explicit stop key when combined with modifier")
 
 
 class AppConfig(BaseModel):

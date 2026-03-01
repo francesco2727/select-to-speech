@@ -1,4 +1,4 @@
-"""Keyboard shortcut handler for Alt+Esc trigger"""
+"""Keyboard shortcut handler using pynput GlobalHotKeys"""
 
 import logging
 from typing import Callable, Optional
@@ -10,75 +10,53 @@ logger = logging.getLogger(__name__)
 
 
 class KeyboardHandler:
-    """Handles keyboard shortcuts and triggers callbacks"""
+    """Handles keyboard shortcuts using GlobalHotKeys"""
 
     def __init__(
         self,
-        on_shortcut: Callable[[], None],
+        on_play: Callable[[], None],
+        on_pause: Callable[[], None] = None,
+        on_stop: Callable[[], None] = None,
         modifier: str = "alt",
         trigger_key: str = "esc",
+        pause_key: str = "w",
+        stop_key: str = "s",
     ):
         """
         Initialize keyboard handler.
 
         Args:
-            on_shortcut: Callback function when shortcut is triggered
+            on_play: Callback function when play shortcut is triggered
+            on_pause: Callback function when pause shortcut is triggered
+            on_stop: Callback function when stop shortcut is triggered
             modifier: Modifier key ('alt', 'ctrl', 'shift')
-            trigger_key: Trigger key name (e.g., 'esc', 'f1')
+            trigger_key: Trigger key name for play (e.g., 'esc', 'f1')
+            pause_key: Trigger key name for pause/resume
+            stop_key: Trigger key name for explicit stop
         """
-        self.on_shortcut = on_shortcut
-        self.modifier = modifier.lower()
-        self.trigger_key = trigger_key.lower()
-        self.listener: Optional[keyboard.Listener] = None
-        self.keys_pressed = set()
-
-        # Map modifier names to pynput Key enum
-        self.modifier_map = {
-            "alt": keyboard.Key.alt,
-            "ctrl": keyboard.Key.ctrl,
-            "control": keyboard.Key.ctrl,
-            "shift": keyboard.Key.shift,
+        self.listener: Optional[keyboard.GlobalHotKeys] = None
+        
+        play_hotkey = self._format_hotkey(modifier, trigger_key)
+        self.hotkeys = {
+            play_hotkey: on_play,
         }
+        
+        if on_pause:
+            pause_hotkey = self._format_hotkey(modifier, pause_key)
+            self.hotkeys[pause_hotkey] = on_pause
+            
+        if on_stop:
+            stop_hotkey = self._format_hotkey(modifier, stop_key)
+            self.hotkeys[stop_hotkey] = on_stop
 
-        # Map trigger key names to pynput Key enum
-        self.trigger_key_map = {
-            "esc": keyboard.Key.esc,
-            "escape": keyboard.Key.esc,
-            "f1": keyboard.Key.f1,
-            "f2": keyboard.Key.f2,
-            "f3": keyboard.Key.f3,
-            "f4": keyboard.Key.f4,
-            "f5": keyboard.Key.f5,
-            "f6": keyboard.Key.f6,
-            "f7": keyboard.Key.f7,
-            "f8": keyboard.Key.f8,
-            "f9": keyboard.Key.f9,
-            "f10": keyboard.Key.f10,
-            "f11": keyboard.Key.f11,
-            "f12": keyboard.Key.f12,
-        }
-
-    def _on_press(self, key: Optional[keyboard.Key]) -> None:
-        """Handle key press event"""
-        try:
-            if key in self.modifier_map.values():
-                self.keys_pressed.add(key)
-            elif key == self.trigger_key_map.get(self.trigger_key):
-                # Check if modifier is pressed
-                if self.modifier_map.get(self.modifier) in self.keys_pressed:
-                    logger.debug(f"Shortcut triggered: {self.modifier}+{self.trigger_key}")
-                    self.on_shortcut()
-        except AttributeError:
-            # Ignore special key handling for character keys
-            pass
-
-    def _on_release(self, key: Optional[keyboard.Key]) -> None:
-        """Handle key release event"""
-        try:
-            if key in self.modifier_map.values():
-                self.keys_pressed.discard(key)
-        except AttributeError:
-            pass
+    def _format_hotkey(self, modifier: str, key: str) -> str:
+        """Converts config strings into pynput GlobalHotKey format."""
+        mod_str = f"<{modifier.lower()}>" if modifier else ""
+        
+        key = key.lower()
+        key_str = f"<{key}>" if len(key) > 1 else key
+        
+        return f"{mod_str}+{key_str}" if mod_str else key_str
 
     def start(self) -> None:
         """Start listening for keyboard shortcuts"""
@@ -86,13 +64,9 @@ class KeyboardHandler:
             logger.warning("Keyboard listener already running")
             return
 
-        self.listener = keyboard.Listener(
-            on_press=self._on_press, on_release=self._on_release
-        )
+        self.listener = keyboard.GlobalHotKeys(self.hotkeys)
         self.listener.start()
-        logger.info(
-            f"Keyboard listener started: {self.modifier.upper()}+{self.trigger_key.upper()}"
-        )
+        logger.info(f"Keyboard listener started with hotkeys: {list(self.hotkeys.keys())}")
 
     def stop(self) -> None:
         """Stop listening for keyboard shortcuts"""

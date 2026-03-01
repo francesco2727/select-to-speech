@@ -3,6 +3,7 @@
 import io
 import logging
 import math
+import threading
 import traceback
 from typing import Optional
 
@@ -30,6 +31,8 @@ class AudioPlayer:
         self.stream = None
         self.is_playing = False
         self._stop_requested = False
+        self._pause_event = threading.Event()
+        self._pause_event.set()
 
     def _list_devices(self) -> None:
         """List all available audio devices"""
@@ -38,6 +41,21 @@ class AudioPlayer:
         for i in range(device_count):
             info = self.pyaudio.get_device_info_by_index(i)
             logger.info(f"  {i}: {info['name']} (channels: {info['maxOutputChannels']})")
+
+    @property
+    def is_paused(self) -> bool:
+        """Return True if playback is currently paused"""
+        return not self._pause_event.is_set()
+
+    def pause(self) -> None:
+        """Pause playback"""
+        self._pause_event.clear()
+        logger.info("Playback paused")
+
+    def resume(self) -> None:
+        """Resume playback"""
+        self._pause_event.set()
+        logger.info("Playback resumed")
 
     def play(self, audio_data: bytes, sample_rate: int, channels: int = 1, pitch: float = 1.0) -> bool:
         """
@@ -153,6 +171,12 @@ class AudioPlayer:
                 bytes_written = 0
                 
                 for i in range(0, len(frames), chunk_size):
+                    if self._stop_requested:
+                        logger.info("Playback interrupted by user")
+                        break
+                        
+                    self._pause_event.wait()
+
                     if self._stop_requested:
                         logger.info("Playback interrupted by user")
                         break
@@ -288,6 +312,12 @@ class AudioPlayer:
                 for i in range(0, len(frames), chunk_size):
                     if self._stop_requested:
                         break
+                    
+                    self._pause_event.wait()
+
+                    if self._stop_requested:
+                        break
+                    
                     self.stream.write(frames[i:i + chunk_size])
 
             # Cleanup stream after finishing queue or stopping
@@ -313,6 +343,7 @@ class AudioPlayer:
     def stop(self) -> None:
         """Stop playback and cleanup"""
         self._stop_requested = True
+        self._pause_event.set()
         # We don't close the stream here anymore.
         # The play() loop will detect _stop_requested, break, and close the stream safely.
         # Closing it here while play() is writing to it causes ALSA/PyAudio crashes.
