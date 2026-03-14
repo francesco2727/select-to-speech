@@ -18,6 +18,32 @@ from .config import get_data_dir, VoiceConfig
 
 logger = logging.getLogger(__name__)
 
+# Kokoro voice-name prefixes by language
+_KOKORO_LANG_PREFIXES: dict[str, list[str]] = {
+    "en": ["af_", "am_", "bf_", "bm_"],
+    "es": ["ef_", "em_"],
+    "fr": ["ff_", "fm_"],
+    "hi": ["hf_", "hm_"],
+    "it": ["if_", "im_"],
+    "ja": ["jf_", "jm_"],
+    "ko": ["kf_"],
+    "pt": ["pf_", "pm_"],
+    "zh": ["zf_", "zm_"],
+}
+
+# Kokoro lang_code used by kokoro.create(lang=...)
+_KOKORO_LANG_CODES: dict[str, str] = {
+    "en": "en-us",
+    "es": "es",
+    "fr": "fr",
+    "hi": "hi",
+    "it": "it",
+    "ja": "ja",
+    "ko": "ko",
+    "pt": "pt-br",
+    "zh": "zh",
+}
+
 
 class BaseTTSEngine(ABC):
     """Abstract base class for TTS engines"""
@@ -337,13 +363,7 @@ class KokoroEngine(BaseTTSEngine):
 
             logger.debug(f"Synthesizing text with voice {target_voice}: '{text[:100]}{'...' if len(text) > 100 else ''}'")
             
-            lang_code = "en-us"
-            if language == "it":
-                lang_code = "it"
-            elif language == "fr":
-                lang_code = "fr"
-            elif language == "es":
-                lang_code = "es"
+            lang_code = _KOKORO_LANG_CODES.get(language, "en-us") if language else "en-us"
 
             with self._lock:
                 # Kokoro returns samples in [-1, 1] range, and sample_rate
@@ -384,13 +404,7 @@ class KokoroEngine(BaseTTSEngine):
         if not self._init_kokoro():
             return
 
-        lang_code = "en-us"
-        if language == "it":
-            lang_code = "it"
-        elif language == "fr":
-            lang_code = "fr"
-        elif language == "es":
-            lang_code = "es"
+        lang_code = _KOKORO_LANG_CODES.get(language, "en-us") if language else "en-us"
 
         for chunk in self._chunk_text(text):
             try:
@@ -459,5 +473,45 @@ def get_available_models(engine: str) -> list[str]:
             for p in voices_dir.glob("*.onnx")
             if not p.stem.startswith("kokoro")
         )
+    return []
+
+
+def get_kokoro_voices(language: str | None = None) -> list[str]:
+    """Return Kokoro voice names from the installed voices-v1.0.bin file.
+
+    If *language* is given, only voices whose prefix matches the language are
+    returned (e.g. ``"it"`` → ``if_*``, ``im_*``).
+    """
+    voices_bin = get_data_dir() / "voices" / "voices-v1.0.bin"
+    if not voices_bin.exists():
+        return []
+    try:
+        data = np.load(str(voices_bin), allow_pickle=False)
+        all_voices: list[str] = sorted(data.files)
+    except Exception:
+        logger.warning("Failed to read Kokoro voices from %s", voices_bin)
+        return []
+
+    if language is None:
+        return all_voices
+
+    prefixes = _KOKORO_LANG_PREFIXES.get(language, [])
+    if not prefixes:
+        return []  # unsupported language → empty list
+    return [v for v in all_voices if any(v.startswith(p) for p in prefixes)]
+
+
+def get_voices_for_language(engine: str, language: str) -> list[str]:
+    """Return the voice/model names available for *engine* + *language*.
+
+    * **kokoro** — reads the voices binary and filters by language prefix.
+    * **piper** — filters installed ``.onnx`` models by the ``{lang}_`` prefix
+      (e.g. ``it_IT-paola-medium`` starts with ``it_``).
+    """
+    if engine == "kokoro":
+        return get_kokoro_voices(language)
+    elif engine == "piper":
+        prefix = f"{language}_"
+        return [m for m in get_available_models("piper") if m.startswith(prefix)]
     return []
 

@@ -40,6 +40,9 @@ msgstr "Modèle :"
 msgid "(no models found)"
 msgstr "(aucun modèle trouvé)"
 
+msgid "Model per language"
+msgstr "Modèle par langue"
+
 # Audio tab
 msgid "Speed:"
 msgstr "Vitesse :"
@@ -104,11 +107,14 @@ msgid "Français"
 msgstr "Français"
 
 # Buttons
-msgid "Test Voice"
-msgstr "Tester la voix"
+msgid "Save"
+msgstr "Enregistrer"
 
-msgid "Stop Test"
-msgstr "Arrêter le test"
+msgid "Apply"
+msgstr "Appliquer"
+
+msgid "Cancel"
+msgstr "Annuler"
 
 # Tray icon
 msgid "Status: Idle"

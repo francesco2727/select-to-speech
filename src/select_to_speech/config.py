@@ -25,8 +25,21 @@ class VoiceConfig(BaseModel):
     language: str = Field("it", description="Language code")
     language_models: dict[str, str] = Field(
         default_factory=lambda: {
+            "ar": "",
+            "de": "",
+            "en": "af_heart",
+            "es": "",
+            "fr": "",
+            "hi": "",
             "it": "if_sara",
-            "en": "af_heart"
+            "ja": "",
+            "ko": "",
+            "nl": "",
+            "pl": "",
+            "pt": "",
+            "ru": "",
+            "tr": "",
+            "zh": "",
         },
         description="Map of language codes to model names"
     )

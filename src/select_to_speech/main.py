@@ -177,11 +177,13 @@ class SelectToSpeechApp:
             language = detect(text)
             logger.info(f"Detected language: {language}")
             
-            # Check if language is supported
+            # Check if language is supported and has a voice configured
             if language not in self.config.voice.language_models:
-                logger.warning(f"Language '{language}' not supported. Switching to English.")
-                text = "Sorry, this language is not supported"
-                language = "en"
+                logger.warning(f"Language '{language}' not in language_models, falling back to default.")
+                language = self.config.voice.language
+            elif not self.config.voice.language_models.get(language):
+                logger.warning(f"No voice configured for '{language}', falling back to default.")
+                language = self.config.voice.language
                 
         except Exception as e:
             logger.warning(f"Language detection failed: {e}")

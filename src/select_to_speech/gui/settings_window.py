@@ -3,7 +3,7 @@
 import threading
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QMetaObject, Qt as QtConst, Q_ARG
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -13,11 +13,13 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
     QSlider,
     QStackedWidget,
     QVBoxLayout,
@@ -27,17 +29,46 @@ from PyQt6.QtWidgets import (
 from ..config import AppConfig, AudioConfig, KeyboardConfig, VoiceConfig, load_config, save_config
 from ..i18n import _, set_language
 from ..system_check import get_audio_devices
-from ..tts_engine import get_available_models
+from ..tts_engine import get_available_models, get_voices_for_language
 
 # Available languages & their sample sentences for test voice
 SAMPLE_SENTENCES = {
-    "it": "Questa è una prova delle impostazioni vocali.",
+    "ar": "هذا اختبار لإعدادات الصوت.",
+    "de": "Dies ist ein Test der Spracheinstellungen.",
     "en": "This is a test of the voice settings.",
-    "fr": "Ceci est un test des paramètres vocaux.",
     "es": "Esta es una prueba de la configuración de voz.",
+    "fr": "Ceci est un test des paramètres vocaux.",
+    "hi": "यह आवाज़ सेटिंग्स का परीक्षण है।",
+    "it": "Questa è una prova delle impostazioni vocali.",
+    "ja": "これは音声設定のテストです。",
+    "ko": "이것은 음성 설정 테스트입니다.",
+    "nl": "Dit is een test van de steminstellingen.",
+    "pl": "To jest test ustawień głosu.",
+    "pt": "Este é um teste das configurações de voz.",
+    "ru": "Это тест настроек голоса.",
+    "tr": "Bu bir ses ayarları testidir.",
+    "zh": "这是语音设置的测试。",
 }
 
 MODIFIER_KEYS = ["alt", "ctrl", "shift"]
+
+_LANGUAGE_DISPLAY: dict[str, str] = {
+    "ar": "العربية",
+    "de": "Deutsch",
+    "en": "English",
+    "es": "Español",
+    "fr": "Français",
+    "hi": "हिन्दी",
+    "it": "Italiano",
+    "ja": "日本語",
+    "ko": "한국어",
+    "nl": "Nederlands",
+    "pl": "Polski",
+    "pt": "Português",
+    "ru": "Русский",
+    "tr": "Türkçe",
+    "zh": "中文",
+}
 
 # ── Qt key code → pynput-compatible name mapping ────────────────────
 
@@ -264,9 +295,13 @@ _GUI_LANGUAGES = [
 class SettingsWindow(QDialog):
     """Configuration dialog with tabs for voice, audio, keyboard, and general."""
 
+    # Signal emitted from background thread to reset play button on the GUI thread
+    _reset_play_btn = pyqtSignal(str)
+
     def __init__(self, config: Optional[AppConfig] = None, parent: QWidget | None = None):
         super().__init__(parent)
         self.config = config or load_config()
+        self._original_config = self.config.model_copy(deep=True)
         self._test_thread: Optional[threading.Thread] = None
         self._test_stop = threading.Event()
 
@@ -278,6 +313,9 @@ class SettingsWindow(QDialog):
 
         self._build_ui()
         self._load_config_into_ui()
+
+        # Connect the thread-safe signal for resetting play buttons
+        self._reset_play_btn.connect(self._do_reset_play_btn)
 
     # ──────────────────────── UI Construction ────────────────────────
 
@@ -301,10 +339,10 @@ class SettingsWindow(QDialog):
             QListWidgetItem(label, self.sidebar)
 
         self.pages = QStackedWidget()
-        self.pages.addWidget(self._build_voice_tab())
-        self.pages.addWidget(self._build_audio_tab())
-        self.pages.addWidget(self._build_keyboard_tab())
-        self.pages.addWidget(self._build_general_tab())
+        self.pages.addWidget(self._scrollable_page(self._build_voice_tab()))
+        self.pages.addWidget(self._scrollable_page(self._build_audio_tab()))
+        self.pages.addWidget(self._scrollable_page(self._build_keyboard_tab()))
+        self.pages.addWidget(self._scrollable_page(self._build_general_tab()))
 
         self.sidebar.currentRowChanged.connect(self.pages.setCurrentIndex)
         self.sidebar.setCurrentRow(0)
@@ -313,11 +351,8 @@ class SettingsWindow(QDialog):
         content_layout.addWidget(self.pages, stretch=1)
         layout.addLayout(content_layout)
 
-        # Bottom bar: Test Voice + dialog buttons
+        # Bottom bar: dialog buttons with translated labels
         bottom = QHBoxLayout()
-        self.test_btn = QPushButton(_("Test Voice"))
-        self.test_btn.clicked.connect(self._on_test_voice)
-        bottom.addWidget(self.test_btn)
         bottom.addStretch()
 
         btn_box = QDialogButtonBox(
@@ -325,49 +360,150 @@ class SettingsWindow(QDialog):
             | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
+        btn_box.button(QDialogButtonBox.StandardButton.Save).setText(_("Save"))
         btn_box.button(QDialogButtonBox.StandardButton.Save).clicked.connect(self._on_save)
+        btn_box.button(QDialogButtonBox.StandardButton.Apply).setText(_("Apply"))
         btn_box.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self._on_apply)
-        btn_box.button(QDialogButtonBox.StandardButton.Cancel).clicked.connect(self.reject)
+        btn_box.button(QDialogButtonBox.StandardButton.Cancel).setText(_("Cancel"))
+        btn_box.button(QDialogButtonBox.StandardButton.Cancel).clicked.connect(self._on_cancel)
         bottom.addWidget(btn_box)
 
         layout.addLayout(bottom)
+
+    @staticmethod
+    def _scrollable_page(content: QWidget, max_width: int = 600) -> QScrollArea:
+        """Wrap *content* in a scroll area with a centred, max-width container."""
+        content.setMaximumWidth(max_width)
+
+        wrapper = QWidget()
+        h = QHBoxLayout(wrapper)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.addStretch()
+        h.addWidget(content)
+        h.addStretch()
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(wrapper)
+        return scroll
 
     # ── Voice Tab ────────────────────────────────────────────────────
 
     def _build_voice_tab(self) -> QWidget:
         tab = QWidget()
-        form = QFormLayout(tab)
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        # ── Top form: engine ──
+        top_form = QFormLayout()
 
         self.engine_combo = QComboBox()
         self.engine_combo.addItems(["kokoro", "piper"])
-        self.engine_combo.currentTextChanged.connect(self._populate_model_combo)
-        form.addRow(_("Engine:"), self.engine_combo)
+        self.engine_combo.currentTextChanged.connect(self._on_engine_changed)
+        top_form.addRow(_("Engine:"), self.engine_combo)
 
-        self.model_combo = QComboBox()
-        self.model_combo.setEditable(True)
-        self.model_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        form.addRow(_("Model:"), self.model_combo)
+        outer.addLayout(top_form)
+        outer.addSpacing(12)
 
-        self._populate_model_combo(self.engine_combo.currentText())
+        # ── Per-language model overrides ──
+        self.lang_model_combos: dict[str, QComboBox] = {}
+        self._lang_model_group = QGroupBox(_("Model per language"))
+        self._lang_model_form = QFormLayout(self._lang_model_group)
+        self._lang_model_form.setVerticalSpacing(10)
+        outer.addWidget(self._lang_model_group)
+        outer.addStretch()
+
+        # Populate will be driven by _load_config_into_ui; prime it now
+        # so the tab is not empty before config is applied.
+        self._populate_model_combos(self.engine_combo.currentText(), reset=False)
 
         return tab
 
-    def _populate_model_combo(self, engine: str) -> None:
-        """Refresh the model combo for the selected engine."""
-        current = self.model_combo.currentText()
-        self.model_combo.clear()
+    def _on_engine_changed(self, engine: str) -> None:
+        """Called when the user selects a different engine — resets all model combos."""
+        self._populate_model_combos(engine, reset=True)
 
-        models = get_available_models(engine)
-        if models:
-            self.model_combo.addItems(models)
-        else:
-            self.model_combo.addItem(_("(no models found)"))
+    def _populate_model_combos(self, engine: str, reset: bool) -> None:
+        """Repopulate all per-language model combos.
 
-        idx = self.model_combo.findText(current)
-        if idx >= 0:
-            self.model_combo.setCurrentIndex(idx)
-        elif current:
-            self.model_combo.setEditText(current)
+        When *reset* is True (engine switch) all combos reset to the first
+        available voice.  When False, existing selections are preserved
+        where possible (initial UI load path).
+        """
+        for lang, combo in self.lang_model_combos.items():
+            prev = combo.currentText()
+            voices = get_voices_for_language(engine, lang)
+            combo.clear()
+            if voices:
+                combo.addItems(voices)
+            else:
+                combo.addItem("")
+            # Enable/disable play button based on voice availability
+            btn = self._lang_play_btns.get(lang)
+            if btn:
+                btn.setEnabled(bool(voices))
+            if reset or not prev:
+                combo.setCurrentIndex(0)
+            else:
+                idx = combo.findText(prev)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+                else:
+                    combo.setCurrentIndex(0)
+
+    def _rebuild_lang_model_rows(self, language_models: dict[str, str]) -> None:
+        """Clear and recreate per-language rows for all supported languages."""
+        # Remove all existing rows
+        while self._lang_model_form.rowCount():
+            self._lang_model_form.removeRow(0)
+        self.lang_model_combos.clear()
+        self._lang_play_btns: dict[str, QPushButton] = {}
+
+        engine = self.engine_combo.currentText()
+
+        # Use _LANGUAGE_DISPLAY as the canonical set, merged with any extras from config
+        all_langs = sorted(set(_LANGUAGE_DISPLAY.keys()) | set(language_models.keys()))
+
+        for lang in all_langs:
+            display = _LANGUAGE_DISPLAY.get(lang, lang)
+            label = f"{display} ({lang}):"
+
+            voices = get_voices_for_language(engine, lang)
+
+            combo = QComboBox()
+            if voices:
+                combo.addItems(voices)
+            else:
+                combo.addItem("")
+
+            # Restore saved model for this language
+            saved = language_models.get(lang, "")
+            if saved:
+                idx = combo.findText(saved)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+                else:
+                    combo.addItem(saved)
+                    combo.setCurrentIndex(combo.count() - 1)
+
+            # Play button to preview the selected voice
+            play_btn = QPushButton("\u25b6")
+            play_btn.setFixedSize(32, 32)
+            play_btn.setToolTip(_("Play"))
+            play_btn.setEnabled(bool(voices))
+            play_btn.clicked.connect(lambda checked, l=lang: self._on_play_voice(l))
+            self._lang_play_btns[lang] = play_btn
+
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(4)
+            row_layout.addWidget(combo, stretch=1)
+            row_layout.addWidget(play_btn)
+
+            self._lang_model_form.addRow(label, row_widget)
+            self.lang_model_combos[lang] = combo
 
     # ── Audio Tab ────────────────────────────────────────────────────
 
@@ -497,13 +633,17 @@ class SettingsWindow(QDialog):
 
     def _load_config_into_ui(self):
         v = self.config.voice
+
+        # Block engine signal so _on_engine_changed doesn't fire during load
+        self.engine_combo.blockSignals(True)
         self.engine_combo.setCurrentText(v.engine)
-        self._populate_model_combo(v.engine)
-        idx = self.model_combo.findText(v.model)
-        if idx >= 0:
-            self.model_combo.setCurrentIndex(idx)
-        else:
-            self.model_combo.setEditText(v.model)
+        self.engine_combo.blockSignals(False)
+
+        # Build per-language rows first (needs language_models keys)
+        self._rebuild_lang_model_rows(v.language_models)
+
+        # Populate model lists without resetting (preserve saved selections)
+        self._populate_model_combos(v.engine, reset=False)
 
         a = self.config.audio
         self.speed_spin.setValue(a.speed)
@@ -528,16 +668,21 @@ class SettingsWindow(QDialog):
             self.lang_combo.setCurrentIndex(lang_idx)
 
     def _read_config_from_ui(self) -> AppConfig:
-        model_text = self.model_combo.currentText().strip()
-        if model_text == _("(no models found)"):
-            model_text = self.config.voice.model
+        # Keep existing default model as internal fallback
+        model_text = self.config.voice.model
+
+        # Collect per-language voice selections (always persist all languages)
+        lang_models: dict[str, str] = {}
+        for lang, combo in self.lang_model_combos.items():
+            selected = combo.currentText().strip()
+            lang_models[lang] = selected
 
         return AppConfig(
             voice=VoiceConfig(
                 engine=self.engine_combo.currentText(),
                 model=model_text,
                 language=self.config.voice.language,
-                language_models=self.config.voice.language_models,
+                language_models=lang_models,
             ),
             audio=AudioConfig(
                 device_id=self.device_combo.currentData(),
@@ -561,13 +706,38 @@ class SettingsWindow(QDialog):
         self.config = self._read_config_from_ui()
         save_config(self.config)
         set_language(self.config.gui_language)
+        # Rebuild the entire UI so translations take effect
+        self._rebuild_ui()
 
     def _on_save(self):
         self._on_apply()
         self.accept()
 
-    def _on_test_voice(self):
-        """Synthesise and play a short sample with current (unsaved) settings."""
+    def _on_cancel(self):
+        # Revert to the config that was active when the dialog opened
+        save_config(self._original_config)
+        set_language(self._original_config.gui_language)
+        self.reject()
+
+    def _rebuild_ui(self):
+        """Tear down and rebuild all widgets so translated labels refresh."""
+        # Update window title with new language
+        self.setWindowTitle(_("Select-to-Speech — Settings"))
+        # Remove the old layout and all children
+        old_layout = self.layout()
+        if old_layout is not None:
+            QWidget().setLayout(old_layout)  # reparent to discard
+        self._build_ui()
+        self._load_config_into_ui()
+        # Reconnect the play-button reset signal
+        try:
+            self._reset_play_btn.disconnect()
+        except TypeError:
+            pass
+        self._reset_play_btn.connect(self._do_reset_play_btn)
+
+    def _on_play_voice(self, language: str):
+        """Synthesise and play a short sample for the selected voice in *language*."""
         # Stop any running test
         if self._test_thread and self._test_thread.is_alive():
             self._test_stop.set()
@@ -575,12 +745,17 @@ class SettingsWindow(QDialog):
 
         self._test_stop.clear()
         cfg = self._read_config_from_ui()
-        lang = cfg.voice.language
-        sample = SAMPLE_SENTENCES.get(lang, SAMPLE_SENTENCES["en"])
+        sample = SAMPLE_SENTENCES.get(language, SAMPLE_SENTENCES["en"])
 
-        self.test_btn.setText(_("Stop Test"))
-        self.test_btn.clicked.disconnect()
-        self.test_btn.clicked.connect(self._stop_test_voice)
+        # Switch play button to stop icon
+        btn = self._lang_play_btns.get(language)
+        if btn:
+            btn.setText("\u25a0")
+            try:
+                btn.clicked.disconnect()
+            except TypeError:
+                pass
+            btn.clicked.connect(lambda: self._stop_test_voice(language))
 
         def _run():
             try:
@@ -588,7 +763,7 @@ class SettingsWindow(QDialog):
                 from ..audio_player import AudioPlayer
 
                 engine = get_tts_engine(cfg.voice)
-                result = engine.synthesize(sample, language=lang, speed=cfg.audio.speed, volume=cfg.audio.volume)
+                result = engine.synthesize(sample, language=language, speed=cfg.audio.speed, volume=cfg.audio.volume)
                 if result is None or self._test_stop.is_set():
                     return
                 audio_bytes, sample_rate = result
@@ -597,16 +772,22 @@ class SettingsWindow(QDialog):
             except Exception:
                 pass
             finally:
-                # Reset button (safe cross-thread via Qt queued connection)
-                self.test_btn.setText(_("Test Voice"))
-                try:
-                    self.test_btn.clicked.disconnect()
-                except TypeError:
-                    pass
-                self.test_btn.clicked.connect(self._on_test_voice)
+                # Emit signal to reset button on the GUI thread
+                self._reset_play_btn.emit(language)
 
         self._test_thread = threading.Thread(target=_run, daemon=True)
         self._test_thread.start()
 
-    def _stop_test_voice(self):
+    def _do_reset_play_btn(self, language: str):
+        """Reset the play button back to \u25b6 — runs on the GUI thread via signal."""
+        btn = self._lang_play_btns.get(language)
+        if btn:
+            btn.setText("\u25b6")
+            try:
+                btn.clicked.disconnect()
+            except TypeError:
+                pass
+            btn.clicked.connect(lambda checked, l=language: self._on_play_voice(l))
+
+    def _stop_test_voice(self, language: str = ""):
         self._test_stop.set()
