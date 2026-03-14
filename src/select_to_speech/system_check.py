@@ -62,29 +62,51 @@ def check_system_dependencies() -> bool:
     return True
 
 
-def list_audio_devices() -> None:
-    """List all available audio output devices"""
+def get_audio_devices() -> list[dict]:
+    """Return structured list of audio output devices.
+
+    Returns:
+        List of dicts with keys: id, name, channels, sample_rate, is_default
+    """
+    devices: list[dict] = []
     if not pyaudio:
-        logger.error("PyAudio not available")
-        return
+        return devices
 
     p = pyaudio.PyAudio()
-    device_count = p.get_device_count()
+    try:
+        default_info = p.get_default_output_device_info()
+        default_name = default_info["name"] if default_info else None
+
+        for i in range(p.get_device_count()):
+            info = p.get_device_info_by_index(i)
+            if info["maxOutputChannels"] > 0:
+                devices.append({
+                    "id": i,
+                    "name": info["name"],
+                    "channels": info["maxOutputChannels"],
+                    "sample_rate": int(info["defaultSampleRate"]),
+                    "is_default": info["name"] == default_name,
+                })
+    finally:
+        p.terminate()
+
+    return devices
+
+
+def list_audio_devices() -> None:
+    """List all available audio output devices"""
+    devices = get_audio_devices()
+    if not devices:
+        logger.error("PyAudio not available or no output devices found")
+        return
 
     logger.info("\n=== Available Audio Output Devices ===\n")
-    
-    default_info = p.get_default_output_device_info()
-    default_name = default_info['name'] if default_info else None
-    
-    for i in range(device_count):
-        info = p.get_device_info_by_index(i)
-        if info['maxOutputChannels'] > 0:
-            is_default = " [DEFAULT]" if info['name'] == default_name else ""
-            logger.info(f"Device {i}: {info['name']}{is_default}")
-            logger.info(f"  Channels: {info['maxOutputChannels']}")
-            logger.info(f"  Sample Rate: {int(info['defaultSampleRate'])} Hz\n")
 
-    p.terminate()
+    for dev in devices:
+        default_tag = " [DEFAULT]" if dev["is_default"] else ""
+        logger.info(f"Device {dev['id']}: {dev['name']}{default_tag}")
+        logger.info(f"  Channels: {dev['channels']}")
+        logger.info(f"  Sample Rate: {dev['sample_rate']} Hz\n")
 
     logger.info("To use a specific device, edit ~/.config/select-to-speech/config.yaml:")
     logger.info("  audio:")

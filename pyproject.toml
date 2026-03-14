@@ -24,11 +24,14 @@ onnxruntime = "*"
 soundfile = "*"
 requests = "*"
 misaki = "*"
+PyQt6 = ">=6.6"
 
 [tool.poetry.scripts]
 select-to-speech = "select_to_speech.main:main"
 select-to-speech-check = "select_to_speech.system_check:check_system_dependencies"
 select-to-speech-audio = "select_to_speech.system_check:list_audio_devices"
+select-to-speech-gui = "select_to_speech.gui.main:main"
+select-to-speech-settings = "select_to_speech.gui.main:open_settings"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
