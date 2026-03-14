@@ -3,17 +3,18 @@
 import threading
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import (
-    QComboBox,
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -24,7 +25,9 @@ from PyQt6.QtWidgets import (
 )
 
 from ..config import AppConfig, AudioConfig, KeyboardConfig, VoiceConfig, load_config, save_config
+from ..i18n import _, set_language
 from ..system_check import get_audio_devices
+from ..tts_engine import get_available_models
 
 # Available languages & their sample sentences for test voice
 SAMPLE_SENTENCES = {
@@ -36,12 +39,225 @@ SAMPLE_SENTENCES = {
 
 MODIFIER_KEYS = ["alt", "ctrl", "shift"]
 
-TRIGGER_KEYS = [
-    "esc", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12",
-    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
-    "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
-    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
-    "space", "tab", "insert", "delete", "home", "end", "page_up", "page_down",
+# ── Qt key code → pynput-compatible name mapping ────────────────────
+
+_QT_KEY_MAP: dict[int, str] = {
+    Qt.Key.Key_Escape: "esc",
+    Qt.Key.Key_F1: "f1", Qt.Key.Key_F2: "f2", Qt.Key.Key_F3: "f3",
+    Qt.Key.Key_F4: "f4", Qt.Key.Key_F5: "f5", Qt.Key.Key_F6: "f6",
+    Qt.Key.Key_F7: "f7", Qt.Key.Key_F8: "f8", Qt.Key.Key_F9: "f9",
+    Qt.Key.Key_F10: "f10", Qt.Key.Key_F11: "f11", Qt.Key.Key_F12: "f12",
+    Qt.Key.Key_Space: "space", Qt.Key.Key_Tab: "tab",
+    Qt.Key.Key_Insert: "insert", Qt.Key.Key_Delete: "delete",
+    Qt.Key.Key_Home: "home", Qt.Key.Key_End: "end",
+    Qt.Key.Key_PageUp: "page_up", Qt.Key.Key_PageDown: "page_down",
+    Qt.Key.Key_Return: "enter", Qt.Key.Key_Enter: "enter",
+    Qt.Key.Key_Backspace: "backspace",
+    Qt.Key.Key_Up: "up", Qt.Key.Key_Down: "down",
+    Qt.Key.Key_Left: "left", Qt.Key.Key_Right: "right",
+}
+
+_KEY_DISPLAY: dict[str, str] = {
+    "esc": "Esc", "space": "Space", "tab": "Tab",
+    "insert": "Ins", "delete": "Del",
+    "home": "Home", "end": "End",
+    "page_up": "PgUp", "page_down": "PgDn",
+    "enter": "Enter", "backspace": "Backspace",
+    "up": "↑", "down": "↓", "left": "←", "right": "→",
+}
+
+
+def _qt_key_to_name(event: QKeyEvent) -> str | None:
+    """Convert a QKeyEvent to a pynput-compatible key name, ignoring modifiers."""
+    key = event.key()
+    if key in (Qt.Key.Key_Shift, Qt.Key.Key_Control, Qt.Key.Key_Alt, Qt.Key.Key_Meta):
+        return None
+    if key in _QT_KEY_MAP:
+        return _QT_KEY_MAP[key]
+    if Qt.Key.Key_F1 <= key <= Qt.Key.Key_F12:
+        return f"f{key - Qt.Key.Key_F1 + 1}"
+    text = event.text().lower()
+    if len(text) == 1 and text.isprintable():
+        return text
+    return None
+
+
+def _display_key(name: str) -> str:
+    """Return a human-friendly label for a key name."""
+    if name in _KEY_DISPLAY:
+        return _KEY_DISPLAY[name]
+    if name.startswith("f") and name[1:].isdigit():
+        return name.upper()
+    return name.upper() if len(name) == 1 else name.capitalize()
+
+
+# ── Chip/tag style CSS ──────────────────────────────────────────────
+
+_CHIP_CSS = (
+    "background: palette(highlight); color: palette(highlighted-text);"
+    "border-radius: 4px; padding: 3px 8px; font-weight: bold; font-size: 12px;"
+)
+
+_CAPTURE_CSS = (
+    "border: 2px dashed palette(highlight); border-radius: 6px;"
+    "padding: 4px 10px; color: palette(text); font-style: italic;"
+)
+
+_IDLE_CSS = (
+    "border: 1px solid palette(mid); border-radius: 6px;"
+    "padding: 4px 10px; color: palette(text);"
+)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Custom Widgets
+# ═══════════════════════════════════════════════════════════════════
+
+
+class KeyCaptureWidget(QFrame):
+    """Captures a single key press and displays it as a chip/badge."""
+
+    keyChanged = pyqtSignal(str)
+
+    def __init__(self, initial_key: str = "", parent: QWidget | None = None):
+        super().__init__(parent)
+        self._key_name = initial_key
+        self._capturing = False
+
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumHeight(32)
+        self.setMaximumHeight(36)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        self._label = QLabel()
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._label, stretch=1)
+
+        self._clear_btn = QPushButton("×")
+        self._clear_btn.setFixedSize(20, 20)
+        self._clear_btn.setFlat(True)
+        self._clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._clear_btn.clicked.connect(self._on_clear)
+        layout.addWidget(self._clear_btn)
+
+        self._update_display()
+
+    def key_name(self) -> str:
+        return self._key_name
+
+    def set_key(self, name: str) -> None:
+        if name != self._key_name:
+            self._key_name = name
+            self._capturing = False
+            self._update_display()
+            self.keyChanged.emit(name)
+
+    def mousePressEvent(self, event):
+        self._capturing = True
+        self._update_display()
+        self.setFocus()
+
+    def keyPressEvent(self, event: QKeyEvent):
+        if not self._capturing:
+            super().keyPressEvent(event)
+            return
+        name = _qt_key_to_name(event)
+        if name:
+            self.set_key(name)
+
+    def focusOutEvent(self, event):
+        self._capturing = False
+        self._update_display()
+        super().focusOutEvent(event)
+
+    def _on_clear(self):
+        self._key_name = ""
+        self._capturing = False
+        self._update_display()
+        self.keyChanged.emit("")
+
+    def _update_display(self):
+        if self._capturing:
+            self._label.setText(_("Press a key…"))
+            self.setStyleSheet(_CAPTURE_CSS)
+            self._clear_btn.setVisible(False)
+        elif self._key_name:
+            self._label.setText(_display_key(self._key_name))
+            self._label.setStyleSheet(_CHIP_CSS)
+            self.setStyleSheet(_IDLE_CSS)
+            self._clear_btn.setVisible(True)
+        else:
+            self._label.setText("")
+            self._label.setStyleSheet("")
+            self.setStyleSheet(_IDLE_CSS)
+            self._clear_btn.setVisible(False)
+
+
+class ModifierKeySelector(QFrame):
+    """Row of three checkboxes (Alt, Ctrl, Shift) — stores 1–2 selected modifiers."""
+
+    modifiersChanged = pyqtSignal(str)
+
+    def __init__(self, initial: str = "alt", parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        self._checks: dict[str, QCheckBox] = {}
+        for mod in MODIFIER_KEYS:
+            cb = QCheckBox(mod.capitalize())
+            cb.stateChanged.connect(self._on_changed)
+            layout.addWidget(cb)
+            self._checks[mod] = cb
+
+        self._warn_label = QLabel()
+        self._warn_label.setStyleSheet("color: red; font-size: 11px;")
+        layout.addWidget(self._warn_label)
+        layout.addStretch()
+
+        self.set_modifiers(initial)
+
+    def modifiers(self) -> str:
+        selected = [m for m, cb in self._checks.items() if cb.isChecked()]
+        return "+".join(selected) if selected else ""
+
+    def set_modifiers(self, value: str) -> None:
+        parts = [p.strip().lower() for p in value.split("+") if p.strip()]
+        for mod, cb in self._checks.items():
+            cb.blockSignals(True)
+            cb.setChecked(mod in parts)
+            cb.blockSignals(False)
+        self._validate()
+
+    def _on_changed(self):
+        self._validate()
+        self.modifiersChanged.emit(self.modifiers())
+
+    def _validate(self):
+        count = sum(1 for cb in self._checks.values() if cb.isChecked())
+        if count == 0:
+            self._warn_label.setText(_("Select at least one modifier key"))
+        elif count > 2:
+            self._warn_label.setText(_("Select at most two modifier keys"))
+        else:
+            self._warn_label.setText("")
+
+
+# ═══════════════════════════════════════════════════════════════════
+
+_GUI_LANGUAGES = [
+    ("auto", "Auto (system)"),
+    ("en", "English"),
+    ("it", "Italiano"),
+    ("es", "Español"),
+    ("fr", "Français"),
 ]
 
 
@@ -54,7 +270,10 @@ class SettingsWindow(QDialog):
         self._test_thread: Optional[threading.Thread] = None
         self._test_stop = threading.Event()
 
-        self.setWindowTitle("Select-to-Speech — Settings")
+        # Apply the configured GUI language before building UI
+        set_language(self.config.gui_language)
+
+        self.setWindowTitle(_("Select-to-Speech — Settings"))
         self.setMinimumSize(QSize(560, 480))
 
         self._build_ui()
@@ -78,7 +297,7 @@ class SettingsWindow(QDialog):
             "QListWidget::item:selected { background: palette(highlight); "
             "color: palette(highlighted-text); }"
         )
-        for label in ("Engine", "Audio", "Shortcuts", "General"):
+        for label in (_("Engine"), _("Audio"), _("Shortcuts"), _("General")):
             QListWidgetItem(label, self.sidebar)
 
         self.pages = QStackedWidget()
@@ -96,7 +315,7 @@ class SettingsWindow(QDialog):
 
         # Bottom bar: Test Voice + dialog buttons
         bottom = QHBoxLayout()
-        self.test_btn = QPushButton("Test Voice")
+        self.test_btn = QPushButton(_("Test Voice"))
         self.test_btn.clicked.connect(self._on_test_voice)
         bottom.addWidget(self.test_btn)
         bottom.addStretch()
@@ -121,13 +340,34 @@ class SettingsWindow(QDialog):
 
         self.engine_combo = QComboBox()
         self.engine_combo.addItems(["kokoro", "piper"])
-        form.addRow("Engine:", self.engine_combo)
+        self.engine_combo.currentTextChanged.connect(self._populate_model_combo)
+        form.addRow(_("Engine:"), self.engine_combo)
 
-        self.model_edit = QLineEdit()
-        self.model_edit.setPlaceholderText("e.g. kokoro-v1.0")
-        form.addRow("Model:", self.model_edit)
+        self.model_combo = QComboBox()
+        self.model_combo.setEditable(True)
+        self.model_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        form.addRow(_("Model:"), self.model_combo)
+
+        self._populate_model_combo(self.engine_combo.currentText())
 
         return tab
+
+    def _populate_model_combo(self, engine: str) -> None:
+        """Refresh the model combo for the selected engine."""
+        current = self.model_combo.currentText()
+        self.model_combo.clear()
+
+        models = get_available_models(engine)
+        if models:
+            self.model_combo.addItems(models)
+        else:
+            self.model_combo.addItem(_("(no models found)"))
+
+        idx = self.model_combo.findText(current)
+        if idx >= 0:
+            self.model_combo.setCurrentIndex(idx)
+        elif current:
+            self.model_combo.setEditText(current)
 
     # ── Audio Tab ────────────────────────────────────────────────────
 
@@ -136,17 +376,17 @@ class SettingsWindow(QDialog):
         form = QFormLayout(tab)
 
         self.speed_spin, self.speed_slider = self._make_slider_pair(0.5, 2.0, 0.1, 1.0)
-        form.addRow("Speed:", self._h_pair(self.speed_slider, self.speed_spin))
+        form.addRow(_("Speed:"), self._h_pair(self.speed_slider, self.speed_spin))
 
         self.pitch_spin, self.pitch_slider = self._make_slider_pair(0.5, 2.0, 0.1, 1.0)
-        form.addRow("Pitch:", self._h_pair(self.pitch_slider, self.pitch_spin))
+        form.addRow(_("Pitch:"), self._h_pair(self.pitch_slider, self.pitch_spin))
 
         self.volume_spin, self.volume_slider = self._make_slider_pair(0.0, 2.0, 0.1, 1.0)
-        form.addRow("Volume:", self._h_pair(self.volume_slider, self.volume_spin))
+        form.addRow(_("Volume:"), self._h_pair(self.volume_slider, self.volume_spin))
 
         self.device_combo = QComboBox()
         self._populate_audio_devices()
-        form.addRow("Audio device:", self.device_combo)
+        form.addRow(_("Audio device:"), self.device_combo)
 
         return tab
 
@@ -180,7 +420,7 @@ class SettingsWindow(QDialog):
 
     def _populate_audio_devices(self):
         self.device_combo.clear()
-        self.device_combo.addItem("System default", None)
+        self.device_combo.addItem(_("System default"), None)
         for dev in get_audio_devices():
             label = f"{dev['name']}  ({dev['sample_rate']} Hz, {dev['channels']}ch)"
             if dev["is_default"]:
@@ -193,44 +433,46 @@ class SettingsWindow(QDialog):
         tab = QWidget()
         form = QFormLayout(tab)
 
-        self.mod_combo = QComboBox()
-        self.mod_combo.addItems(MODIFIER_KEYS)
-        form.addRow("Modifier key:", self.mod_combo)
+        self.mod_selector = ModifierKeySelector()
+        self.mod_selector.modifiersChanged.connect(lambda _: self._update_shortcut_preview())
+        form.addRow(_("Modifier keys:"), self.mod_selector)
 
-        self.trigger_combo = QComboBox()
-        self.trigger_combo.addItems(TRIGGER_KEYS)
-        self.trigger_combo.setEditable(True)
-        form.addRow("Play key:", self.trigger_combo)
+        self.trigger_capture = KeyCaptureWidget()
+        self.trigger_capture.keyChanged.connect(lambda _: self._update_shortcut_preview())
+        form.addRow(_("Play key:"), self.trigger_capture)
 
-        self.pause_combo = QComboBox()
-        self.pause_combo.addItems(TRIGGER_KEYS)
-        self.pause_combo.setEditable(True)
-        form.addRow("Pause / Resume key:", self.pause_combo)
+        self.pause_capture = KeyCaptureWidget()
+        self.pause_capture.keyChanged.connect(lambda _: self._update_shortcut_preview())
+        form.addRow(_("Pause / Resume key:"), self.pause_capture)
 
-        self.stop_combo = QComboBox()
-        self.stop_combo.addItems(TRIGGER_KEYS)
-        self.stop_combo.setEditable(True)
-        form.addRow("Stop key:", self.stop_combo)
+        self.stop_capture = KeyCaptureWidget()
+        self.stop_capture.keyChanged.connect(lambda _: self._update_shortcut_preview())
+        form.addRow(_("Stop key:"), self.stop_capture)
 
         # Live preview label
         self.shortcut_preview = QLabel()
         self.shortcut_preview.setStyleSheet("font-style: italic; opacity: 0.7;")
         form.addRow("", self.shortcut_preview)
 
-        # Update preview when any combo changes
-        for combo in (self.mod_combo, self.trigger_combo, self.pause_combo, self.stop_combo):
-            combo.currentTextChanged.connect(self._update_shortcut_preview)
-
         return tab
 
     def _update_shortcut_preview(self):
-        mod = self.mod_combo.currentText().capitalize()
-        play = self.trigger_combo.currentText().capitalize()
-        pause = self.pause_combo.currentText().capitalize()
-        stop = self.stop_combo.currentText().capitalize()
-        self.shortcut_preview.setText(
-            f"Play: {mod}+{play}   |   Pause: {mod}+{pause}   |   Stop: {mod}+{stop}"
-        )
+        mod = self.mod_selector.modifiers()
+        mod_display = "+".join(m.capitalize() for m in mod.split("+") if m)
+        play = _display_key(self.trigger_capture.key_name()) if self.trigger_capture.key_name() else "—"
+        pause = _display_key(self.pause_capture.key_name()) if self.pause_capture.key_name() else "—"
+        stop = _display_key(self.stop_capture.key_name()) if self.stop_capture.key_name() else "—"
+
+        parts = []
+        if mod_display:
+            parts.append(f"{_('Play:')} {mod_display}+{play}")
+            parts.append(f"{_('Pause:')} {mod_display}+{pause}")
+            parts.append(f"{_('Stop:')} {mod_display}+{stop}")
+        else:
+            parts.append(f"{_('Play:')} {play}")
+            parts.append(f"{_('Pause:')} {pause}")
+            parts.append(f"{_('Stop:')} {stop}")
+        self.shortcut_preview.setText("   |   ".join(parts))
 
     # ── General Tab ──────────────────────────────────────────────────
 
@@ -238,8 +480,16 @@ class SettingsWindow(QDialog):
         tab = QWidget()
         form = QFormLayout(tab)
 
-        self.debug_check = QCheckBox("Enable debug logging")
+        self.debug_check = QCheckBox(_("Enable debug logging"))
         form.addRow(self.debug_check)
+
+        self.lang_combo = QComboBox()
+        for code, display in _GUI_LANGUAGES:
+            if code == "auto":
+                self.lang_combo.addItem(_("Auto (system)"), code)
+            else:
+                self.lang_combo.addItem(display, code)
+        form.addRow(_("Language:"), self.lang_combo)
 
         return tab
 
@@ -248,7 +498,12 @@ class SettingsWindow(QDialog):
     def _load_config_into_ui(self):
         v = self.config.voice
         self.engine_combo.setCurrentText(v.engine)
-        self.model_edit.setText(v.model)
+        self._populate_model_combo(v.engine)
+        idx = self.model_combo.findText(v.model)
+        if idx >= 0:
+            self.model_combo.setCurrentIndex(idx)
+        else:
+            self.model_combo.setEditText(v.model)
 
         a = self.config.audio
         self.speed_spin.setValue(a.speed)
@@ -260,19 +515,27 @@ class SettingsWindow(QDialog):
             self.device_combo.setCurrentIndex(idx)
 
         k = self.config.keyboard
-        self.mod_combo.setCurrentText(k.modifier_key)
-        self.trigger_combo.setCurrentText(k.trigger_key)
-        self.pause_combo.setCurrentText(k.pause_key)
-        self.stop_combo.setCurrentText(k.stop_key)
+        self.mod_selector.set_modifiers(k.modifier_key)
+        self.trigger_capture.set_key(k.trigger_key)
+        self.pause_capture.set_key(k.pause_key)
+        self.stop_capture.set_key(k.stop_key)
         self._update_shortcut_preview()
 
         self.debug_check.setChecked(self.config.debug)
 
+        lang_idx = self.lang_combo.findData(self.config.gui_language)
+        if lang_idx >= 0:
+            self.lang_combo.setCurrentIndex(lang_idx)
+
     def _read_config_from_ui(self) -> AppConfig:
+        model_text = self.model_combo.currentText().strip()
+        if model_text == _("(no models found)"):
+            model_text = self.config.voice.model
+
         return AppConfig(
             voice=VoiceConfig(
                 engine=self.engine_combo.currentText(),
-                model=self.model_edit.text().strip(),
+                model=model_text,
                 language=self.config.voice.language,
                 language_models=self.config.voice.language_models,
             ),
@@ -283,12 +546,13 @@ class SettingsWindow(QDialog):
                 volume=self.volume_spin.value(),
             ),
             keyboard=KeyboardConfig(
-                modifier_key=self.mod_combo.currentText(),
-                trigger_key=self.trigger_combo.currentText().strip(),
-                pause_key=self.pause_combo.currentText().strip(),
-                stop_key=self.stop_combo.currentText().strip(),
+                modifier_key=self.mod_selector.modifiers(),
+                trigger_key=self.trigger_capture.key_name(),
+                pause_key=self.pause_capture.key_name(),
+                stop_key=self.stop_capture.key_name(),
             ),
             debug=self.debug_check.isChecked(),
+            gui_language=self.lang_combo.currentData() or "auto",
         )
 
     # ──────────────────────── Actions ────────────────────────────────
@@ -296,6 +560,7 @@ class SettingsWindow(QDialog):
     def _on_apply(self):
         self.config = self._read_config_from_ui()
         save_config(self.config)
+        set_language(self.config.gui_language)
 
     def _on_save(self):
         self._on_apply()
@@ -313,7 +578,7 @@ class SettingsWindow(QDialog):
         lang = cfg.voice.language
         sample = SAMPLE_SENTENCES.get(lang, SAMPLE_SENTENCES["en"])
 
-        self.test_btn.setText("Stop Test")
+        self.test_btn.setText(_("Stop Test"))
         self.test_btn.clicked.disconnect()
         self.test_btn.clicked.connect(self._stop_test_voice)
 
@@ -333,7 +598,7 @@ class SettingsWindow(QDialog):
                 pass
             finally:
                 # Reset button (safe cross-thread via Qt queued connection)
-                self.test_btn.setText("Test Voice")
+                self.test_btn.setText(_("Test Voice"))
                 try:
                     self.test_btn.clicked.disconnect()
                 except TypeError:

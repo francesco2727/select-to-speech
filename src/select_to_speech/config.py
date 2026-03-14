@@ -48,6 +48,7 @@ class AppConfig(BaseModel):
     audio: AudioConfig = Field(default_factory=AudioConfig)
     keyboard: KeyboardConfig = Field(default_factory=KeyboardConfig)
     debug: bool = Field(False, description="Enable debug logging")
+    gui_language: str = Field("auto", description="GUI language: 'auto', 'en', 'it', 'es', 'fr'")
 
     class Config:
         """Pydantic config"""

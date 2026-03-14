@@ -5,7 +5,7 @@ description = "A Wayland-native text-to-speech app for reading selected text wit
 authors = ["Francesco <francescov@example.com>"]
 readme = "README.md"
 packages = [{include = "select_to_speech", from = "src"}]
-include = ["src"]
+include = ["src", "src/select_to_speech/locale/**/*.mo"]
 # System dependencies (CachyOS/Arch):
 #   - wl-clipboard: for Wayland primary selection access
 #   - pulseaudio or pipewire: for audio playback (usually pre-installed)

@@ -9,6 +9,7 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
 from ..config import load_config
+from ..i18n import set_language
 from ..main import SelectToSpeechApp
 from .settings_window import SettingsWindow
 from .tray_icon import AppBridge, AppState, SystemTrayIcon
@@ -22,6 +23,7 @@ class GUIApp:
     def __init__(self, qt_app: QApplication):
         self.qt_app = qt_app
         self.config = load_config()
+        set_language(self.config.gui_language)
         self.bridge = AppBridge()
 
         # Build the core app — but we won't call its .run() (that blocks with signal.pause)
@@ -134,6 +136,7 @@ class GUIApp:
         self.app.audio_player.device_id = self.config.audio.device_id
 
         logger.info("Settings hot-reloaded")
+        set_language(self.config.gui_language)
 
     # ── Shutdown ─────────────────────────────────────────────────────
 
@@ -166,6 +169,7 @@ def open_settings():
     qt_app.setApplicationName("Select-to-Speech Settings")
 
     config = load_config()
+    set_language(config.gui_language)
     dialog = SettingsWindow(config)
     dialog.show()
 

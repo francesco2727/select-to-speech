@@ -440,3 +440,24 @@ def get_tts_engine(config: VoiceConfig) -> BaseTTSEngine:
         logger.warning(f"Unknown TTS engine '{config.engine}', falling back to Kokoro")
         return KokoroEngine(config)
 
+
+def get_available_models(engine: str) -> list[str]:
+    """Scan the data directory for installed models for *engine*."""
+    voices_dir = get_data_dir() / "voices"
+    if not voices_dir.exists():
+        return []
+
+    if engine == "kokoro":
+        # Kokoro models are kokoro-*.onnx sitting directly in voices_dir
+        return sorted(
+            p.stem for p in voices_dir.glob("kokoro*.onnx")
+        )
+    elif engine == "piper":
+        # Piper voice files are <name>.onnx (with companion .onnx.json)
+        return sorted(
+            p.stem
+            for p in voices_dir.glob("*.onnx")
+            if not p.stem.startswith("kokoro")
+        )
+    return []
+

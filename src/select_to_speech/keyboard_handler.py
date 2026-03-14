@@ -50,13 +50,23 @@ class KeyboardHandler:
             self.hotkeys[stop_hotkey] = on_stop
 
     def _format_hotkey(self, modifier: str, key: str) -> str:
-        """Converts config strings into pynput GlobalHotKey format."""
-        mod_str = f"<{modifier.lower()}>" if modifier else ""
-        
+        """Converts config strings into pynput GlobalHotKey format.
+
+        *modifier* may contain one or two modifiers joined by ``"+"``,
+        e.g. ``"alt"`` or ``"alt+ctrl"``.
+        """
+        parts: list[str] = []
+        if modifier:
+            for m in modifier.split("+"):
+                m = m.strip().lower()
+                if m:
+                    parts.append(f"<{m}>")
+
         key = key.lower()
         key_str = f"<{key}>" if len(key) > 1 else key
-        
-        return f"{mod_str}+{key_str}" if mod_str else key_str
+        parts.append(key_str)
+
+        return "+".join(parts)
 
     def start(self) -> None:
         """Start listening for keyboard shortcuts"""

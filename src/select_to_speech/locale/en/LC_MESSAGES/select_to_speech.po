@@ -1,0 +1,151 @@
+# English translations for select-to-speech
+# Copyright (C) 2026
+# This file is distributed under the same license as the select-to-speech package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: select-to-speech 0.1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-14 00:00+0000\n"
+"PO-Revision-Date: 2026-03-14 00:00+0000\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+# Settings window title
+msgid "Select-to-Speech — Settings"
+msgstr "Select-to-Speech — Settings"
+
+# Sidebar tabs
+msgid "Engine"
+msgstr "Engine"
+
+msgid "Audio"
+msgstr "Audio"
+
+msgid "Shortcuts"
+msgstr "Shortcuts"
+
+msgid "General"
+msgstr "General"
+
+# Engine tab
+msgid "Engine:"
+msgstr "Engine:"
+
+msgid "Model:"
+msgstr "Model:"
+
+msgid "(no models found)"
+msgstr "(no models found)"
+
+# Audio tab
+msgid "Speed:"
+msgstr "Speed:"
+
+msgid "Pitch:"
+msgstr "Pitch:"
+
+msgid "Volume:"
+msgstr "Volume:"
+
+msgid "Audio device:"
+msgstr "Audio device:"
+
+msgid "System default"
+msgstr "System default"
+
+# Shortcuts tab
+msgid "Modifier keys:"
+msgstr "Modifier keys:"
+
+msgid "Play key:"
+msgstr "Play key:"
+
+msgid "Pause / Resume key:"
+msgstr "Pause / Resume key:"
+
+msgid "Stop key:"
+msgstr "Stop key:"
+
+msgid "Press a key…"
+msgstr "Press a key…"
+
+msgid "Play:"
+msgstr "Play:"
+
+msgid "Pause:"
+msgstr "Pause:"
+
+msgid "Stop:"
+msgstr "Stop:"
+
+# General tab
+msgid "Enable debug logging"
+msgstr "Enable debug logging"
+
+msgid "Language:"
+msgstr "Language:"
+
+msgid "Auto (system)"
+msgstr "Auto (system)"
+
+msgid "English"
+msgstr "English"
+
+msgid "Italiano"
+msgstr "Italiano"
+
+msgid "Español"
+msgstr "Español"
+
+msgid "Français"
+msgstr "Français"
+
+# Buttons
+msgid "Test Voice"
+msgstr "Test Voice"
+
+msgid "Stop Test"
+msgstr "Stop Test"
+
+# Tray icon
+msgid "Status: Idle"
+msgstr "Status: Idle"
+
+msgid "Status: Speaking"
+msgstr "Status: Speaking"
+
+msgid "Status: Paused"
+msgstr "Status: Paused"
+
+msgid "Pause"
+msgstr "Pause"
+
+msgid "Resume"
+msgstr "Resume"
+
+msgid "Stop"
+msgstr "Stop"
+
+msgid "Settings"
+msgstr "Settings"
+
+msgid "Quit"
+msgstr "Quit"
+
+msgid "Idle"
+msgstr "Idle"
+
+msgid "Speaking"
+msgstr "Speaking"
+
+msgid "Paused"
+msgstr "Paused"
+
+msgid "Select at least one modifier key"
+msgstr "Select at least one modifier key"
+
+msgid "Select at most two modifier keys"
+msgstr "Select at most two modifier keys"
