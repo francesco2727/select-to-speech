@@ -7,7 +7,8 @@ readme = "README.md"
 packages = [{include = "select_to_speech", from = "src"}]
 include = ["src", "src/select_to_speech/locale/**/*.mo"]
 # System dependencies (CachyOS/Arch):
-#   - wl-clipboard: for Wayland primary selection access
+#   - wl-clipboard: for Wayland primary selection access (required)
+#   - xclip: for XWayland app selection fallback (optional)
 #   - pulseaudio or pipewire: for audio playback (usually pre-installed)
 
 [tool.poetry.dependencies]

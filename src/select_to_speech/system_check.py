@@ -23,17 +23,25 @@ def check_system_dependencies() -> bool:
     """
     Check for required system dependencies.
 
+    Required packages must all be present; optional packages trigger a warning
+    but do not cause this function to return False.
+
     Returns:
-        True if all dependencies are found, False otherwise
+        True if all *required* dependencies are found, False otherwise
     """
     required_packages = {
         "wl-paste": "wl-clipboard",
         "pactl": "pulseaudio",
         "espeak-ng": "espeak-ng",
     }
+    # Optional: enables selection capture inside XWayland (non-native Wayland) apps.
+    optional_packages = {
+        "xclip": "xclip",
+    }
 
     missing = []
     found = []
+    missing_optional = []
 
     for command, package in required_packages.items():
         if shutil.which(command):
@@ -41,13 +49,28 @@ def check_system_dependencies() -> bool:
         else:
             missing.append((command, package))
 
+    for command, package in optional_packages.items():
+        if shutil.which(command):
+            found.append(f"✓ {command} ({package}) [optional]")
+        else:
+            missing_optional.append((command, package))
+
     logger.info("\n=== System Dependencies Check ===\n")
 
     for item in found:
         logger.info(item)
 
+    if missing_optional:
+        logger.warning("\nOptional dependencies not found (reduced functionality):")
+        for cmd, pkg in missing_optional:
+            logger.warning(
+                f"  ⚠ {cmd} ({pkg}) – text selected in XWayland apps will not be captured"
+            )
+        packages_opt = list(set(pkg for _, pkg in missing_optional))
+        logger.warning(f"  Install with: sudo pacman -S {' '.join(packages_opt)}")
+
     if missing:
-        logger.error("\nMissing dependencies:")
+        logger.error("\nMissing required dependencies:")
         for cmd, pkg in missing:
             logger.error(f"✗ {cmd} ({pkg})")
 
@@ -58,7 +81,7 @@ def check_system_dependencies() -> bool:
 
         return False
 
-    logger.info("\n✓ All system dependencies are installed!\n")
+    logger.info("\n✓ All required system dependencies are installed!\n")
     return True
 
 

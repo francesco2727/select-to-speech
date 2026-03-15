@@ -33,6 +33,7 @@ class AudioPlayer:
         self._stop_requested = False
         self._pause_event = threading.Event()
         self._pause_event.set()
+        self._stream_lock = threading.Lock()
 
     def _list_devices(self) -> None:
         """List all available audio devices"""
@@ -41,6 +42,50 @@ class AudioPlayer:
         for i in range(device_count):
             info = self.pyaudio.get_device_info_by_index(i)
             logger.info(f"  {i}: {info['name']} (channels: {info['maxOutputChannels']})")
+
+    def _find_output_devices(self) -> list[Optional[int]]:
+        """Build an ordered list of output device indices to try.
+
+        Priority:
+        1. User-configured ``device_id`` (if any).
+        2. Devices whose name contains "pipewire" or "pulse" (virtual
+           sound servers that correctly multiplex ALSA access).
+        3. ``None`` (PyAudio/PortAudio default).
+        """
+        devices: list[Optional[int]] = []
+
+        if self.device_id is not None:
+            devices.append(self.device_id)
+
+        # Prefer PipeWire > PulseAudio > default
+        pipewire_ids: list[int] = []
+        pulse_ids: list[int] = []
+
+        for i in range(self.pyaudio.get_device_count()):
+            try:
+                info = self.pyaudio.get_device_info_by_index(i)
+            except Exception:
+                continue
+            if info["maxOutputChannels"] <= 0:
+                continue
+            name = info["name"].lower()
+            if "pipewire" in name:
+                pipewire_ids.append(i)
+            elif "pulse" in name:
+                pulse_ids.append(i)
+
+        devices.extend(pipewire_ids)
+        devices.extend(pulse_ids)
+        devices.append(None)  # PortAudio default as final fallback
+
+        # De-duplicate while keeping order
+        seen: set[Optional[int]] = set()
+        unique: list[Optional[int]] = []
+        for d in devices:
+            if d not in seen:
+                seen.add(d)
+                unique.append(d)
+        return unique
 
     @property
     def is_paused(self) -> bool:
@@ -124,28 +169,21 @@ class AudioPlayer:
 
             # Open audio stream with fallback to other devices
             stream_opened = False
-            devices_to_try = []
-            
-            # Build list of devices to try
-            if self.device_id is not None:
-                devices_to_try.append(self.device_id)
-                logger.info(f"Trying configured device: {self.device_id}")
-            
-            # Add fallback devices: pipewire, pulse, default, auto
-            devices_to_try.extend([6, 7, 8, None])
-            
+            devices_to_try = self._find_output_devices()
+
             for attempt, device_id in enumerate(devices_to_try, 1):
                 try:
                     device_name = self._get_device_name(device_id)
                     logger.debug(f"Attempt {attempt}: Trying device {device_id} ({device_name})")
-                    
-                    self.stream = self.pyaudio.open(
-                        format=self.pyaudio.get_format_from_width(sample_width),
-                        channels=n_channels,
-                        rate=frame_rate,
-                        output=True,
-                        output_device_index=device_id,
-                    )
+
+                    with self._stream_lock:
+                        self.stream = self.pyaudio.open(
+                            format=self.pyaudio.get_format_from_width(sample_width),
+                            channels=n_channels,
+                            rate=frame_rate,
+                            output=True,
+                            output_device_index=device_id,
+                        )
                     
                     logger.info(f"✓ Successfully opened audio device {device_id} ({device_name})")
                     stream_opened = True
@@ -182,14 +220,20 @@ class AudioPlayer:
                         break
                         
                     chunk = frames[i:i + chunk_size]
+                    # Pad the final chunk to a full chunk_size so ALSA doesn't
+                    # get a short write that triggers an underrun / xrun.
+                    if len(chunk) < chunk_size:
+                        chunk = chunk + b'\x00' * (chunk_size - len(chunk))
                     self.stream.write(chunk)
                     bytes_written += len(chunk)
                     
                 logger.debug(f"Wrote {bytes_written} bytes to stream")
-                
-                self.stream.stop_stream()
-                self.stream.close()
-                self.stream = None
+
+                with self._stream_lock:
+                    if self.stream:
+                        self.stream.stop_stream()
+                        self.stream.close()
+                        self.stream = None
                 self.is_playing = False
                 
                 if self._stop_requested:
@@ -200,13 +244,14 @@ class AudioPlayer:
                 
             except Exception as playback_error:
                 logger.error(f"Error during playback: {playback_error}", exc_info=True)
-                try:
-                    if self.stream:
-                        self.stream.stop_stream()
-                        self.stream.close()
+                with self._stream_lock:
+                    try:
+                        if self.stream:
+                            self.stream.stop_stream()
+                            self.stream.close()
+                            self.stream = None
+                    except Exception:
                         self.stream = None
-                except:
-                    pass
                 self.is_playing = False
                 return False
 
@@ -283,20 +328,18 @@ class AudioPlayer:
 
                 if first_chunk:
                     # Open stream on the first valid chunk
-                    devices_to_try = []
-                    if self.device_id is not None:
-                        devices_to_try.append(self.device_id)
-                    devices_to_try.extend([6, 7, 8, None])
-                    
+                    devices_to_try = self._find_output_devices()
+
                     for attempt, device_id in enumerate(devices_to_try, 1):
                         try:
-                            self.stream = self.pyaudio.open(
-                                format=self.pyaudio.get_format_from_width(sample_width),
-                                channels=n_channels,
-                                rate=frame_rate,
-                                output=True,
-                                output_device_index=device_id,
-                            )
+                            with self._stream_lock:
+                                self.stream = self.pyaudio.open(
+                                    format=self.pyaudio.get_format_from_width(sample_width),
+                                    channels=n_channels,
+                                    rate=frame_rate,
+                                    output=True,
+                                    output_device_index=device_id,
+                                )
                             stream_opened = True
                             first_chunk = False
                             break
@@ -317,40 +360,51 @@ class AudioPlayer:
 
                     if self._stop_requested:
                         break
-                    
-                    self.stream.write(frames[i:i + chunk_size])
+
+                    chunk = frames[i:i + chunk_size]
+                    if len(chunk) < chunk_size:
+                        chunk = chunk + b'\x00' * (chunk_size - len(chunk))
+                    self.stream.write(chunk)
 
             # Cleanup stream after finishing queue or stopping
-            if self.stream:
-                self.stream.stop_stream()
-                self.stream.close()
-                self.stream = None
+            with self._stream_lock:
+                if self.stream:
+                    self.stream.stop_stream()
+                    self.stream.close()
+                    self.stream = None
             self.is_playing = False
             return not self._stop_requested
             
         except Exception as e:
             logger.error(f"Fatal stream playback error: {e}", exc_info=True)
-            if self.stream:
-                try:
-                    self.stream.stop_stream()
-                    self.stream.close()
-                except:
-                    pass
-                self.stream = None
+            with self._stream_lock:
+                if self.stream:
+                    try:
+                        self.stream.stop_stream()
+                        self.stream.close()
+                    except Exception:
+                        pass
+                    self.stream = None
             self.is_playing = False
             return False
 
     def stop(self) -> None:
         """Stop playback and cleanup"""
         self._stop_requested = True
-        self._pause_event.set()
-        # We don't close the stream here anymore.
-        # The play() loop will detect _stop_requested, break, and close the stream safely.
-        # Closing it here while play() is writing to it causes ALSA/PyAudio crashes.
+        self._pause_event.set()  # unblock any paused write loop
         logger.info("Audio player stop requested")
 
     def __del__(self) -> None:
         """Cleanup on object destruction"""
-        self.stop()
+        self._stop_requested = True
+        self._pause_event.set()
+        with self._stream_lock:
+            if self.stream:
+                try:
+                    self.stream.stop_stream()
+                    self.stream.close()
+                except Exception:
+                    pass
+                self.stream = None
         if self.pyaudio:
             self.pyaudio.terminate()
