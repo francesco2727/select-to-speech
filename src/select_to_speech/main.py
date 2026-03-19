@@ -9,7 +9,7 @@ import queue
 from pathlib import Path
 from typing import Optional
 
-from langdetect import detect, DetectorFactory
+from langdetect import detect_langs, DetectorFactory
 
 from .config import load_config, AppConfig
 from .keyboard_handler import KeyboardHandler
@@ -86,6 +86,21 @@ class SelectToSpeechApp:
         logger.info(f"Received signal {signum}, shutting down...")
         self.should_exit = True
 
+    def _detect_language(self, text: str) -> Optional[str]:
+        """Detect language with confidence threshold. Returns None if uncertain."""
+        if len(text.strip()) < 15:
+            return None
+        try:
+            results = detect_langs(text)
+            if results and results[0].prob >= 0.75:
+                lang = results[0].lang
+                logger.debug(f"Detected language '{lang}' with confidence {results[0].prob:.2f}")
+                return lang
+            logger.debug(f"Low-confidence language detection: {results}")
+        except Exception as e:
+            logger.warning(f"Language detection failed: {e}")
+        return None
+
     def _on_text_selected(self, text: str) -> None:
         """
         Callback when text is selected.
@@ -94,14 +109,14 @@ class SelectToSpeechApp:
             text: Selected text to read
         """
         logger.debug(f"Text selected: {text[:50]}...")
-        
+
         # Stop any existing processing
         self._stop_event.set()
         self.audio_player.stop()
-        
+
         if self._process_thread and self._process_thread.is_alive():
-            self._process_thread.join(timeout=1.0)
-            
+            self._process_thread.join(timeout=0.2)
+
         # Start new processing thread
         self._stop_event.clear()
         self._process_thread = threading.Thread(
@@ -114,29 +129,32 @@ class SelectToSpeechApp:
     def _on_shortcut_pressed(self) -> None:
         """Callback when keyboard shortcut is pressed"""
         logger.info("Shortcut pressed, processing selection...")
-        
+
         is_playing = self.audio_player.is_playing or (self._process_thread and self._process_thread.is_alive())
-        
+
         current_selection = self.selection_listener.get_primary_selection()
         current_text = current_selection.strip() if current_selection else ""
-        
+
         # If currently playing and the selection hasn't changed, do nothing
         if is_playing and current_text == self.selection_listener.last_selection:
             logger.info("Playing and selection unchanged. Ignoring trigger (use stop shortcut to stop).")
             return
 
-        # If currently playing and we have new text selected, stop old playback
+        # Stop current playback if needed
         if is_playing:
             logger.info("Stopping current playback for new selection...")
             self._stop_event.set()
             self.audio_player.stop()
-            
-            # Wait briefly for thread to stop
             if self._process_thread and self._process_thread.is_alive():
-                self._process_thread.join(timeout=0.5)
+                self._process_thread.join(timeout=0.2)
 
-        # Get current selection (this will trigger _on_text_selected if there's text)
-        self.selection_listener.on_trigger(force=not is_playing)
+        if current_text:
+            # Reuse the already-fetched text — no second subprocess call needed
+            self.selection_listener.last_selection = current_text
+            self._on_text_selected(current_text)
+        elif not is_playing:
+            # Nothing selected and not playing: force re-read of last selection
+            self.selection_listener.on_trigger(force=True)
 
     def _on_pause_pressed(self) -> None:
         """Callback when pause shortcut is pressed"""
@@ -171,22 +189,16 @@ class SelectToSpeechApp:
         if stop_event.is_set():
             return False
 
-        # Detect language
-        language = None
-        try:
-            language = detect(text)
+        # Detect language; fall back to the user-configured default
+        detected = self._detect_language(text)
+        if detected and self.config.voice.language_models.get(detected):
+            language = detected
             logger.info(f"Detected language: {language}")
-            
-            # Check if language is supported and has a voice configured
-            if language not in self.config.voice.language_models:
-                logger.warning(f"Language '{language}' not in language_models, falling back to default.")
-                language = self.config.voice.language
-            elif not self.config.voice.language_models.get(language):
-                logger.warning(f"No voice configured for '{language}', falling back to default.")
-                language = self.config.voice.language
-                
-        except Exception as e:
-            logger.warning(f"Language detection failed: {e}")
+        else:
+            if detected:
+                logger.warning(f"No voice configured for detected language '{detected}', using default.")
+            language = self.config.voice.language
+            logger.debug(f"Using default language: {language}")
 
         if stop_event.is_set():
             return False
