@@ -9,7 +9,7 @@ import queue
 from pathlib import Path
 from typing import Optional
 
-from langdetect import detect_langs, DetectorFactory
+from lingua import Language, LanguageDetectorBuilder
 
 from .config import load_config, AppConfig
 from .keyboard_handler import KeyboardHandler
@@ -18,8 +18,19 @@ from .tts_engine import get_tts_engine
 from .audio_player import AudioPlayer
 
 
-# Ensure deterministic language detection results
-DetectorFactory.seed = 0
+# ISO 639-1 code → lingua Language enum
+_LINGUA_LANGUAGES: dict[str, Language] = {
+    "en": Language.ENGLISH,
+    "it": Language.ITALIAN,
+    "es": Language.SPANISH,
+    "fr": Language.FRENCH,
+    "de": Language.GERMAN,
+    "pt": Language.PORTUGUESE,
+    "hi": Language.HINDI,
+    "ja": Language.JAPANESE,
+    "ko": Language.KOREAN,
+    "zh": Language.CHINESE,
+}
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +53,7 @@ class SelectToSpeechApp:
         # Initialize components
         self.tts_engine = get_tts_engine(self.config.voice)
         self.audio_player = AudioPlayer(self.config.audio.device_id)
+        self._lingua_detector = self._build_lingua_detector()
         self.selection_listener = WaylandSelectionListener(
             on_selection_change=self._on_text_selected
         )
@@ -86,20 +98,72 @@ class SelectToSpeechApp:
         logger.info(f"Received signal {signum}, shutting down...")
         self.should_exit = True
 
+    def _build_lingua_detector(self):
+        """Build a lingua detector for all configured languages."""
+        configured_langs = [
+            _LINGUA_LANGUAGES[code]
+            for code in self.config.voice.language_models
+            if code in _LINGUA_LANGUAGES
+        ]
+        if not configured_langs:
+            configured_langs = list(_LINGUA_LANGUAGES.values())
+        return LanguageDetectorBuilder.from_languages(*configured_langs).build()
+
     def _detect_language(self, text: str) -> Optional[str]:
-        """Detect language with confidence threshold. Returns None if uncertain."""
-        if len(text.strip()) < 15:
+        """Detect language of the whole text. Returns None if text is too short."""
+        if len(text.strip()) < 10:
             return None
         try:
-            results = detect_langs(text)
-            if results and results[0].prob >= 0.75:
-                lang = results[0].lang
-                logger.debug(f"Detected language '{lang}' with confidence {results[0].prob:.2f}")
-                return lang
-            logger.debug(f"Low-confidence language detection: {results}")
+            lang = self._lingua_detector.detect_language_of(text)
+            if lang is not None:
+                code = lang.iso_code_639_1.name.lower()
+                logger.debug(f"Detected language '{code}'")
+                return code
         except Exception as e:
             logger.warning(f"Language detection failed: {e}")
         return None
+
+    def _segment_by_language(self, text: str, dominant_lang: str) -> list[tuple[str, str]]:
+        """
+        Split text into (segment, lang_code) pairs using per-span language detection.
+        Segments whose detected language has no configured voice fall back to dominant_lang.
+        """
+        try:
+            results = self._lingua_detector.detect_multiple_languages_of(text)
+        except Exception as e:
+            logger.warning(f"Multi-language segmentation failed: {e}")
+            return [(text, dominant_lang)]
+
+        if not results:
+            return [(text, dominant_lang)]
+
+        segments: list[tuple[str, str]] = []
+        for result in results:
+            segment_text = text[result.start_index:result.end_index]
+            if not segment_text.strip():
+                continue
+            lang_code = result.language.iso_code_639_1.name.lower()
+            # Fall back to dominant if no voice is configured for this language
+            if not self.config.voice.language_models.get(lang_code):
+                lang_code = dominant_lang
+            segments.append((segment_text, lang_code))
+
+        if not segments:
+            return [(text, dominant_lang)]
+
+        # Merge consecutive segments with the same language
+        merged: list[tuple[str, str]] = [segments[0]]
+        for seg_text, seg_lang in segments[1:]:
+            if seg_lang == merged[-1][1]:
+                merged[-1] = (merged[-1][0] + seg_text, seg_lang)
+            else:
+                merged.append((seg_text, seg_lang))
+
+        if len(merged) > 1:
+            langs = ", ".join(f"'{l}'" for _, l in merged)
+            logger.debug(f"Mixed-language text split into {len(merged)} segments: {langs}")
+
+        return merged
 
     def _on_text_selected(self, text: str) -> None:
         """
@@ -203,28 +267,48 @@ class SelectToSpeechApp:
         if stop_event.is_set():
             return False
             
+        segments = self._segment_by_language(text, language)
+
         audio_queue = queue.Queue(maxsize=10)
-        
-        # Background worker generating TTS chunks
+
+        def _enqueue(chunk_data: bytes) -> bool:
+            """Put chunk on queue, checking stop_event. Returns False if stopped."""
+            while not stop_event.is_set():
+                try:
+                    audio_queue.put(chunk_data, timeout=0.1)
+                    return True
+                except queue.Full:
+                    continue
+            return False
+
+        # Background worker generating TTS chunks for all language segments
         def generator():
             try:
-                for chunk_data in self.tts_engine.synthesize_stream(
-                    text, 
-                    language=language,
-                    speed=self.config.audio.speed,
-                    volume=self.config.audio.volume
-                ):
+                for seg_text, seg_lang in segments:
                     if stop_event.is_set():
                         break
-                    
-                    # Instead of blocking indefinitely, we use loop with timeout 
-                    # so we can check the stop_event frequently while waiting to enqueue
-                    while not stop_event.is_set():
-                        try:
-                            audio_queue.put(chunk_data, timeout=0.1)
-                            break
-                        except queue.Full:
-                            continue
+                    produced = False
+                    for chunk_data in self.tts_engine.synthesize_stream(
+                        seg_text,
+                        language=seg_lang,
+                        speed=self.config.audio.speed,
+                        volume=self.config.audio.volume
+                    ):
+                        produced = True
+                        if not _enqueue(chunk_data):
+                            return
+                    # If synthesis failed (no chunks) and we used a non-dominant language,
+                    # retry with the dominant language (e.g. espeak data not installed)
+                    if not produced and seg_lang != language:
+                        logger.warning(f"Synthesis failed for language '{seg_lang}', retrying with '{language}'")
+                        for chunk_data in self.tts_engine.synthesize_stream(
+                            seg_text,
+                            language=language,
+                            speed=self.config.audio.speed,
+                            volume=self.config.audio.volume
+                        ):
+                            if not _enqueue(chunk_data):
+                                return
             except Exception as e:
                 logger.error(f"Stream generation error: {e}")
             finally:
