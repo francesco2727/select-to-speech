@@ -56,7 +56,6 @@ class SelectToSpeechApp:
         self._lingua_detector = self._build_lingua_detector()
         self.selection_listener = WaylandSelectionListener(
             on_selection_change=self._on_text_selected,
-            on_text_changed=self._start_prefetch,
         )
         self.keyboard_handler = KeyboardHandler(
             on_play=self._on_shortcut_pressed,
@@ -71,13 +70,6 @@ class SelectToSpeechApp:
         self.should_exit = False
         self._process_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
-
-        # Pre-fetch state: synthesis started as soon as text is selected,
-        # before the user presses the hotkey.
-        self._prefetch_text: Optional[str] = None
-        self._prefetch_queue: Optional[queue.Queue] = None
-        self._prefetch_stop_event: threading.Event = threading.Event()
-        self._prefetch_lock: threading.Lock = threading.Lock()
 
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -189,40 +181,12 @@ class SelectToSpeechApp:
         if self._process_thread and self._process_thread.is_alive():
             self._process_thread.join(timeout=0.2)
 
-        # Check whether a matching pre-fetch is available
-        prefetch_hit = False
-        with self._prefetch_lock:
-            if self._prefetch_text == text and self._prefetch_queue is not None:
-                prefetch_queue = self._prefetch_queue
-                adopted_stop_event = self._prefetch_stop_event
-                # Take ownership; make a fresh event for the next pre-fetch cycle
-                self._prefetch_queue = None
-                self._prefetch_text = None
-                self._prefetch_stop_event = threading.Event()
-                prefetch_hit = True
-            else:
-                self._cancel_prefetch_locked()
-
-        if prefetch_hit:
-            # Adopt the pre-fetch's stop event: the generator is already watching it,
-            # so any future self._stop_event.set() will also stop the generator.
-            self._stop_event = adopted_stop_event
-            # The event is already clear (generator is running).
-            logger.info("Pre-fetch hit — starting immediate playback from pre-fetched queue")
-            self._process_thread = threading.Thread(
-                target=self._play_prefetched,
-                args=(prefetch_queue, self._stop_event),
-                daemon=True,
-            )
-        else:
-            logger.debug("Pre-fetch miss — starting synthesis from scratch")
-            self._stop_event = threading.Event()
-            self._process_thread = threading.Thread(
-                target=self.process_text,
-                args=(text, self._stop_event),
-                daemon=True,
-            )
-
+        self._stop_event = threading.Event()
+        self._process_thread = threading.Thread(
+            target=self.process_text,
+            args=(text, self._stop_event),
+            daemon=True,
+        )
         self._process_thread.start()
 
     def _on_shortcut_pressed(self) -> None:
@@ -271,7 +235,6 @@ class SelectToSpeechApp:
             logger.info("Explicit stop requested...")
             self._stop_event.set()
             self.audio_player.stop()
-        self._cancel_prefetch()
 
     def _run_synthesis(
         self,
@@ -405,90 +368,6 @@ class SelectToSpeechApp:
         logger.info("Successfully read text")
         return True
 
-    # ------------------------------------------------------------------
-    # Pre-fetch: start synthesis as soon as text is selected
-    # ------------------------------------------------------------------
-
-    def _cancel_prefetch_locked(self) -> None:
-        """Cancel any running pre-fetch. Caller must hold _prefetch_lock."""
-        self._prefetch_stop_event.set()
-        if self._prefetch_queue is not None:
-            # Drain so the generator can unblock from a full-queue put() and exit
-            try:
-                while True:
-                    self._prefetch_queue.get_nowait()
-            except queue.Empty:
-                pass
-        self._prefetch_text = None
-        self._prefetch_queue = None
-
-    def _cancel_prefetch(self) -> None:
-        """Cancel any running pre-fetch."""
-        with self._prefetch_lock:
-            self._cancel_prefetch_locked()
-
-    def _start_prefetch(self, text: str) -> None:
-        """
-        Called by the selection polling loop when text changes.
-        Starts background synthesis so audio is ready when the hotkey fires.
-        """
-        text = text.strip()
-        if not text or len(text) < 10:
-            return
-
-        with self._prefetch_lock:
-            if self._prefetch_text == text:
-                logger.debug("Pre-fetch already in progress for this text")
-                return
-            if self.audio_player.is_playing or (
-                self._process_thread and self._process_thread.is_alive()
-            ):
-                logger.debug("Skipping pre-fetch: playback in progress")
-                return
-
-            self._cancel_prefetch_locked()
-
-            self._prefetch_text = text
-            self._prefetch_queue = queue.Queue(maxsize=10)
-            self._prefetch_stop_event = threading.Event()
-            # Capture local refs before releasing the lock
-            prefetch_queue = self._prefetch_queue
-            prefetch_stop_event = self._prefetch_stop_event
-
-        # Language detection and segmentation are CPU-bound; do outside lock
-        result = self._prepare_synthesis(text, prefetch_stop_event)
-        if result is None:
-            return
-        language, segments = result
-
-        error_holder: list = [None]
-        logger.debug(f"Starting pre-fetch synthesis for {len(text)} chars")
-        threading.Thread(
-            target=self._run_synthesis,
-            args=(text, segments, language, prefetch_queue, prefetch_stop_event, error_holder),
-            daemon=True,
-        ).start()
-
-    def _play_prefetched(
-        self, audio_queue: queue.Queue, stop_event: threading.Event
-    ) -> bool:
-        """Play from a pre-fetch queue that the synthesis generator is already filling."""
-        logger.info("Playing pre-fetched audio stream")
-        success = self.audio_player.play_stream(audio_queue, pitch=self.config.audio.pitch)
-        # Ensure the generator stops if playback ended early (e.g. user pressed stop)
-        stop_event.set()
-        # Drain remaining items so the generator thread can unblock and exit
-        try:
-            while True:
-                audio_queue.get_nowait()
-        except queue.Empty:
-            pass
-        if not success:
-            logger.error("Pre-fetched stream playback failed")
-        else:
-            logger.info("Pre-fetched playback completed")
-        return success
-
     def run(self) -> None:
         """Run the application"""
         try:
@@ -519,7 +398,6 @@ class SelectToSpeechApp:
         try:
             self.keyboard_handler.stop()
             self.selection_listener.stop()
-            self._cancel_prefetch()
             self.audio_player.stop()
             self.tts_engine.stop()
         except Exception as e:

@@ -4,7 +4,6 @@ import logging
 import shutil
 import subprocess
 import threading
-import time
 from typing import Optional, Callable
 
 
@@ -27,20 +26,15 @@ class WaylandSelectionListener:
     def __init__(
         self,
         on_selection_change: Callable[[str], None],
-        on_text_changed: Optional[Callable[[str], None]] = None,
     ):
         """
         Initialize the selection listener.
 
         Args:
             on_selection_change: Callback called when user explicitly triggers playback
-            on_text_changed: Optional callback called when selection changes (for pre-fetch)
         """
         self.on_selection_change = on_selection_change
-        self.on_text_changed = on_text_changed
         self.last_selection = ""
-        self._poll_last_selection = ""  # independent cursor for the polling loop
-        self._poll_thread: Optional[threading.Thread] = None
         self.is_running = False
         self._xclip_available: Optional[bool] = None  # lazy-checked once
         self._last_clipboard = ""  # track clipboard to detect changes
@@ -199,58 +193,12 @@ class WaylandSelectionListener:
         else:
             logger.warning("No text selected or clipboard is empty.")
 
-    def _check_selection_for_prefetch(self) -> None:
-        """Check for selection changes and fire on_text_changed if text is new."""
-        wayland_text = self._get_wayland_primary()
-        x11_text = self._get_x11_primary()
-
-        candidate = None
-        if wayland_text and wayland_text.strip() != self._poll_last_selection:
-            candidate = wayland_text
-        elif x11_text and x11_text.strip() != self._poll_last_selection:
-            candidate = x11_text
-        else:
-            clipboard_text = self._get_x11_clipboard()
-            if clipboard_text:
-                clip_stripped = clipboard_text.strip()
-                if (
-                    clip_stripped
-                    and clip_stripped != self._last_clipboard
-                    and clip_stripped != self._poll_last_selection
-                ):
-                    candidate = clipboard_text
-                if clip_stripped:
-                    self._last_clipboard = clip_stripped
-
-        if candidate is not None:
-            text = candidate.strip()
-            if text and len(text) >= 10:
-                self._poll_last_selection = text
-                logger.debug(f"Pre-fetch trigger: {len(text)} chars")
-                self.on_text_changed(text)
-
-    def _poll_loop(self) -> None:
-        """Poll for selection changes every 500ms to trigger pre-fetch."""
-        while self.is_running:
-            try:
-                self._check_selection_for_prefetch()
-            except Exception as e:
-                logger.debug(f"Polling error: {e}")
-            time.sleep(0.5)
-
     def start(self) -> None:
         """Start the selection listener"""
         self.is_running = True
-        if self.on_text_changed is not None:
-            self._poll_thread = threading.Thread(
-                target=self._poll_loop, daemon=True
-            )
-            self._poll_thread.start()
         logger.info("Selection listener started")
 
     def stop(self) -> None:
         """Stop the selection listener"""
         self.is_running = False
-        if self._poll_thread and self._poll_thread.is_alive():
-            self._poll_thread.join(timeout=1.0)
         logger.info("Selection listener stopped")
