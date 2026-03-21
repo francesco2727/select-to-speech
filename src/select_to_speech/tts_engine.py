@@ -3,6 +3,7 @@
 import io
 import logging
 import re
+import time
 import wave
 import json
 from abc import ABC, abstractmethod
@@ -17,6 +18,25 @@ import numpy as np
 from .config import get_data_dir, VoiceConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _retry_synthesis(func, max_retries: int = 3, base_delay: float = 0.5):
+    """Call func() up to max_retries times with exponential backoff. Re-raises on final failure."""
+    last_exc: Exception = RuntimeError("No attempts made")
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_retries - 1:
+                delay = min(base_delay * (2 ** attempt), 4.0)
+                logger.warning(
+                    f"TTS synthesis attempt {attempt + 1}/{max_retries} failed, "
+                    f"retrying in {delay:.1f}s: {exc}"
+                )
+                time.sleep(delay)
+    raise last_exc
+
 
 # Kokoro voice-name prefixes by language
 _KOKORO_LANG_PREFIXES: dict[str, list[str]] = {
@@ -249,22 +269,21 @@ class PiperEngine(BaseTTSEngine):
         )
         
         for chunk in self._chunk_text(text):
+            if not chunk.strip():
+                continue
             try:
-                if not chunk.strip():
-                    continue
+                def _synth(c=chunk):
+                    with io.BytesIO() as output:
+                        with wave.open(output, "wb") as wav_file:
+                            voice.synthesize_wav(c, wav_file, syn_config=syn_config)
+                        return output.getvalue(), voice.config.sample_rate
 
-                with io.BytesIO() as output:
-                    with wave.open(output, "wb") as wav_file:
-                        voice.synthesize_wav(chunk, wav_file, syn_config=syn_config)
-                    
-                    audio_bytes = output.getvalue()
-                    
-                sample_rate = voice.config.sample_rate
+                audio_bytes, sample_rate = _retry_synthesis(_synth)
                 logger.debug(f"Synthesized streaming chunk: {len(chunk)} chars")
                 yield audio_bytes, sample_rate
 
             except Exception as e:
-                logger.error(f"Failed synthesising chunk. Error: {e}", exc_info=True)
+                logger.error(f"Failed synthesising chunk after retries. Error: {e}", exc_info=True)
 
     def stop(self) -> None:
         self.voices.clear()
@@ -407,37 +426,33 @@ class KokoroEngine(BaseTTSEngine):
         lang_code = _KOKORO_LANG_CODES.get(language, "en-us") if language else "en-us"
 
         for chunk in self._chunk_text(text):
+            if not chunk.strip():
+                continue
+            logger.debug(f"Synthesizing stream chunk with voice {target_voice}: '{chunk[:100]}{'...' if len(chunk) > 100 else ''}'")
             try:
-                if not chunk.strip():
-                    continue
+                def _synth(c=chunk):
+                    with self._lock:
+                        # Kokoro returns samples in [-1, 1] range, and sample_rate
+                        samples, sample_rate = self.kokoro.create(
+                            c,
+                            voice=target_voice,
+                            speed=speed,
+                            lang=lang_code
+                        )
+                    # Apply volume scaling
+                    if volume != 1.0:
+                        samples = np.clip(samples * volume, -1.0, 1.0)
+                    # Convert to WAV bytes using soundfile
+                    with io.BytesIO() as output:
+                        sf.write(output, samples, sample_rate, format='WAV', subtype='PCM_16')
+                        return output.getvalue(), sample_rate
 
-                logger.debug(f"Synthesizing stream chunk with voice {target_voice}: '{chunk[:100]}{'...' if len(chunk) > 100 else ''}'")
-                
-                with self._lock:
-                    # Kokoro returns samples in [-1, 1] range, and sample_rate
-                    samples, sample_rate = self.kokoro.create(
-                        chunk,
-                        voice=target_voice,
-                        speed=speed,
-                        lang=lang_code
-                    )
-                
-                # Apply volume scaling
-                if volume != 1.0:
-                    samples = samples * volume
-                    # Clip to prevent overflow
-                    samples = np.clip(samples, -1.0, 1.0)
-                    
-                # Convert to WAV bytes using soundfile
-                with io.BytesIO() as output:
-                    sf.write(output, samples, sample_rate, format='WAV', subtype='PCM_16')
-                    audio_bytes = output.getvalue()
-
+                audio_bytes, sample_rate = _retry_synthesis(_synth)
                 logger.debug(f"Synthesized streaming chunk: {len(chunk)} chars")
                 yield audio_bytes, sample_rate
 
             except Exception as e:
-                logger.error(f"Failed synthesising chunk. Error: {e}", exc_info=True)
+                logger.error(f"Failed synthesising chunk after retries. Error: {e}", exc_info=True)
 
     def stop(self) -> None:
         self.kokoro = None

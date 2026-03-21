@@ -281,6 +281,8 @@ class SelectToSpeechApp:
                     continue
             return False
 
+        gen_error: list = [None]
+
         # Background worker generating TTS chunks for all language segments
         def generator():
             try:
@@ -310,7 +312,8 @@ class SelectToSpeechApp:
                             if not _enqueue(chunk_data):
                                 return
             except Exception as e:
-                logger.error(f"Stream generation error: {e}")
+                logger.error(f"Stream generation error: {e}", exc_info=True)
+                gen_error[0] = e
             finally:
                 audio_queue.put(None)  # EOF
 
@@ -318,6 +321,10 @@ class SelectToSpeechApp:
 
         # Play audio stream
         success = self.audio_player.play_stream(audio_queue, pitch=self.config.audio.pitch)
+
+        if gen_error[0] is not None:
+            logger.error(f"TTS generation failed: {gen_error[0]}")
+            return False
 
         if stop_event.is_set():
             logger.info("Playback stopped by user")
