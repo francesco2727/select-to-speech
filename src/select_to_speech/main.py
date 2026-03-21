@@ -55,7 +55,8 @@ class SelectToSpeechApp:
         self.audio_player = AudioPlayer(self.config.audio.device_id)
         self._lingua_detector = self._build_lingua_detector()
         self.selection_listener = WaylandSelectionListener(
-            on_selection_change=self._on_text_selected
+            on_selection_change=self._on_text_selected,
+            on_text_changed=self._start_prefetch,
         )
         self.keyboard_handler = KeyboardHandler(
             on_play=self._on_shortcut_pressed,
@@ -70,6 +71,13 @@ class SelectToSpeechApp:
         self.should_exit = False
         self._process_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+
+        # Pre-fetch state: synthesis started as soon as text is selected,
+        # before the user presses the hotkey.
+        self._prefetch_text: Optional[str] = None
+        self._prefetch_queue: Optional[queue.Queue] = None
+        self._prefetch_stop_event: threading.Event = threading.Event()
+        self._prefetch_lock: threading.Lock = threading.Lock()
 
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -167,7 +175,7 @@ class SelectToSpeechApp:
 
     def _on_text_selected(self, text: str) -> None:
         """
-        Callback when text is selected.
+        Callback when user triggers playback (hotkey press or force-replay).
 
         Args:
             text: Selected text to read
@@ -181,13 +189,40 @@ class SelectToSpeechApp:
         if self._process_thread and self._process_thread.is_alive():
             self._process_thread.join(timeout=0.2)
 
-        # Start new processing thread
-        self._stop_event.clear()
-        self._process_thread = threading.Thread(
-            target=self.process_text,
-            args=(text, self._stop_event),
-            daemon=True
-        )
+        # Check whether a matching pre-fetch is available
+        prefetch_hit = False
+        with self._prefetch_lock:
+            if self._prefetch_text == text and self._prefetch_queue is not None:
+                prefetch_queue = self._prefetch_queue
+                adopted_stop_event = self._prefetch_stop_event
+                # Take ownership; make a fresh event for the next pre-fetch cycle
+                self._prefetch_queue = None
+                self._prefetch_text = None
+                self._prefetch_stop_event = threading.Event()
+                prefetch_hit = True
+            else:
+                self._cancel_prefetch_locked()
+
+        if prefetch_hit:
+            # Adopt the pre-fetch's stop event: the generator is already watching it,
+            # so any future self._stop_event.set() will also stop the generator.
+            self._stop_event = adopted_stop_event
+            # The event is already clear (generator is running).
+            logger.info("Pre-fetch hit — starting immediate playback from pre-fetched queue")
+            self._process_thread = threading.Thread(
+                target=self._play_prefetched,
+                args=(prefetch_queue, self._stop_event),
+                daemon=True,
+            )
+        else:
+            logger.debug("Pre-fetch miss — starting synthesis from scratch")
+            self._stop_event = threading.Event()
+            self._process_thread = threading.Thread(
+                target=self.process_text,
+                args=(text, self._stop_event),
+                daemon=True,
+            )
+
         self._process_thread.start()
 
     def _on_shortcut_pressed(self) -> None:
@@ -236,6 +271,92 @@ class SelectToSpeechApp:
             logger.info("Explicit stop requested...")
             self._stop_event.set()
             self.audio_player.stop()
+        self._cancel_prefetch()
+
+    def _run_synthesis(
+        self,
+        text: str,
+        segments: list,
+        language: str,
+        audio_queue: queue.Queue,
+        stop_event: threading.Event,
+        error_holder: list,
+    ) -> None:
+        """
+        Thread target: synthesize all segments into audio_queue, then put None (EOF).
+
+        Args:
+            text: Original full text (unused here, kept for logging context)
+            segments: List of (segment_text, lang_code) pairs
+            language: Dominant language code (used for fallback retry)
+            audio_queue: Queue to put audio chunks into
+            stop_event: Event signalling synthesis should stop
+            error_holder: Single-element list; error_holder[0] is set on exception
+        """
+        def _enqueue(chunk_data: bytes) -> bool:
+            while not stop_event.is_set():
+                try:
+                    audio_queue.put(chunk_data, timeout=0.1)
+                    return True
+                except queue.Full:
+                    continue
+            return False
+
+        try:
+            for seg_text, seg_lang in segments:
+                if stop_event.is_set():
+                    break
+                produced = False
+                for chunk_data in self.tts_engine.synthesize_stream(
+                    seg_text,
+                    language=seg_lang,
+                    speed=self.config.audio.speed,
+                    volume=self.config.audio.volume,
+                ):
+                    produced = True
+                    if not _enqueue(chunk_data):
+                        return
+                # If synthesis failed (no chunks) and we used a non-dominant language,
+                # retry with the dominant language (e.g. espeak data not installed)
+                if not produced and seg_lang != language:
+                    logger.warning(
+                        f"Synthesis failed for language '{seg_lang}', retrying with '{language}'"
+                    )
+                    for chunk_data in self.tts_engine.synthesize_stream(
+                        seg_text,
+                        language=language,
+                        speed=self.config.audio.speed,
+                        volume=self.config.audio.volume,
+                    ):
+                        if not _enqueue(chunk_data):
+                            return
+        except Exception as e:
+            logger.error(f"Stream generation error: {e}", exc_info=True)
+            error_holder[0] = e
+        finally:
+            audio_queue.put(None)  # EOF — always emitted
+
+    def _prepare_synthesis(self, text: str, stop_event: threading.Event):
+        """
+        Detect language and segment text. Returns (language, segments) or None if stopped.
+        """
+        detected = self._detect_language(text)
+        if detected and self.config.voice.language_models.get(detected):
+            language = detected
+            logger.info(f"Detected language: {language}")
+        else:
+            if detected:
+                logger.warning(
+                    f"No voice configured for detected language '{detected}', using default."
+                )
+            language = self.config.voice.language
+            logger.debug(f"Using default language: {language}")
+
+        if stop_event.is_set():
+            return None
+
+        segments = self._segment_by_language(text, language)
+        return language, segments
 
     def process_text(self, text: str, stop_event: threading.Event) -> bool:
         """
@@ -253,77 +374,24 @@ class SelectToSpeechApp:
         if stop_event.is_set():
             return False
 
-        # Detect language; fall back to the user-configured default
-        detected = self._detect_language(text)
-        if detected and self.config.voice.language_models.get(detected):
-            language = detected
-            logger.info(f"Detected language: {language}")
-        else:
-            if detected:
-                logger.warning(f"No voice configured for detected language '{detected}', using default.")
-            language = self.config.voice.language
-            logger.debug(f"Using default language: {language}")
-
-        if stop_event.is_set():
+        result = self._prepare_synthesis(text, stop_event)
+        if result is None:
             return False
-            
-        segments = self._segment_by_language(text, language)
+        language, segments = result
 
         audio_queue = queue.Queue(maxsize=10)
+        error_holder: list = [None]
 
-        def _enqueue(chunk_data: bytes) -> bool:
-            """Put chunk on queue, checking stop_event. Returns False if stopped."""
-            while not stop_event.is_set():
-                try:
-                    audio_queue.put(chunk_data, timeout=0.1)
-                    return True
-                except queue.Full:
-                    continue
-            return False
+        threading.Thread(
+            target=self._run_synthesis,
+            args=(text, segments, language, audio_queue, stop_event, error_holder),
+            daemon=True,
+        ).start()
 
-        gen_error: list = [None]
-
-        # Background worker generating TTS chunks for all language segments
-        def generator():
-            try:
-                for seg_text, seg_lang in segments:
-                    if stop_event.is_set():
-                        break
-                    produced = False
-                    for chunk_data in self.tts_engine.synthesize_stream(
-                        seg_text,
-                        language=seg_lang,
-                        speed=self.config.audio.speed,
-                        volume=self.config.audio.volume
-                    ):
-                        produced = True
-                        if not _enqueue(chunk_data):
-                            return
-                    # If synthesis failed (no chunks) and we used a non-dominant language,
-                    # retry with the dominant language (e.g. espeak data not installed)
-                    if not produced and seg_lang != language:
-                        logger.warning(f"Synthesis failed for language '{seg_lang}', retrying with '{language}'")
-                        for chunk_data in self.tts_engine.synthesize_stream(
-                            seg_text,
-                            language=language,
-                            speed=self.config.audio.speed,
-                            volume=self.config.audio.volume
-                        ):
-                            if not _enqueue(chunk_data):
-                                return
-            except Exception as e:
-                logger.error(f"Stream generation error: {e}", exc_info=True)
-                gen_error[0] = e
-            finally:
-                audio_queue.put(None)  # EOF
-
-        threading.Thread(target=generator, daemon=True).start()
-
-        # Play audio stream
         success = self.audio_player.play_stream(audio_queue, pitch=self.config.audio.pitch)
 
-        if gen_error[0] is not None:
-            logger.error(f"TTS generation failed: {gen_error[0]}")
+        if error_holder[0] is not None:
+            logger.error(f"TTS generation failed: {error_holder[0]}")
             return False
 
         if stop_event.is_set():
@@ -334,11 +402,92 @@ class SelectToSpeechApp:
             logger.error("Stream playback failed")
             return False
 
-        if stop_event.is_set():
-            return False
-            
         logger.info("Successfully read text")
         return True
+
+    # ------------------------------------------------------------------
+    # Pre-fetch: start synthesis as soon as text is selected
+    # ------------------------------------------------------------------
+
+    def _cancel_prefetch_locked(self) -> None:
+        """Cancel any running pre-fetch. Caller must hold _prefetch_lock."""
+        self._prefetch_stop_event.set()
+        if self._prefetch_queue is not None:
+            # Drain so the generator can unblock from a full-queue put() and exit
+            try:
+                while True:
+                    self._prefetch_queue.get_nowait()
+            except queue.Empty:
+                pass
+        self._prefetch_text = None
+        self._prefetch_queue = None
+
+    def _cancel_prefetch(self) -> None:
+        """Cancel any running pre-fetch."""
+        with self._prefetch_lock:
+            self._cancel_prefetch_locked()
+
+    def _start_prefetch(self, text: str) -> None:
+        """
+        Called by the selection polling loop when text changes.
+        Starts background synthesis so audio is ready when the hotkey fires.
+        """
+        text = text.strip()
+        if not text or len(text) < 10:
+            return
+
+        with self._prefetch_lock:
+            if self._prefetch_text == text:
+                logger.debug("Pre-fetch already in progress for this text")
+                return
+            if self.audio_player.is_playing or (
+                self._process_thread and self._process_thread.is_alive()
+            ):
+                logger.debug("Skipping pre-fetch: playback in progress")
+                return
+
+            self._cancel_prefetch_locked()
+
+            self._prefetch_text = text
+            self._prefetch_queue = queue.Queue(maxsize=10)
+            self._prefetch_stop_event = threading.Event()
+            # Capture local refs before releasing the lock
+            prefetch_queue = self._prefetch_queue
+            prefetch_stop_event = self._prefetch_stop_event
+
+        # Language detection and segmentation are CPU-bound; do outside lock
+        result = self._prepare_synthesis(text, prefetch_stop_event)
+        if result is None:
+            return
+        language, segments = result
+
+        error_holder: list = [None]
+        logger.debug(f"Starting pre-fetch synthesis for {len(text)} chars")
+        threading.Thread(
+            target=self._run_synthesis,
+            args=(text, segments, language, prefetch_queue, prefetch_stop_event, error_holder),
+            daemon=True,
+        ).start()
+
+    def _play_prefetched(
+        self, audio_queue: queue.Queue, stop_event: threading.Event
+    ) -> bool:
+        """Play from a pre-fetch queue that the synthesis generator is already filling."""
+        logger.info("Playing pre-fetched audio stream")
+        success = self.audio_player.play_stream(audio_queue, pitch=self.config.audio.pitch)
+        # Ensure the generator stops if playback ended early (e.g. user pressed stop)
+        stop_event.set()
+        # Drain remaining items so the generator thread can unblock and exit
+        try:
+            while True:
+                audio_queue.get_nowait()
+        except queue.Empty:
+            pass
+        if not success:
+            logger.error("Pre-fetched stream playback failed")
+        else:
+            logger.info("Pre-fetched playback completed")
+        return success
 
     def run(self) -> None:
         """Run the application"""
@@ -370,6 +519,7 @@ class SelectToSpeechApp:
         try:
             self.keyboard_handler.stop()
             self.selection_listener.stop()
+            self._cancel_prefetch()
             self.audio_player.stop()
             self.tts_engine.stop()
         except Exception as e:
