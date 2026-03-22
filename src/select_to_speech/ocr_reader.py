@@ -48,6 +48,54 @@ def _check_pil_available() -> bool:
         return False
 
 
+def _preprocess_image_for_ocr(image_path: str) -> str:
+    """
+    Preprocess image to improve OCR accuracy.
+
+    Applies: grayscale conversion, contrast enhancement, upscaling, denoising
+    Returns path to preprocessed image.
+    """
+    try:
+        from PIL import Image, ImageEnhance, ImageFilter
+
+        # Load image
+        img = Image.open(image_path)
+
+        # Convert to grayscale for better OCR
+        if img.mode != 'L':
+            img = img.convert('L')
+
+        # Upscale if image is too small (Tesseract works better with larger images)
+        width, height = img.size
+        if width < 300 or height < 50:
+            scale_factor = max(300 // width, 1) if width > 0 else 2
+            new_size = (width * scale_factor, height * scale_factor)
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+            logger.debug(f"OCR: upscaled image from {width}x{height} to {new_size[0]}x{new_size[1]}")
+
+        # Enhance contrast to make text clearer
+        enhancer = ImageEnhance.Contrast(img)
+        img = enhancer.enhance(2.0)
+
+        # Enhance brightness if needed
+        enhancer = ImageEnhance.Brightness(img)
+        img = enhancer.enhance(1.2)
+
+        # Apply slight blur to reduce noise, then sharpen
+        img = img.filter(ImageFilter.MedianFilter(size=3))
+        enhancer = ImageEnhance.Sharpness(img)
+        img = enhancer.enhance(2.0)
+
+        # Save preprocessed image back to same path
+        img.save(image_path, 'PNG', optimize=False)
+        logger.debug(f"OCR: image preprocessing applied")
+
+        return image_path
+    except Exception as e:
+        logger.debug(f"OCR image preprocessing failed: {e}, continuing with original")
+        return image_path
+
+
 def _capture_with_grim(geometry: str, tmp_path: str) -> bool:
     """Try to capture with grim. Returns True if successful."""
     try:
@@ -376,39 +424,52 @@ def capture_region_text(lang_hint: str = "") -> Optional[str]:
                 logger.error(f"pytesseract or PIL not installed: {e}")
                 return None
 
+            # Preprocess image to improve OCR accuracy
+            _preprocess_image_for_ocr(tmp_path)
             image = Image.open(tmp_path)
 
-            # Build pytesseract config for language if provided
-            config = ""
-            if lang_hint:
-                # Map language code to tesseract language code
-                lang_map = {
-                    "en": "eng",
-                    "it": "ita",
-                    "es": "spa",
-                    "fr": "fra",
-                    "de": "deu",
-                    "pt": "por",
-                    "nl": "nld",
-                    "ru": "rus",
-                    "ja": "jpn",
-                    "zh": "chi_sim",
-                    "ko": "kor",
-                    "ar": "ara",
-                    "hi": "hin",
-                    "tr": "tur",
-                    "pl": "pol",
-                }
-                tess_lang = lang_map.get(lang_hint, "eng")
-                config = f"--psm 3 -l {tess_lang}"
-            else:
-                config = "--psm 3"
+            # Map language code to tesseract language code
+            lang_map = {
+                "en": "eng",
+                "it": "ita",
+                "es": "spa",
+                "fr": "fra",
+                "de": "deu",
+                "pt": "por",
+                "nl": "nld",
+                "ru": "rus",
+                "ja": "jpn",
+                "zh": "chi_sim",
+                "ko": "kor",
+                "ar": "ara",
+                "hi": "hin",
+                "tr": "tur",
+                "pl": "pol",
+            }
+            tess_lang = lang_map.get(lang_hint, "eng") if lang_hint else "eng"
 
-            text = pytesseract.image_to_string(image, config=config)
-            text = text.strip()
+            # Try different OCR modes in order of preference
+            # PSM 3 = auto page segmentation, 6 = treat as single block, 11 = sparse text
+            psm_modes = [3, 6, 11]
+            text = ""
+
+            for psm in psm_modes:
+                if lang_hint:
+                    config = f"--psm {psm} -l {tess_lang}"
+                else:
+                    config = f"--psm {psm}"
+
+                text = pytesseract.image_to_string(image, config=config)
+                text = text.strip()
+
+                if text:
+                    logger.debug(f"OCR succeeded with PSM mode {psm}")
+                    break
+                else:
+                    logger.debug(f"OCR returned empty with PSM mode {psm}, trying next...")
 
             if not text:
-                logger.info("OCR extraction returned empty result")
+                logger.info("OCR extraction returned empty result after trying all modes")
                 return None
 
             logger.info(f"OCR extracted {len(text)} chars: {text[:60]}...")
