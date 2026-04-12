@@ -3,12 +3,12 @@
 import threading
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QSize, pyqtSignal, QMetaObject, Qt as QtConst, Q_ARG
-from PyQt6.QtGui import QKeyEvent
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QSize, Signal, QMetaObject, Qt as QtConst, Q_ARG
+from PySide6.QtGui import QIcon, QKeyEvent, QPalette
+from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
-    QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
@@ -16,15 +16,15 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSlider,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
+
+from KWidgetsAddons import KPageDialog, KPageWidgetItem
 
 from ..config import AppConfig, AudioConfig, KeyboardConfig, VoiceConfig, load_config, save_config
 from ..i18n import _, set_language
@@ -148,7 +148,7 @@ _IDLE_CSS = (
 class KeyCaptureWidget(QFrame):
     """Captures a single key press and displays it as a chip/badge."""
 
-    keyChanged = pyqtSignal(str)
+    keyChanged = Signal(str)
 
     def __init__(self, initial_key: str = "", parent: QWidget | None = None):
         super().__init__(parent)
@@ -231,7 +231,7 @@ class KeyCaptureWidget(QFrame):
 class ModifierKeySelector(QFrame):
     """Row of three checkboxes (Alt, Ctrl, Shift) — stores 1–2 selected modifiers."""
 
-    modifiersChanged = pyqtSignal(str)
+    modifiersChanged = Signal(str)
 
     def __init__(self, initial: str = "alt", parent: QWidget | None = None):
         super().__init__(parent)
@@ -292,11 +292,11 @@ _GUI_LANGUAGES = [
 ]
 
 
-class SettingsWindow(QDialog):
-    """Configuration dialog with tabs for voice, audio, keyboard, and general."""
+class SettingsWindow(KPageDialog):
+    """Configuration dialog with pages for voice, audio, keyboard, and general."""
 
     # Signal emitted from background thread to reset play button on the GUI thread
-    _reset_play_btn = pyqtSignal(str)
+    _reset_play_btn = Signal(str)
 
     def __init__(self, config: Optional[AppConfig] = None, parent: QWidget | None = None):
         super().__init__(parent)
@@ -304,14 +304,24 @@ class SettingsWindow(QDialog):
         self._original_config = self.config.model_copy(deep=True)
         self._test_thread: Optional[threading.Thread] = None
         self._test_stop = threading.Event()
+        self._page_items: list[KPageWidgetItem] = []
 
         # Apply the configured GUI language before building UI
         set_language(self.config.gui_language)
 
         self.setWindowTitle(_("Select-to-Speech — Settings"))
-        self.setMinimumSize(QSize(560, 480))
+        self.setMinimumSize(QSize(800, 600))
+        self.setFaceType(KPageDialog.FaceType.List)
 
-        self._build_ui()
+        # Hide the auto-added sidebar search bar injected by KPageDialog
+        from PySide6.QtWidgets import QLineEdit
+        search = self.findChild(QLineEdit)
+        if search:
+            search.hide()
+            search.setMaximumHeight(0)
+
+        self._configure_buttons()
+        self._add_pages()
         self._load_config_into_ui()
 
         # Connect the thread-safe signal for resetting play buttons
@@ -319,61 +329,43 @@ class SettingsWindow(QDialog):
 
     # ──────────────────────── UI Construction ────────────────────────
 
-    def _build_ui(self):
-        layout = QVBoxLayout(self)
-
-        # KDE Plasma-style: sidebar on the left, content on the right
-        content_layout = QHBoxLayout()
-
-        self.sidebar = QListWidget()
-        self.sidebar.setFixedWidth(180)
-        self.sidebar.setSpacing(2)
-        self.sidebar.setStyleSheet(
-            "QListWidget { background: palette(window); border: none; "
-            "font-size: 13px; }"
-            "QListWidget::item { padding: 8px 12px; border-radius: 4px; }"
-            "QListWidget::item:selected { background: palette(highlight); "
-            "color: palette(highlighted-text); }"
-        )
-        for label in (_("Engine"), _("Audio"), _("Shortcuts"), _("General")):
-            QListWidgetItem(label, self.sidebar)
-
-        self.pages = QStackedWidget()
-        self.pages.addWidget(self._scrollable_page(self._build_voice_tab()))
-        self.pages.addWidget(self._scrollable_page(self._build_audio_tab()))
-        self.pages.addWidget(self._scrollable_page(self._build_keyboard_tab()))
-        self.pages.addWidget(self._scrollable_page(self._build_general_tab()))
-
-        self.sidebar.currentRowChanged.connect(self.pages.setCurrentIndex)
-        self.sidebar.setCurrentRow(0)
-
-        content_layout.addWidget(self.sidebar)
-        content_layout.addWidget(self.pages, stretch=1)
-        layout.addLayout(content_layout)
-
-        # Bottom bar: dialog buttons with translated labels
-        bottom = QHBoxLayout()
-        bottom.addStretch()
-
-        btn_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save
+    def _configure_buttons(self):
+        btn_box = self.buttonBox()
+        btn_box.setStandardButtons(
+            QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Apply
             | QDialogButtonBox.StandardButton.Cancel
         )
-        btn_box.button(QDialogButtonBox.StandardButton.Save).setText(_("Save"))
-        btn_box.button(QDialogButtonBox.StandardButton.Save).clicked.connect(self._on_save)
+        btn_box.button(QDialogButtonBox.StandardButton.Ok).setText(_("Save"))
+        btn_box.button(QDialogButtonBox.StandardButton.Ok).setIcon(QIcon.fromTheme("document-save"))
         btn_box.button(QDialogButtonBox.StandardButton.Apply).setText(_("Apply"))
         btn_box.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self._on_apply)
         btn_box.button(QDialogButtonBox.StandardButton.Cancel).setText(_("Cancel"))
-        btn_box.button(QDialogButtonBox.StandardButton.Cancel).clicked.connect(self._on_cancel)
-        bottom.addWidget(btn_box)
 
-        layout.addLayout(bottom)
+    def _add_pages(self):
+        """Add the four settings pages to the KPageDialog."""
+        pages = [
+            (_("Engine"),    "applications-engineering", self._scrollable_page(self._build_voice_tab())),
+            (_("Audio"),     "audio-headphones",          self._scrollable_page(self._build_audio_tab())),
+            (_("Shortcuts"), "configure-shortcuts",       self._scrollable_page(self._build_keyboard_tab())),
+            (_("General"),   "configure",                 self._scrollable_page(self._build_general_tab())),
+        ]
+        # Keep Python-side references so Shiboken doesn't GC the C++ objects
+        # before KPageDialog has a chance to take ownership of them.
+        self._page_widgets: list[QWidget] = []
+        for name, icon_name, widget in pages:
+            self._page_widgets.append(widget)
+            item = KPageWidgetItem(widget, name)
+            item.setIcon(QIcon.fromTheme(icon_name))
+            item.setHeader(name)
+            self.addPage(item)
+            self._page_items.append(item)
 
     @staticmethod
     def _scrollable_page(content: QWidget, max_width: int = 600) -> QScrollArea:
         """Wrap *content* in a scroll area with a centred, max-width container."""
         content.setMaximumWidth(max_width)
+        content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
         wrapper = QWidget()
         h = QHBoxLayout(wrapper)
@@ -385,7 +377,15 @@ class SettingsWindow(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setWidget(wrapper)
+
+        # Ensure the scroll area triggers vertical scrollbars instead of
+        # compressing content when the viewport is too short.
+        def _enforce_min_height():
+            wrapper.setMinimumHeight(content.sizeHint().height())
+        wrapper.resizeEvent = lambda e: _enforce_min_height()
+
         return scroll
 
     # ── Voice Tab ────────────────────────────────────────────────────
@@ -510,6 +510,7 @@ class SettingsWindow(QDialog):
     def _build_audio_tab(self) -> QWidget:
         tab = QWidget()
         form = QFormLayout(tab)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         self.speed_spin, self.speed_slider = self._make_slider_pair(0.5, 2.0, 0.1, 1.0)
         form.addRow(_("Speed:"), self._h_pair(self.speed_slider, self.speed_spin))
@@ -521,7 +522,15 @@ class SettingsWindow(QDialog):
         form.addRow(_("Volume:"), self._h_pair(self.volume_slider, self.volume_spin))
 
         self.device_combo = QComboBox()
+        self.device_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.device_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self._populate_audio_devices()
+        self.device_combo.currentIndexChanged.connect(
+            lambda: self.device_combo.setToolTip(self.device_combo.currentText())
+        )
+        self.device_combo.setToolTip(self.device_combo.currentText())
         form.addRow(_("Audio device:"), self.device_combo)
 
         return tab
@@ -585,9 +594,13 @@ class SettingsWindow(QDialog):
         self.stop_capture.keyChanged.connect(lambda _: self._update_shortcut_preview())
         form.addRow(_("Stop key:"), self.stop_capture)
 
-        # Live preview label
+        # Live preview label — use PlaceholderText color for a subtle, theme-aware look
         self.shortcut_preview = QLabel()
-        self.shortcut_preview.setStyleSheet("font-style: italic; opacity: 0.7;")
+        self.shortcut_preview.setStyleSheet("font-style: italic;")
+        placeholder_color = QApplication.palette().color(QPalette.ColorRole.PlaceholderText)
+        p = self.shortcut_preview.palette()
+        p.setColor(QPalette.ColorRole.WindowText, placeholder_color)
+        self.shortcut_preview.setPalette(p)
         form.addRow("", self.shortcut_preview)
 
         return tab
@@ -702,6 +715,17 @@ class SettingsWindow(QDialog):
 
     # ──────────────────────── Actions ────────────────────────────────
 
+    def accept(self):
+        """Save settings then close (mapped to the OK/Save button)."""
+        self._on_apply()
+        super().accept()
+
+    def reject(self):
+        """Revert to the config that was active when the dialog opened."""
+        save_config(self._original_config)
+        set_language(self._original_config.gui_language)
+        super().reject()
+
     def _on_apply(self):
         self.config = self._read_config_from_ui()
         save_config(self.config)
@@ -709,26 +733,26 @@ class SettingsWindow(QDialog):
         # Rebuild the entire UI so translations take effect
         self._rebuild_ui()
 
-    def _on_save(self):
-        self._on_apply()
-        self.accept()
-
-    def _on_cancel(self):
-        # Revert to the config that was active when the dialog opened
-        save_config(self._original_config)
-        set_language(self._original_config.gui_language)
-        self.reject()
-
     def _rebuild_ui(self):
-        """Tear down and rebuild all widgets so translated labels refresh."""
-        # Update window title with new language
+        """Remove and re-add all pages so translated labels refresh."""
         self.setWindowTitle(_("Select-to-Speech — Settings"))
-        # Remove the old layout and all children
-        old_layout = self.layout()
-        if old_layout is not None:
-            QWidget().setLayout(old_layout)  # reparent to discard
-        self._build_ui()
+
+        # Remove existing pages
+        for item in self._page_items:
+            self.removePage(item)
+        self._page_items = []
+
+        # Update button labels for the new language
+        btn_box = self.buttonBox()
+        btn_box.button(QDialogButtonBox.StandardButton.Ok).setText(_("Save"))
+        btn_box.button(QDialogButtonBox.StandardButton.Ok).setIcon(QIcon.fromTheme("document-save"))
+        btn_box.button(QDialogButtonBox.StandardButton.Apply).setText(_("Apply"))
+        btn_box.button(QDialogButtonBox.StandardButton.Cancel).setText(_("Cancel"))
+
+        # Re-add pages with fresh translations
+        self._add_pages()
         self._load_config_into_ui()
+
         # Reconnect the play-button reset signal
         try:
             self._reset_play_btn.disconnect()
@@ -779,7 +803,7 @@ class SettingsWindow(QDialog):
         self._test_thread.start()
 
     def _do_reset_play_btn(self, language: str):
-        """Reset the play button back to \u25b6 — runs on the GUI thread via signal."""
+        """Reset the play button back to ▶ — runs on the GUI thread via signal."""
         btn = self._lang_play_btns.get(language)
         if btn:
             btn.setText("\u25b6")

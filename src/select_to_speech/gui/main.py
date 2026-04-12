@@ -1,15 +1,22 @@
 """GUI entry points — system-tray mode and standalone settings."""
 
 import logging
+import os
 import signal
 import sys
 from typing import Optional
 
-from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QApplication
+# Use native KDE/Plasma theme when available
+os.environ.setdefault("QT_QPA_PLATFORMTHEME", "kde")
+
+import KCoreAddons
+import KNotifications
+
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication
 
 from ..config import load_config
-from ..i18n import set_language
+from ..i18n import _, set_language
 from ..main import SelectToSpeechApp
 from .settings_window import SettingsWindow
 from .tray_icon import AppBridge, AppState, SystemTrayIcon
@@ -59,6 +66,7 @@ class GUIApp:
 
         def wrapped_on_text(text: str):
             self.bridge.set_state(AppState.SPEAKING)
+            self._notify_speaking(text)
             original_on_text(text)
 
         def wrapped_on_stop():
@@ -78,6 +86,19 @@ class GUIApp:
                 self.bridge.set_state(AppState.SPEAKING)
         else:
             self.bridge.set_state(AppState.IDLE)
+
+    # ── Notifications ────────────────────────────────────────────────
+
+    def _notify_speaking(self, text: str):
+        """Send a native KDE desktop notification when TTS starts."""
+        notif = KNotifications.KNotification(
+            "speaking-started",
+            KNotifications.KNotification.NotificationFlag.CloseOnTimeout,
+        )
+        notif.setTitle(_("Speaking"))
+        notif.setText(text[:80] + ("…" if len(text) > 80 else ""))
+        notif.setIconName("media-playback-start")
+        notif.sendEvent()
 
     # ── Tray actions ─────────────────────────────────────────────────
 
@@ -147,8 +168,22 @@ class GUIApp:
 
 # ── CLI entry points ─────────────────────────────────────────────────
 
+def _setup_about_data():
+    about = KCoreAddons.KAboutData(
+        "select-to-speech",
+        _("Select to Speech"),
+        "1.0.0",
+        _("Text-to-speech for selected text"),
+        KCoreAddons.KAboutLicense.GPL_V3,
+    )
+    about.addAuthor(_("Francesco"), _("Author"), "francescov@example.com")
+    KCoreAddons.KAboutData.setApplicationData(about)
+
+
 def main():
     """System-tray mode: background app + tray icon."""
+    _setup_about_data()
+
     qt_app = QApplication(sys.argv)
     qt_app.setApplicationName("Select-to-Speech")
     qt_app.setQuitOnLastWindowClosed(False)
@@ -165,6 +200,8 @@ def main():
 
 def open_settings():
     """Standalone settings window — no tray, no background app."""
+    _setup_about_data()
+
     qt_app = QApplication(sys.argv)
     qt_app.setApplicationName("Select-to-Speech Settings")
 

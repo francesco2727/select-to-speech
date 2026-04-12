@@ -5,14 +5,20 @@ description = "A Wayland-native text-to-speech app for reading selected text wit
 authors = ["Francesco <francescov@example.com>"]
 readme = "README.md"
 packages = [{include = "select_to_speech", from = "src"}]
-include = ["src", "src/select_to_speech/locale/**/*.mo"]
-# System dependencies (CachyOS/Arch):
+include = ["src", "src/select_to_speech/locale/**/*.mo", "select-to-speech.notifyrc"]
+# System dependencies (CachyOS/Arch) — REQUIRED before poetry install:
+#   sudo pacman -S pyside6 shiboken6
 #   - wl-clipboard: for Wayland primary selection access (required)
 #   - xclip: for XWayland app selection fallback (optional)
 #   - pulseaudio or pipewire: for audio playback (usually pre-installed)
+#   - pyside6: Qt6 Python bindings (system package, not managed by poetry)
+#   - KDE Frameworks Python bindings (KWidgetsAddons, KCoreAddons, KNotifications, KStatusNotifierItem)
+#     are bundled with KDE Plasma system packages (already present on a KDE system)
+# After install, copy the notifyrc file for desktop notifications:
+#   sudo cp select-to-speech.notifyrc /usr/share/knotifications6/
 
 [tool.poetry.dependencies]
-python = "^3.14"
+python = ">=3.14,<3.15"
 piper-tts = "^1.4.1"
 pynput = "^1.7.6"
 pyaudio = "^0.2.13"
@@ -25,7 +31,6 @@ onnxruntime = "*"
 soundfile = "*"
 requests = "*"
 misaki = "*"
-PyQt6 = ">=6.6"
 
 [tool.poetry.scripts]
 select-to-speech = "select_to_speech.main:main"
