@@ -155,3 +155,80 @@ msgstr "Seleziona almeno un tasto modificatore"
 
 msgid "Select at most two modifier keys"
 msgstr "Seleziona al massimo due tasti modificatore"
+
+# Screen Reader tab
+msgid "Screen Reader"
+msgstr "Lettore Schermo"
+
+msgid "Ollama Server"
+msgstr "Server Ollama"
+
+msgid "Server URL:"
+msgstr "URL del server:"
+
+msgid "Test Connection"
+msgstr "Test connessione"
+
+msgid "Connecting..."
+msgstr "Connessione..."
+
+msgid "Connected"
+msgstr "Connesso"
+
+msgid "models"
+msgstr "modelli"
+
+msgid "Not connected"
+msgstr "Non connesso"
+
+msgid "Models"
+msgstr "Modelli"
+
+msgid "Read Screen model:"
+msgstr "Modello lettura schermo:"
+
+msgid "Describe Screen model:"
+msgstr "Modello descrizione schermo:"
+
+msgid "Refresh model list"
+msgstr "Aggiorna lista modelli"
+
+msgid "To add new models, use the Ollama CLI: ollama pull <model-name>"
+msgstr "Per aggiungere nuovi modelli, usa la CLI di Ollama: ollama pull <nome-modello>"
+
+msgid "Read Screen modifier:"
+msgstr "Modificatore lettura schermo:"
+
+msgid "Read Screen key:"
+msgstr "Tasto lettura schermo:"
+
+msgid "Describe Screen modifier:"
+msgstr "Modificatore descrizione schermo:"
+
+msgid "Describe Screen key:"
+msgstr "Tasto descrizione schermo:"
+
+msgid "Read Screen:"
+msgstr "Lettura schermo:"
+
+msgid "Describe Screen:"
+msgstr "Descrizione schermo:"
+
+msgid "Reading screen text..."
+msgstr "Lettura testo dallo schermo..."
+
+msgid "Describing screen..."
+msgstr "Descrizione dello schermo..."
+
+# About data
+msgid "Select to Speech"
+msgstr "Select to Speech"
+
+msgid "Text-to-speech for selected text"
+msgstr "Sintesi vocale per il testo selezionato"
+
+msgid "Author"
+msgstr "Autore"
+
+msgid "Play"
+msgstr "Riproduci"

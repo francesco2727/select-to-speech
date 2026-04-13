@@ -54,12 +54,25 @@ class KeyboardConfig(BaseModel):
     stop_key: str = Field("s", description="Explicit stop key when combined with modifier")
 
 
+class OllamaConfig(BaseModel):
+    """Ollama LLM configuration for screen reading features"""
+
+    server_url: str = Field("http://localhost:11434", description="Ollama API server URL")
+    read_screen_model: str = Field("gemma4:e2b", description="Vision model for screen text extraction")
+    describe_screen_model: str = Field("gemma4:e2b", description="Vision model for screen description")
+    read_screen_key: str = Field("r", description="Trigger key for Read Screen Text")
+    describe_screen_key: str = Field("d", description="Trigger key for Describe Screen")
+    read_screen_modifier: str = Field("alt+ctrl", description="Modifier keys for Read Screen")
+    describe_screen_modifier: str = Field("alt+ctrl", description="Modifier keys for Describe Screen")
+
+
 class AppConfig(BaseModel):
     """Main application configuration"""
 
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
     keyboard: KeyboardConfig = Field(default_factory=KeyboardConfig)
+    ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     debug: bool = Field(False, description="Enable debug logging")
     gui_language: str = Field("auto", description="GUI language: 'auto', 'en', 'it', 'es', 'fr'")
 

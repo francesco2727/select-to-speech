@@ -21,6 +21,7 @@ class KeyboardHandler:
         trigger_key: str = "esc",
         pause_key: str = "w",
         stop_key: str = "s",
+        extra_hotkeys: Optional[dict[str, Callable[[], None]]] = None,
     ):
         """
         Initialize keyboard handler.
@@ -33,23 +34,28 @@ class KeyboardHandler:
             trigger_key: Trigger key name for play (e.g., 'esc', 'f1')
             pause_key: Trigger key name for pause/resume
             stop_key: Trigger key name for explicit stop
+            extra_hotkeys: Additional pre-formatted hotkey->callback mappings
         """
         self.listener: Optional[keyboard.GlobalHotKeys] = None
-        
-        play_hotkey = self._format_hotkey(modifier, trigger_key)
+
+        play_hotkey = self.format_hotkey(modifier, trigger_key)
         self.hotkeys = {
             play_hotkey: on_play,
         }
-        
+
         if on_pause:
-            pause_hotkey = self._format_hotkey(modifier, pause_key)
+            pause_hotkey = self.format_hotkey(modifier, pause_key)
             self.hotkeys[pause_hotkey] = on_pause
-            
+
         if on_stop:
-            stop_hotkey = self._format_hotkey(modifier, stop_key)
+            stop_hotkey = self.format_hotkey(modifier, stop_key)
             self.hotkeys[stop_hotkey] = on_stop
 
-    def _format_hotkey(self, modifier: str, key: str) -> str:
+        if extra_hotkeys:
+            self.hotkeys.update(extra_hotkeys)
+
+    @staticmethod
+    def format_hotkey(modifier: str, key: str) -> str:
         """Converts config strings into pynput GlobalHotKey format.
 
         *modifier* may contain one or two modifiers joined by ``"+"``,

@@ -155,3 +155,79 @@ msgstr "Select at least one modifier key"
 
 msgid "Select at most two modifier keys"
 msgstr "Select at most two modifier keys"
+
+# Screen Reader tab
+msgid "Screen Reader"
+msgstr "Screen Reader"
+
+msgid "Ollama Server"
+msgstr "Ollama Server"
+
+msgid "Server URL:"
+msgstr "Server URL:"
+
+msgid "Test Connection"
+msgstr "Test Connection"
+
+msgid "Connecting..."
+msgstr "Connecting..."
+
+msgid "Connected"
+msgstr "Connected"
+
+msgid "models"
+msgstr "models"
+
+msgid "Not connected"
+msgstr "Not connected"
+
+msgid "Models"
+msgstr "Models"
+
+msgid "Read Screen model:"
+msgstr "Read Screen model:"
+
+msgid "Describe Screen model:"
+msgstr "Describe Screen model:"
+
+msgid "Refresh model list"
+msgstr "Refresh model list"
+
+msgid "To add new models, use the Ollama CLI: ollama pull <model-name>"
+msgstr "To add new models, use the Ollama CLI: ollama pull <model-name>"
+
+msgid "Read Screen modifier:"
+msgstr "Read Screen modifier:"
+
+msgid "Read Screen key:"
+msgstr "Read Screen key:"
+
+msgid "Describe Screen modifier:"
+msgstr "Describe Screen modifier:"
+
+msgid "Describe Screen key:"
+msgstr "Describe Screen key:"
+
+msgid "Read Screen:"
+msgstr "Read Screen:"
+
+msgid "Describe Screen:"
+msgstr "Describe Screen:"
+
+msgid "Reading screen text..."
+msgstr "Reading screen text..."
+
+msgid "Describing screen..."
+msgstr "Describing screen..."
+
+msgid "Select to Speech"
+msgstr "Select to Speech"
+
+msgid "Text-to-speech for selected text"
+msgstr "Text-to-speech for selected text"
+
+msgid "Author"
+msgstr "Author"
+
+msgid "Play"
+msgstr "Play"
