@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, Iterator
 import threading
 
-import requests
 import soundfile as sf
 import numpy as np
 
@@ -301,43 +300,13 @@ class KokoroEngine(BaseTTSEngine):
         self.kokoro = None
         self._lock = threading.Lock()
         
-    def _download_file(self, url: str, path: Path) -> bool:
-        """Download a file with streaming to handle large files"""
-        try:
-            logger.info(f"Downloading {path.name} from {url}...")
-            response = requests.get(url, stream=True)
-            response.raise_for_status()
-            
-            with open(path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            logger.info(f"Successfully downloaded {path.name}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to download {url}: {e}")
-            if path.exists():
-                path.unlink()
-            return False
-
     def ensure_model_downloaded(self) -> bool:
-        """Download kokoro model and voices.bin if they don't exist"""
-        if self.model_path.exists() and self.voices_bin_path.exists():
+        """Download kokoro model and voices.bin if they don't exist."""
+        from . import voice_manager
+        if voice_manager.is_kokoro_installed():
             return True
-            
-        logger.info("Checking Kokoro models. They will be downloaded if missing (approx 350MB)...")
-        self.voices_dir.mkdir(parents=True, exist_ok=True)
-        
-        files_to_download = [
-            ("https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx", self.model_path),
-            ("https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin", self.voices_bin_path)
-        ]
-        
-        for url, path in files_to_download:
-            if not path.exists():
-                if not self._download_file(url, path):
-                    return False
-        
-        return True
+        logger.info("Kokoro models missing — downloading (~350 MB)…")
+        return voice_manager.download_kokoro()
 
     def _init_kokoro(self) -> bool:
         if self.kokoro is not None:

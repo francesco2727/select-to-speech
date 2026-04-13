@@ -231,3 +231,79 @@ msgstr "Author"
 
 msgid "Play"
 msgstr "Play"
+
+# General tab — TTS model downloads
+msgid "Application"
+msgstr "Application"
+
+msgid "Kokoro Model"
+msgstr "Kokoro Model"
+
+msgid "Download"
+msgstr "Download"
+
+msgid "Delete"
+msgstr "Delete"
+
+msgid "Re-download"
+msgstr "Re-download"
+
+msgid "Installed"
+msgstr "Installed"
+
+msgid "Not installed (~350 MB)"
+msgstr "Not installed (~350 MB)"
+
+msgid "Piper Voices"
+msgstr "Piper Voices"
+
+msgid "Language filter:"
+msgstr "Language filter:"
+
+msgid "All languages"
+msgstr "All languages"
+
+msgid "Refresh from server"
+msgstr "Refresh from server"
+
+msgid "Available voices"
+msgstr "Available voices"
+
+msgid "Download selected"
+msgstr "Download selected"
+
+msgid "Installed voices"
+msgstr "Installed voices"
+
+msgid "Delete selected"
+msgstr "Delete selected"
+
+msgid "Click 'Refresh from server' to load available voices."
+msgstr "Click 'Refresh from server' to load available voices."
+
+msgid "Fetching voice list…"
+msgstr "Fetching voice list…"
+
+msgid " [installed]"
+msgstr " [installed]"
+
+msgid "voices available."
+msgstr "voices available."
+
+msgid "Downloading"
+msgstr "Downloading"
+
+msgid "Downloaded"
+msgstr "Downloaded"
+
+msgid "successfully."
+msgstr "successfully."
+
+msgid "Failed to download"
+msgstr "Failed to download"
+
+msgid "Deleted"
+msgstr "Deleted"
+
+msgid "Failed to delete"
+msgstr "Failed to delete"

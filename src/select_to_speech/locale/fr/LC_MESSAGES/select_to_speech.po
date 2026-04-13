@@ -231,3 +231,79 @@ msgstr "Auteur"
 
 msgid "Play"
 msgstr "Lecture"
+
+# Onglet Général — téléchargement des modèles TTS
+msgid "Application"
+msgstr "Application"
+
+msgid "Kokoro Model"
+msgstr "Modèle Kokoro"
+
+msgid "Download"
+msgstr "Télécharger"
+
+msgid "Delete"
+msgstr "Supprimer"
+
+msgid "Re-download"
+msgstr "Retélécharger"
+
+msgid "Installed"
+msgstr "Installé"
+
+msgid "Not installed (~350 MB)"
+msgstr "Non installé (~350 Mo)"
+
+msgid "Piper Voices"
+msgstr "Voix Piper"
+
+msgid "Language filter:"
+msgstr "Filtre de langue :"
+
+msgid "All languages"
+msgstr "Toutes les langues"
+
+msgid "Refresh from server"
+msgstr "Actualiser depuis le serveur"
+
+msgid "Available voices"
+msgstr "Voix disponibles"
+
+msgid "Download selected"
+msgstr "Télécharger la sélection"
+
+msgid "Installed voices"
+msgstr "Voix installées"
+
+msgid "Delete selected"
+msgstr "Supprimer la sélection"
+
+msgid "Click 'Refresh from server' to load available voices."
+msgstr "Cliquez sur 'Actualiser depuis le serveur' pour charger les voix disponibles."
+
+msgid "Fetching voice list…"
+msgstr "Récupération de la liste des voix…"
+
+msgid " [installed]"
+msgstr " [installée]"
+
+msgid "voices available."
+msgstr "voix disponibles."
+
+msgid "Downloading"
+msgstr "Téléchargement"
+
+msgid "Downloaded"
+msgstr "Téléchargée"
+
+msgid "successfully."
+msgstr "avec succès."
+
+msgid "Failed to download"
+msgstr "Échec du téléchargement"
+
+msgid "Deleted"
+msgstr "Supprimée"
+
+msgid "Failed to delete"
+msgstr "Échec de la suppression"

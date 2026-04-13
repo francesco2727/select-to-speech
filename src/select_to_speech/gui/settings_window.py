@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -29,6 +31,7 @@ from KWidgetsAddons import KPageDialog, KPageWidgetItem
 
 from ..config import AppConfig, AudioConfig, KeyboardConfig, OllamaConfig, VoiceConfig, load_config, save_config
 from .. import ollama_client
+from .. import voice_manager
 from ..i18n import _, set_language
 from ..system_check import get_audio_devices
 from ..tts_engine import get_available_models, get_voices_for_language
@@ -301,6 +304,10 @@ class SettingsWindow(KPageDialog):
     _reset_play_btn = Signal(str)
     # Signal to update Ollama model combos from background thread (carries model list)
     _ollama_models_ready = Signal(list)
+    # Piper voice management signals
+    _voices_ready = Signal(list)           # list[str] of remote voice names
+    _download_progress = Signal(int, int)  # downloaded_bytes, total_bytes
+    _download_done = Signal(bool, str)     # success, voice_name
 
     def __init__(self, config: Optional[AppConfig] = None, parent: QWidget | None = None):
         super().__init__(parent)
@@ -332,6 +339,10 @@ class SettingsWindow(KPageDialog):
         self._reset_play_btn.connect(self._do_reset_play_btn)
         # Connect Ollama model list signal
         self._ollama_models_ready.connect(self._do_populate_ollama_combos)
+        # Connect Piper voice management signals
+        self._voices_ready.connect(self._do_populate_remote_voices)
+        self._download_progress.connect(self._do_update_download_progress)
+        self._download_done.connect(self._do_on_download_done)
 
         # Auto-fetch Ollama models in background on startup
         self._auto_fetch_ollama_models()
@@ -358,7 +369,7 @@ class SettingsWindow(KPageDialog):
             (_("Audio"),         "audio-headphones",          self._scrollable_page(self._build_audio_tab())),
             (_("Shortcuts"),     "configure-shortcuts",       self._scrollable_page(self._build_keyboard_tab())),
             (_("Screen Reader"), "view-preview",              self._scrollable_page(self._build_screen_reader_tab())),
-            (_("General"),       "configure",                 self._scrollable_page(self._build_general_tab())),
+            (_("General"),       "configure",                 self._scrollable_page(self._build_general_tab(), max_width=750)),
         ]
         # Keep Python-side references so Shiboken doesn't GC the C++ objects
         # before KPageDialog has a chance to take ownership of them.
@@ -808,7 +819,13 @@ class SettingsWindow(KPageDialog):
 
     def _build_general_tab(self) -> QWidget:
         tab = QWidget()
-        form = QFormLayout(tab)
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(16)
+
+        # ── App settings group ──
+        settings_group = QGroupBox(_("Application"))
+        form = QFormLayout(settings_group)
 
         self.debug_check = QCheckBox(_("Enable debug logging"))
         form.addRow(self.debug_check)
@@ -821,7 +838,293 @@ class SettingsWindow(KPageDialog):
                 self.lang_combo.addItem(display, code)
         form.addRow(_("Language:"), self.lang_combo)
 
+        outer.addWidget(settings_group)
+
+        # ── TTS model downloads ──
+        outer.addWidget(self._build_kokoro_section())
+        outer.addWidget(self._build_piper_voices_section())
+
+        outer.addStretch()
         return tab
+
+    # ── Kokoro Section ────────────────────────────────────────────────
+
+    def _build_kokoro_section(self) -> QGroupBox:
+        """Build the Kokoro model management group box."""
+        group = QGroupBox(_("Kokoro Model"))
+        layout = QVBoxLayout(group)
+        layout.setSpacing(8)
+
+        # Status row
+        status_row = QWidget()
+        status_layout = QHBoxLayout(status_row)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+
+        self._kokoro_status_label = QLabel()
+        status_layout.addWidget(self._kokoro_status_label, stretch=1)
+
+        self._kokoro_download_btn = QPushButton(_("Download"))
+        self._kokoro_download_btn.setIcon(QIcon.fromTheme("download"))
+        self._kokoro_download_btn.clicked.connect(self._on_kokoro_download)
+        status_layout.addWidget(self._kokoro_download_btn)
+
+        self._kokoro_delete_btn = QPushButton(_("Delete"))
+        self._kokoro_delete_btn.setIcon(QIcon.fromTheme("edit-delete"))
+        self._kokoro_delete_btn.clicked.connect(self._on_kokoro_delete)
+        status_layout.addWidget(self._kokoro_delete_btn)
+
+        layout.addWidget(status_row)
+
+        # Progress bar (hidden until a download starts)
+        self._kokoro_progress = QProgressBar()
+        self._kokoro_progress.setRange(0, 100)
+        self._kokoro_progress.setValue(0)
+        self._kokoro_progress.setVisible(False)
+        layout.addWidget(self._kokoro_progress)
+
+        # Update displayed state
+        self._refresh_kokoro_status()
+
+        return group
+
+    def _refresh_kokoro_status(self) -> None:
+        """Update Kokoro status label and button states."""
+        installed = voice_manager.is_kokoro_installed()
+        if installed:
+            from ..config import get_data_dir
+            d = get_data_dir() / "voices"
+            sizes = []
+            for _url, local_name in voice_manager.KOKORO_FILES:
+                p = d / local_name
+                if p.exists():
+                    sizes.append(f"{p.name}: {p.stat().st_size / 1_048_576:.0f} MB")
+            detail = "  |  ".join(sizes)
+            self._kokoro_status_label.setText(_("Installed") + f"  ({detail})")
+            self._kokoro_status_label.setStyleSheet("color: palette(text);")
+        else:
+            self._kokoro_status_label.setText(_("Not installed (~350 MB)"))
+            self._kokoro_status_label.setStyleSheet("color: palette(mid); font-style: italic;")
+        self._kokoro_delete_btn.setEnabled(installed)
+        self._kokoro_download_btn.setText(_("Re-download") if installed else _("Download"))
+
+    def _on_kokoro_download(self) -> None:
+        self._kokoro_download_btn.setEnabled(False)
+        self._kokoro_delete_btn.setEnabled(False)
+        self._kokoro_progress.setVisible(True)
+        self._kokoro_progress.setValue(0)
+
+        def _progress(done: int, total: int) -> None:
+            self._download_progress.emit(done, total)
+
+        def _run():
+            ok = voice_manager.download_kokoro(force=True, progress_cb=_progress)
+            self._download_done.emit(ok, "__kokoro__")
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _on_kokoro_delete(self) -> None:
+        voice_manager.delete_kokoro()
+        self._refresh_kokoro_status()
+
+    # ── Piper Voices Section ──────────────────────────────────────────
+
+    def _build_piper_voices_section(self) -> QGroupBox:
+        group = QGroupBox(_("Piper Voices"))
+        outer = QVBoxLayout(group)
+        outer.setSpacing(8)
+
+        # ── Top toolbar: language filter + refresh ──
+        toolbar = QWidget()
+        toolbar_layout = QHBoxLayout(toolbar)
+        toolbar_layout.setContentsMargins(0, 0, 0, 0)
+
+        toolbar_layout.addWidget(QLabel(_("Language filter:")))
+        self._voices_lang_combo = QComboBox()
+        self._voices_lang_combo.addItem(_("All languages"), "")
+        for code, display in sorted(_LANGUAGE_DISPLAY.items(), key=lambda x: x[1]):
+            self._voices_lang_combo.addItem(f"{display} ({code})", code)
+        self._voices_lang_combo.currentIndexChanged.connect(self._on_voices_lang_changed)
+        toolbar_layout.addWidget(self._voices_lang_combo)
+        toolbar_layout.addStretch()
+
+        self._voices_refresh_btn = QPushButton(_("Refresh from server"))
+        self._voices_refresh_btn.setIcon(QIcon.fromTheme("view-refresh"))
+        self._voices_refresh_btn.clicked.connect(self._on_voices_refresh)
+        toolbar_layout.addWidget(self._voices_refresh_btn)
+
+        outer.addWidget(toolbar)
+
+        # ── Two-column layout: available | installed ──
+        columns = QWidget()
+        cols_layout = QHBoxLayout(columns)
+        cols_layout.setContentsMargins(0, 0, 0, 0)
+        cols_layout.setSpacing(16)
+
+        # Left: available voices
+        avail_group = QGroupBox(_("Available voices"))
+        avail_layout = QVBoxLayout(avail_group)
+        self._avail_list = QListWidget()
+        self._avail_list.setMinimumHeight(200)
+        self._avail_list.setAlternatingRowColors(True)
+        avail_layout.addWidget(self._avail_list)
+
+        self._download_btn = QPushButton(_("Download selected"))
+        self._download_btn.setIcon(QIcon.fromTheme("download"))
+        self._download_btn.setEnabled(False)
+        self._download_btn.clicked.connect(self._on_voice_download)
+        self._avail_list.itemSelectionChanged.connect(
+            lambda: self._download_btn.setEnabled(bool(self._avail_list.selectedItems()))
+        )
+        avail_layout.addWidget(self._download_btn)
+        cols_layout.addWidget(avail_group, stretch=1)
+
+        # Right: installed voices
+        inst_group = QGroupBox(_("Installed voices"))
+        inst_layout = QVBoxLayout(inst_group)
+        self._inst_list = QListWidget()
+        self._inst_list.setMinimumHeight(200)
+        self._inst_list.setAlternatingRowColors(True)
+        inst_layout.addWidget(self._inst_list)
+
+        self._delete_btn = QPushButton(_("Delete selected"))
+        self._delete_btn.setIcon(QIcon.fromTheme("edit-delete"))
+        self._delete_btn.setEnabled(False)
+        self._delete_btn.clicked.connect(self._on_voice_delete)
+        self._inst_list.itemSelectionChanged.connect(
+            lambda: self._delete_btn.setEnabled(bool(self._inst_list.selectedItems()))
+        )
+        inst_layout.addWidget(self._delete_btn)
+        cols_layout.addWidget(inst_group, stretch=1)
+
+        outer.addWidget(columns)
+
+        # ── Progress bar ──
+        self._voices_progress = QProgressBar()
+        self._voices_progress.setRange(0, 100)
+        self._voices_progress.setValue(0)
+        self._voices_progress.setVisible(False)
+        outer.addWidget(self._voices_progress)
+
+        # ── Status label ──
+        self._voices_status = QLabel("")
+        self._voices_status.setWordWrap(True)
+        self._voices_status.setStyleSheet("font-style: italic; color: palette(mid);")
+        outer.addWidget(self._voices_status)
+
+        # Populate installed list immediately; remote list needs a refresh
+        self._refresh_installed_list()
+        self._voices_status.setText(_("Click 'Refresh from server' to load available voices."))
+
+        return group
+
+    def _on_voices_refresh(self) -> None:
+        """Fetch remote voice list in background."""
+        self._voices_refresh_btn.setEnabled(False)
+        self._voices_status.setText(_("Fetching voice list…"))
+        lang = self._voices_lang_combo.currentData() or None
+
+        def _run():
+            voices = voice_manager.list_remote_voices(lang_filter=lang)
+            self._voices_ready.emit(voices)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _on_voices_lang_changed(self) -> None:
+        """Re-filter the remote list if it was already loaded."""
+        if self._avail_list.count() > 0:
+            self._on_voices_refresh()
+
+    def _do_populate_remote_voices(self, voices: list) -> None:
+        """Populate the available-voices list on the GUI thread."""
+        installed = set(get_available_models("piper"))
+        self._avail_list.clear()
+        for name in voices:
+            label = name + (_(" [installed]") if name in installed else "")
+            self._avail_list.addItem(label)
+            item = self._avail_list.item(self._avail_list.count() - 1)
+            item.setData(256, name)  # Qt.UserRole = 256; store plain name
+        count = len(voices)
+        self._voices_status.setText(f"{count} " + _("voices available."))
+        self._voices_refresh_btn.setEnabled(True)
+
+    def _refresh_installed_list(self) -> None:
+        self._inst_list.clear()
+        for name in get_available_models("piper"):
+            self._inst_list.addItem(name)
+            item = self._inst_list.item(self._inst_list.count() - 1)
+            item.setData(256, name)
+
+    def _on_voice_download(self) -> None:
+        selected = self._avail_list.selectedItems()
+        if not selected:
+            return
+        voice_name = selected[0].data(256)
+        if not voice_name:
+            return
+
+        self._download_btn.setEnabled(False)
+        self._voices_refresh_btn.setEnabled(False)
+        self._voices_progress.setVisible(True)
+        self._voices_progress.setValue(0)
+        self._voices_status.setText(_("Downloading") + f" '{voice_name}'…")
+
+        def _progress(done: int, total: int) -> None:
+            self._download_progress.emit(done, total)
+
+        def _run():
+            ok = voice_manager.download_voice(voice_name, force=True, progress_cb=_progress)
+            self._download_done.emit(ok, voice_name)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _do_update_download_progress(self, done: int, total: int) -> None:
+        # Update whichever progress bar is currently visible
+        for bar in (self._kokoro_progress, self._voices_progress):
+            if bar.isVisible():
+                if total > 0:
+                    bar.setValue(min(int(done * 100 / total), 100))
+                else:
+                    bar.setValue((bar.value() + 2) % 100)
+
+    def _do_on_download_done(self, ok: bool, voice_name: str) -> None:
+        if voice_name == "__kokoro__":
+            self._kokoro_progress.setVisible(False)
+            self._kokoro_progress.setValue(0)
+            self._refresh_kokoro_status()
+            # Re-enable download button (delete btn state handled by _refresh_kokoro_status)
+            self._kokoro_download_btn.setEnabled(True)
+            return
+
+        self._voices_progress.setVisible(False)
+        self._voices_progress.setValue(0)
+        self._download_btn.setEnabled(True)
+        self._voices_refresh_btn.setEnabled(True)
+        if ok:
+            self._voices_status.setText(_("Downloaded") + f" '{voice_name}' " + _("successfully."))
+        else:
+            self._voices_status.setText(_("Failed to download") + f" '{voice_name}'.")
+        # Refresh both lists to reflect the new state
+        self._refresh_installed_list()
+        if self._avail_list.count() > 0:
+            self._on_voices_refresh()
+
+    def _on_voice_delete(self) -> None:
+        selected = self._inst_list.selectedItems()
+        if not selected:
+            return
+        voice_name = selected[0].data(256)
+        if not voice_name:
+            return
+        ok = voice_manager.delete_voice(voice_name)
+        if ok:
+            self._voices_status.setText(_("Deleted") + f" '{voice_name}'.")
+        else:
+            self._voices_status.setText(_("Failed to delete") + f" '{voice_name}'.")
+        self._refresh_installed_list()
+        self._delete_btn.setEnabled(False)
+        # Refresh available list to remove [installed] markers
+        if self._avail_list.count() > 0:
+            self._on_voices_refresh()
 
     # ──────────────────────── Config ↔ UI ────────────────────────────
 
@@ -958,6 +1261,9 @@ class SettingsWindow(KPageDialog):
         for sig, slot in (
             (self._reset_play_btn, self._do_reset_play_btn),
             (self._ollama_models_ready, self._do_populate_ollama_combos),
+            (self._voices_ready, self._do_populate_remote_voices),
+            (self._download_progress, self._do_update_download_progress),
+            (self._download_done, self._do_on_download_done),
         ):
             try:
                 sig.disconnect()
