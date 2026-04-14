@@ -88,6 +88,64 @@ poetry run select-to-speech-audio
 
 ---
 
+## Ollama (optional — screen reading features)
+
+The screen reading and screen description features require a locally running [Ollama](https://ollama.com) server with a vision-capable model.
+
+### 1. Install Ollama
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+Or on Arch / CachyOS:
+
+```bash
+sudo pacman -S ollama
+```
+
+### 2. Start the Ollama server
+
+```bash
+ollama serve
+```
+
+The server listens on `http://localhost:11434` by default. To start it automatically as a systemd service:
+
+```bash
+sudo systemctl enable --now ollama
+```
+
+### 3. Pull a vision model
+
+The default model configured in this app is `gemma4:e2b` (Google Gemma 4, 2B — lightweight and fast):
+
+```bash
+ollama pull gemma4:e2b
+```
+
+Any other Ollama vision model works. To use a different one, change `read_screen_model` and `describe_screen_model` in `~/.config/select-to-speech/config.yaml`.
+
+Some alternatives:
+
+| Model | Size | Notes |
+|---|---|---|
+| `gemma4:e2b` | ~2 GB | Default — fast, low memory |
+| `llava:7b` | ~4 GB | Widely tested vision model |
+| `minicpm-v:8b` | ~5 GB | Strong OCR performance |
+| `llama3.2-vision:11b` | ~8 GB | Higher accuracy, needs more VRAM |
+
+### 4. Verify the server is running
+
+```bash
+curl http://localhost:11434
+# Expected: "Ollama is running"
+```
+
+Once Ollama is running and a vision model is pulled, the screen reading shortcuts (`Alt + Ctrl + R` and `Alt + Ctrl + D`) become active.
+
+---
+
 ## Default keyboard shortcuts
 
 | Action | Shortcut |
