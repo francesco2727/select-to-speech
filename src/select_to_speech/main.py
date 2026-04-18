@@ -375,7 +375,7 @@ class SelectToSpeechApp:
         if stop_event.is_set():
             return None
 
-        segments = self._segment_by_language(text, language)
+        segments = [(text, language)]
         return language, segments
 
     def process_text(self, text: str, stop_event: threading.Event) -> bool:
