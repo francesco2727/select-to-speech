@@ -84,6 +84,12 @@ class BaseTTSEngine(ABC):
 
     def _chunk_text(self, text: str, max_chars: int = 180) -> list[str]:
         """Split text into logical, speakable chunks for streaming TTS."""
+        # Normalize newlines to sentence boundaries before sanitization so that
+        # paragraph/line breaks produce natural TTS pauses.
+        # Lines not ending with sentence punctuation get a period appended.
+        text = re.sub(r'([^.!?])\n+', r'\1. ', text)
+        text = re.sub(r'([.!?])\n+', r'\1 ', text)
+
         text = self._sanitize_text(text)
         
         # 1. Split by strong sentence boundaries (. ! ?) keeping the punctuation attached
