@@ -1,10 +1,12 @@
 """GUI entry points — system-tray mode and standalone settings."""
 
+import fcntl
 import logging
 import os
 import signal
+import subprocess
 import sys
-from typing import Optional
+from typing import IO, Optional
 
 # Use native KDE/Plasma theme when available
 os.environ.setdefault("QT_QPA_PLATFORMTHEME", "kde")
@@ -175,6 +177,37 @@ class GUIApp:
         self.app.shutdown()
 
 
+# ── Single-instance lock ─────────────────────────────────────────────
+
+def _acquire_instance_lock() -> Optional[IO]:
+    """Return an open lock file if this is the first instance, else None."""
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    lock_path = os.path.join(runtime_dir, "select-to-speech.lock")
+    fd = open(lock_path, "w")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fd.write(str(os.getpid()))
+        fd.flush()
+        return fd
+    except OSError:
+        fd.close()
+        return None
+
+
+def _notify_already_running() -> None:
+    subprocess.run(
+        [
+            "notify-send",
+            "--app-name=Select to Speech",
+            "--icon=audio-headphones",
+            "--urgency=normal",
+            "Select to Speech",
+            "The application is already running in the system tray.",
+        ],
+        check=False,
+    )
+
+
 # ── CLI entry points ─────────────────────────────────────────────────
 
 def _setup_about_data():
@@ -191,6 +224,11 @@ def _setup_about_data():
 
 def main():
     """System-tray mode: background app + tray icon."""
+    lock_fd = _acquire_instance_lock()
+    if lock_fd is None:
+        _notify_already_running()
+        sys.exit(0)
+
     _setup_about_data()
 
     qt_app = QApplication(sys.argv)
@@ -204,6 +242,7 @@ def main():
 
     exit_code = qt_app.exec()
     gui.shutdown()
+    lock_fd.close()
     sys.exit(exit_code)
 
 

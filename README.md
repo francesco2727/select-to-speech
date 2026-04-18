@@ -38,6 +38,55 @@ pip install poetry   # or use your distro's poetry package
 
 ## Installation
 
+### System install (recommended)
+
+Installs the app as a native KDE system service with autostart and launcher entry:
+
+```bash
+git clone https://github.com/your-user/select-to-speech.git
+cd select-to-speech
+./install.sh
+```
+
+The script:
+1. Installs missing system packages via `pacman`
+2. Runs `poetry install`
+3. Creates symlinks in `~/.local/bin/`
+4. Adds a `.desktop` entry to the KDE launcher
+5. Installs the KDE notification config (requires sudo)
+6. Registers and starts a systemd user service (`select-to-speech.service`)
+
+On first run the Kokoro model files (~350 MB) are downloaded automatically.
+
+#### After a code update
+
+No reinstallation needed — just restart the service:
+
+```bash
+git pull
+systemctl --user restart select-to-speech
+```
+
+#### Useful service commands
+
+```bash
+systemctl --user status select-to-speech    # check status
+systemctl --user restart select-to-speech   # restart after code changes
+journalctl --user -u select-to-speech -f    # follow logs
+```
+
+#### Uninstall
+
+```bash
+./uninstall.sh
+```
+
+Removes the service, symlinks, and desktop entry. Config and voice files in `~/.config/select-to-speech/` and `~/.local/share/select-to-speech/` are kept.
+
+---
+
+### Manual / development mode
+
 ```bash
 git clone https://github.com/your-user/select-to-speech.git
 cd select-to-speech
@@ -48,11 +97,9 @@ poetry install
 sudo cp select-to-speech.notifyrc /usr/share/knotifications6/
 ```
 
-On first run the Kokoro model files (~350 MB) are downloaded automatically.
-
 ---
 
-## Running the app
+## Running the app (manual)
 
 ### GUI mode (system tray — recommended)
 

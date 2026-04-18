@@ -1,0 +1,13 @@
+[Unit]
+Description=Select to Speech — KDE system tray
+Documentation=https://github.com/your-user/select-to-speech
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/select-to-speech-gui
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

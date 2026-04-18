@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Select to Speech
+GenericName=Text to Speech
+Comment=Read selected text aloud with a keyboard shortcut
+Exec=%h/.local/bin/select-to-speech-gui
+Icon=audio-headphones
+Categories=Accessibility;Audio;Utility;
+Keywords=tts;speech;text;read;voice;
+StartupNotify=false
+NoDisplay=false
+
+[Desktop Action Settings]
+Name=Open Settings
+Exec=%h/.local/bin/select-to-speech-settings
