@@ -129,13 +129,24 @@ class BaseTTSEngine(ABC):
         return self.voice_config.model
 
     @abstractmethod
-    def synthesize(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0) -> Optional[Tuple[bytes, int]]:
-        """Synthesize text to speech."""
+    def synthesize(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0, phoneme_lang: Optional[str] = None) -> Optional[Tuple[bytes, int]]:
+        """Synthesize text to speech.
+
+        Args:
+            phoneme_lang: If set, overrides the phonemization language without
+                changing the voice (e.g. use Italian voice with English
+                phonemization for loanwords).
+        """
         pass
 
     @abstractmethod
-    def synthesize_stream(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0) -> Iterator[Tuple[bytes, int]]:
-        """Synthesize text to speech as a stream."""
+    def synthesize_stream(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0, phoneme_lang: Optional[str] = None) -> Iterator[Tuple[bytes, int]]:
+        """Synthesize text to speech as a stream.
+
+        Args:
+            phoneme_lang: If set, overrides the phonemization language without
+                changing the voice.
+        """
         pass
 
     @abstractmethod
@@ -187,7 +198,7 @@ class PiperEngine(BaseTTSEngine):
             logger.error(f"Failed to load voice model {model_name}: {e}")
             return False
 
-    def synthesize(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0) -> Optional[Tuple[bytes, int]]:
+    def synthesize(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0, phoneme_lang: Optional[str] = None) -> Optional[Tuple[bytes, int]]:
         if not text:
             return None
 
@@ -241,7 +252,7 @@ class PiperEngine(BaseTTSEngine):
             logger.error(f"TTS Engine failed to synthesize text. Error: {e}", exc_info=True)
             return None
 
-    def synthesize_stream(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0) -> Iterator[Tuple[bytes, int]]:
+    def synthesize_stream(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0, phoneme_lang: Optional[str] = None) -> Iterator[Tuple[bytes, int]]:
         if not text:
             return
 
@@ -329,7 +340,7 @@ class KokoroEngine(BaseTTSEngine):
             logger.error(f"Failed to initialize Kokoro: {e}", exc_info=True)
             return False
 
-    def synthesize(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0) -> Optional[Tuple[bytes, int]]:
+    def synthesize(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0, phoneme_lang: Optional[str] = None) -> Optional[Tuple[bytes, int]]:
         if not text:
             return None
 
@@ -350,8 +361,10 @@ class KokoroEngine(BaseTTSEngine):
                 return None
 
             logger.debug(f"Synthesizing text with voice {target_voice}: '{text[:100]}{'...' if len(text) > 100 else ''}'")
-            
-            lang_code = _KOKORO_LANG_CODES.get(language, "en-us") if language else "en-us"
+
+            # phoneme_lang overrides the phonemization language while keeping the same voice
+            effective_lang = phoneme_lang or language
+            lang_code = _KOKORO_LANG_CODES.get(effective_lang, "en-us") if effective_lang else "en-us"
 
             with self._lock:
                 # Kokoro returns samples in [-1, 1] range, and sample_rate
@@ -381,7 +394,7 @@ class KokoroEngine(BaseTTSEngine):
             logger.error(f"Kokoro Engine failed to synthesize text. Error: {e}", exc_info=True)
             return None
 
-    def synthesize_stream(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0) -> Iterator[Tuple[bytes, int]]:
+    def synthesize_stream(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0, phoneme_lang: Optional[str] = None) -> Iterator[Tuple[bytes, int]]:
         if not text:
             return
 
@@ -392,7 +405,9 @@ class KokoroEngine(BaseTTSEngine):
         if not self._init_kokoro():
             return
 
-        lang_code = _KOKORO_LANG_CODES.get(language, "en-us") if language else "en-us"
+        # phoneme_lang overrides the phonemization language while keeping the same voice
+        effective_lang = phoneme_lang or language
+        lang_code = _KOKORO_LANG_CODES.get(effective_lang, "en-us") if effective_lang else "en-us"
 
         for chunk in self._chunk_text(text):
             if not chunk.strip():

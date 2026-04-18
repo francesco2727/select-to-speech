@@ -19,6 +19,7 @@ from .ollama_client import (
 )
 from .screenshot import capture_fullscreen
 from .selection_listener import WaylandSelectionListener
+from .loanword_detector import segment_with_loanwords
 from .tts_engine import get_tts_engine
 from .audio_player import AudioPlayer
 
@@ -307,7 +308,7 @@ class SelectToSpeechApp:
 
         Args:
             text: Original full text (unused here, kept for logging context)
-            segments: List of (segment_text, lang_code) pairs
+            segments: List of (segment_text, voice_lang, phoneme_lang) tuples
             language: Dominant language code (used for fallback retry)
             audio_queue: Queue to put audio chunks into
             stop_event: Event signalling synthesis should stop
@@ -323,7 +324,7 @@ class SelectToSpeechApp:
             return False
 
         try:
-            for seg_text, seg_lang in segments:
+            for seg_text, seg_lang, seg_phoneme_lang in segments:
                 if stop_event.is_set():
                     break
                 produced = False
@@ -332,15 +333,15 @@ class SelectToSpeechApp:
                     language=seg_lang,
                     speed=self.config.audio.speed,
                     volume=self.config.audio.volume,
+                    phoneme_lang=seg_phoneme_lang,
                 ):
                     produced = True
                     if not _enqueue(chunk_data):
                         return
-                # If synthesis failed (no chunks) and we used a non-dominant language,
-                # retry with the dominant language (e.g. espeak data not installed)
-                if not produced and seg_lang != language:
+                # If synthesis failed, retry without the phoneme override
+                if not produced and seg_phoneme_lang is not None:
                     logger.warning(
-                        f"Synthesis failed for language '{seg_lang}', retrying with '{language}'"
+                        f"Synthesis failed with phoneme_lang='{seg_phoneme_lang}', retrying without override"
                     )
                     for chunk_data in self.tts_engine.synthesize_stream(
                         seg_text,
@@ -375,7 +376,7 @@ class SelectToSpeechApp:
         if stop_event.is_set():
             return None
 
-        segments = [(text, language)]
+        segments = segment_with_loanwords(text, language)
         return language, segments
 
     def process_text(self, text: str, stop_event: threading.Event) -> bool:
