@@ -55,14 +55,11 @@ class KeyboardConfig(BaseModel):
 
 
 class OllamaConfig(BaseModel):
-    """Ollama LLM configuration for screen reading features"""
+    """Ollama LLM configuration for screen description feature"""
 
     server_url: str = Field("http://localhost:11434", description="Ollama API server URL")
-    read_screen_model: str = Field("gemma4:e2b", description="Vision model for screen text extraction")
     describe_screen_model: str = Field("gemma4:e2b", description="Vision model for screen description")
-    read_screen_key: str = Field("r", description="Trigger key for Read Screen Text")
     describe_screen_key: str = Field("d", description="Trigger key for Describe Screen")
-    read_screen_modifier: str = Field("alt+ctrl", description="Modifier keys for Read Screen")
     describe_screen_modifier: str = Field("alt+ctrl", description="Modifier keys for Describe Screen")
 
 

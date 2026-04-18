@@ -675,15 +675,6 @@ class SettingsWindow(KPageDialog):
         models_group = QGroupBox(_("Models"))
         models_form = QFormLayout(models_group)
 
-        read_model_row = QWidget()
-        read_layout = QHBoxLayout(read_model_row)
-        read_layout.setContentsMargins(0, 0, 0, 0)
-        self.read_model_combo = QComboBox()
-        self.read_model_combo.setEditable(True)
-        self.read_model_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        read_layout.addWidget(self.read_model_combo, stretch=1)
-        models_form.addRow(_("Read Screen model:"), read_model_row)
-
         describe_model_row = QWidget()
         describe_layout = QHBoxLayout(describe_model_row)
         describe_layout.setContentsMargins(0, 0, 0, 0)
@@ -709,14 +700,6 @@ class SettingsWindow(KPageDialog):
         shortcuts_group = QGroupBox(_("Shortcuts"))
         shortcuts_form = QFormLayout(shortcuts_group)
 
-        self.read_screen_mod = ModifierKeySelector()
-        self.read_screen_mod.modifiersChanged.connect(lambda _: self._update_screen_shortcut_preview())
-        shortcuts_form.addRow(_("Read Screen modifier:"), self.read_screen_mod)
-
-        self.read_screen_key_capture = KeyCaptureWidget()
-        self.read_screen_key_capture.keyChanged.connect(lambda _: self._update_screen_shortcut_preview())
-        shortcuts_form.addRow(_("Read Screen key:"), self.read_screen_key_capture)
-
         self.describe_screen_mod = ModifierKeySelector()
         self.describe_screen_mod.modifiersChanged.connect(lambda _: self._update_screen_shortcut_preview())
         shortcuts_form.addRow(_("Describe Screen modifier:"), self.describe_screen_mod)
@@ -739,23 +722,15 @@ class SettingsWindow(KPageDialog):
         return tab
 
     def _update_screen_shortcut_preview(self):
-        read_mod = self.read_screen_mod.modifiers()
-        read_mod_display = "+".join(m.capitalize() for m in read_mod.split("+") if m)
-        read_key = _display_key(self.read_screen_key_capture.key_name()) if self.read_screen_key_capture.key_name() else "\u2014"
         desc_mod = self.describe_screen_mod.modifiers()
         desc_mod_display = "+".join(m.capitalize() for m in desc_mod.split("+") if m)
         desc_key = _display_key(self.describe_screen_key_capture.key_name()) if self.describe_screen_key_capture.key_name() else "\u2014"
 
-        parts = []
-        if read_mod_display:
-            parts.append(f"{_('Read Screen:')} {read_mod_display}+{read_key}")
-        else:
-            parts.append(f"{_('Read Screen:')} {read_key}")
         if desc_mod_display:
-            parts.append(f"{_('Describe Screen:')} {desc_mod_display}+{desc_key}")
+            preview = f"{_('Describe Screen:')} {desc_mod_display}+{desc_key}"
         else:
-            parts.append(f"{_('Describe Screen:')} {desc_key}")
-        self.screen_shortcut_preview.setText("   |   ".join(parts))
+            preview = f"{_('Describe Screen:')} {desc_key}"
+        self.screen_shortcut_preview.setText(preview)
 
     def _auto_fetch_ollama_models(self):
         """Fetch Ollama models in a background thread on settings open."""
@@ -769,15 +744,14 @@ class SettingsWindow(KPageDialog):
         threading.Thread(target=_run, daemon=True).start()
 
     def _do_populate_ollama_combos(self, models: list):
-        """Populate model combo boxes on the GUI thread (called via signal)."""
-        for combo in (self.read_model_combo, self.describe_model_combo):
-            prev = combo.currentText()
-            combo.clear()
-            combo.addItems(models)
-            if prev:
-                idx = combo.findText(prev)
-                if idx >= 0:
-                    combo.setCurrentIndex(idx)
+        """Populate the describe model combo box on the GUI thread (called via signal)."""
+        prev = self.describe_model_combo.currentText()
+        self.describe_model_combo.clear()
+        self.describe_model_combo.addItems(models)
+        if prev:
+            idx = self.describe_model_combo.findText(prev)
+            if idx >= 0:
+                self.describe_model_combo.setCurrentIndex(idx)
 
     def _on_test_ollama(self):
         url = self.ollama_url_edit.text().strip() or "http://localhost:11434"
@@ -1161,10 +1135,7 @@ class SettingsWindow(KPageDialog):
         # Ollama / Screen Reader
         o = self.config.ollama
         self.ollama_url_edit.setText(o.server_url)
-        self.read_model_combo.setCurrentText(o.read_screen_model)
         self.describe_model_combo.setCurrentText(o.describe_screen_model)
-        self.read_screen_mod.set_modifiers(o.read_screen_modifier)
-        self.read_screen_key_capture.set_key(o.read_screen_key)
         self.describe_screen_mod.set_modifiers(o.describe_screen_modifier)
         self.describe_screen_key_capture.set_key(o.describe_screen_key)
         self._update_screen_shortcut_preview()
@@ -1206,11 +1177,8 @@ class SettingsWindow(KPageDialog):
             ),
             ollama=OllamaConfig(
                 server_url=self.ollama_url_edit.text().strip() or "http://localhost:11434",
-                read_screen_model=self.read_model_combo.currentText().strip() or "llava",
                 describe_screen_model=self.describe_model_combo.currentText().strip() or "llava",
-                read_screen_key=self.read_screen_key_capture.key_name(),
                 describe_screen_key=self.describe_screen_key_capture.key_name(),
-                read_screen_modifier=self.read_screen_mod.modifiers(),
                 describe_screen_modifier=self.describe_screen_mod.modifiers(),
             ),
             debug=self.debug_check.isChecked(),

@@ -63,7 +63,6 @@ class GUIApp:
         """Wrap _on_text_selected / _on_stop_pressed / screen reader to emit state."""
         original_on_text = self.app._on_text_selected
         original_on_stop = self.app._on_stop_pressed
-        original_read_screen = self.app._on_read_screen_pressed
         original_describe_screen = self.app._on_describe_screen_pressed
 
         def wrapped_on_text(text: str):
@@ -75,11 +74,6 @@ class GUIApp:
             original_on_stop()
             self.bridge.set_state(AppState.IDLE)
 
-        def wrapped_read_screen():
-            self.bridge.set_state(AppState.SPEAKING)
-            self._notify_speaking(_("Reading screen text..."))
-            original_read_screen()
-
         def wrapped_describe_screen():
             self.bridge.set_state(AppState.SPEAKING)
             self._notify_speaking(_("Describing screen..."))
@@ -87,7 +81,6 @@ class GUIApp:
 
         self.app._on_text_selected = wrapped_on_text
         self.app._on_stop_pressed = wrapped_on_stop
-        self.app._on_read_screen_pressed = wrapped_read_screen
         self.app._on_describe_screen_pressed = wrapped_describe_screen
 
     def _poll_state(self):

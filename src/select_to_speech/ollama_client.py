@@ -9,12 +9,6 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-PROMPT_READ_SCREEN = (
-    "Extract ALL text visible on this screen. "
-    "Return only the text content, preserving reading order "
-    "top-to-bottom, left-to-right. Do not describe the screen."
-)
-
 PROMPT_DESCRIBE_SCREEN = (
     "Describe what is shown on this computer screen for a visually impaired user. "
     "Mention the application being used, visible UI elements, text content, and "
@@ -83,6 +77,14 @@ def generate_with_image(
         r.raise_for_status()
         data = r.json()
         return data.get("message", {}).get("content", "")
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code == 404:
+            logger.error(
+                "Ollama model '%s' not found. Pull it with: ollama pull %s", model, model
+            )
+        else:
+            logger.error("Ollama generate failed: %s", e)
+        return None
     except requests.RequestException as e:
         logger.error("Ollama generate failed: %s", e)
         return None
