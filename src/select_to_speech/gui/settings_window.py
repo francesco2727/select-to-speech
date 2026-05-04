@@ -418,6 +418,7 @@ class SettingsWindow(KPageDialog):
 
         # ── Top form: engine ──
         top_form = QFormLayout()
+        top_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         self.engine_combo = QComboBox()
         self.engine_combo.addItems(["kokoro", "piper"])
@@ -432,6 +433,7 @@ class SettingsWindow(KPageDialog):
         self._lang_model_group = QGroupBox(_("Model per language"))
         self._lang_model_form = QFormLayout(self._lang_model_group)
         self._lang_model_form.setVerticalSpacing(10)
+        self._lang_model_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         outer.addWidget(self._lang_model_group)
         outer.addStretch()
 
@@ -531,7 +533,8 @@ class SettingsWindow(KPageDialog):
     def _build_audio_tab(self) -> QWidget:
         tab = QWidget()
         form = QFormLayout(tab)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         self.speed_spin, self.speed_slider = self._make_slider_pair(0.5, 2.0, 0.1, 1.0)
         form.addRow(_("Speed:"), self._h_pair(self.speed_slider, self.speed_spin))
@@ -546,7 +549,8 @@ class SettingsWindow(KPageDialog):
         self.device_combo.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
-        self.device_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.device_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.device_combo.setMinimumContentsLength(20)
         self._populate_audio_devices()
         self.device_combo.currentIndexChanged.connect(
             lambda: self.device_combo.setToolTip(self.device_combo.currentText())
@@ -598,6 +602,7 @@ class SettingsWindow(KPageDialog):
     def _build_keyboard_tab(self) -> QWidget:
         tab = QWidget()
         form = QFormLayout(tab)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         self.mod_selector = ModifierKeySelector()
         self.mod_selector.modifiersChanged.connect(lambda _: self._update_shortcut_preview())
@@ -654,6 +659,7 @@ class SettingsWindow(KPageDialog):
         # ── Ollama Server section ──
         server_group = QGroupBox(_("Ollama Server"))
         server_form = QFormLayout(server_group)
+        server_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         self.ollama_url_edit = QLineEdit()
         self.ollama_url_edit.setPlaceholderText("http://localhost:11434")
@@ -674,6 +680,7 @@ class SettingsWindow(KPageDialog):
         # ── Models section ──
         models_group = QGroupBox(_("Models"))
         models_form = QFormLayout(models_group)
+        models_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         describe_model_row = QWidget()
         describe_layout = QHBoxLayout(describe_model_row)
@@ -699,6 +706,7 @@ class SettingsWindow(KPageDialog):
         # ── Shortcuts section ──
         shortcuts_group = QGroupBox(_("Shortcuts"))
         shortcuts_form = QFormLayout(shortcuts_group)
+        shortcuts_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         self.describe_screen_mod = ModifierKeySelector()
         self.describe_screen_mod.modifiersChanged.connect(lambda _: self._update_screen_shortcut_preview())
@@ -800,6 +808,7 @@ class SettingsWindow(KPageDialog):
         # ── App settings group ──
         settings_group = QGroupBox(_("Application"))
         form = QFormLayout(settings_group)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         self.debug_check = QCheckBox(_("Enable debug logging"))
         form.addRow(self.debug_check)

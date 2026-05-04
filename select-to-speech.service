@@ -1,6 +1,6 @@
 [Unit]
 Description=Select to Speech — KDE system tray
-Documentation=https://github.com/your-user/select-to-speech
+Documentationhttps://github.com/francesco2727/select-to-speech
 After=graphical-session.target
 PartOf=graphical-session.target
 
