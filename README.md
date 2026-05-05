@@ -6,6 +6,7 @@ A Wayland-native text-to-speech application for Linux that reads selected text a
 
 - **Read selected text** — highlight any text and press a hotkey to hear it spoken
 - **Automatic language detection** — switches voice per language segment (e.g. Italian + English in the same paragraph)
+- **Smart English Loanword Detection** — correctly pronounces English tech terms and loanwords within non-English text without switching the voice
 - **Two TTS engines** — [Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx) (default, high quality) and [Piper TTS](https://github.com/rhasspy/piper)
 - **Screen reading via Ollama** — capture the screen and have a local vision LLM extract or describe its content, then read it aloud
 - **KDE Plasma system tray GUI** — native PySide6/KDE tray icon with settings window
@@ -137,59 +138,7 @@ poetry run select-to-speech-audio
 
 ## Ollama (optional — screen reading features)
 
-The screen reading and screen description features require a locally running [Ollama](https://ollama.com) server with a vision-capable model.
-
-### 1. Install Ollama
-
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-```
-
-Or on Arch / CachyOS:
-
-```bash
-sudo pacman -S ollama
-```
-
-### 2. Start the Ollama server
-
-```bash
-ollama serve
-```
-
-The server listens on `http://localhost:11434` by default. To start it automatically as a systemd service:
-
-```bash
-sudo systemctl enable --now ollama
-```
-
-### 3. Pull a vision model
-
-The default model configured in this app is `gemma4:e2b` (Google Gemma 4, 2B — lightweight and fast):
-
-```bash
-ollama pull gemma4:e2b
-```
-
-Any other Ollama vision model works. To use a different one, change `read_screen_model` and `describe_screen_model` in `~/.config/select-to-speech/config.yaml`.
-
-Some alternatives:
-
-| Model | Size | Notes |
-|---|---|---|
-| `gemma4:e2b` | ~2 GB | Default — fast, low memory |
-| `llava:7b` | ~4 GB | Widely tested vision model |
-| `minicpm-v:8b` | ~5 GB | Strong OCR performance |
-| `llama3.2-vision:11b` | ~8 GB | Higher accuracy, needs more VRAM |
-
-### 4. Verify the server is running
-
-```bash
-curl http://localhost:11434
-# Expected: "Ollama is running"
-```
-
-Once Ollama is running and a vision model is pulled, the screen reading shortcuts (`Alt + Ctrl + R` and `Alt + Ctrl + D`) become active.
+The screen reading and screen description features require a locally running [Ollama](https://ollama.com) server with a vision-capable model. You must install Ollama and pull a vision model (like `gemma4:e2b`, `llava:7b`, etc) for the shortcuts (`Alt + Ctrl + R` and `Alt + Ctrl + D`) to become active.
 
 ---
 
@@ -216,50 +165,6 @@ The configuration file is loaded from:
 ```
 
 If the file does not exist, defaults are used. You can edit it manually or use the settings GUI.
-
-### Full example
-
-```yaml
-debug: false
-gui_language: auto   # 'auto' | 'en' | 'it' | 'es' | 'fr'
-
-voice:
-  engine: kokoro           # 'kokoro' (default) or 'piper'
-  model: kokoro-v1.0       # base model name
-  language: it             # default language code (ISO 639-1)
-  language_models:         # per-language voice mapping
-    en: af_heart
-    it: if_sara
-    es: ""    # empty = no voice configured for this language
-    fr: ""
-    de: ""
-    hi: ""
-    ja: ""
-    ko: ""
-    pt: ""
-    zh: ""
-
-audio:
-  device_id: null   # null = system default; use select-to-speech-audio to list IDs
-  speed: 1.0        # 0.5 – 2.0
-  pitch: 1.0        # 0.5 – 2.0
-  volume: 1.0       # 0.0 – 2.0
-
-keyboard:
-  modifier_key: alt    # 'alt' | 'ctrl' | 'shift'
-  trigger_key: esc     # key combined with modifier to start reading
-  pause_key: w         # key combined with modifier to pause/resume
-  stop_key: s          # key combined with modifier to stop
-
-ollama:
-  server_url: http://localhost:11434
-  read_screen_model: gemma4:e2b       # vision model for text extraction
-  describe_screen_model: gemma4:e2b   # vision model for screen description
-  read_screen_modifier: alt+ctrl
-  read_screen_key: r
-  describe_screen_modifier: alt+ctrl
-  describe_screen_key: d
-```
 
 ### Configuration sections
 
