@@ -5,7 +5,6 @@ import logging
 import re
 import time
 import wave
-import json
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Iterator
