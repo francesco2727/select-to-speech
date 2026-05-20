@@ -337,6 +337,21 @@ class KokoroEngine(BaseTTSEngine):
                 if self.kokoro is None:
                     logger.info("Initializing Kokoro ONNX model...")
                     self.kokoro = Kokoro(str(self.model_path), str(self.voices_bin_path))
+                    
+                    # Intercept tokenizer.phonemize to strip espeak-ng language tags.
+                    # espeak-ng outputs language switch tags (e.g., '(en)', '(it)') when it
+                    # automatically detects foreign words during phonemization.
+                    # Because these tags' characters are in Kokoro's vocabulary, Kokoro
+                    # otherwise literally tokenizes and pronounces them (e.g., saying 'it'
+                    # at the end of 'team' when processing in Italian).
+                    original_phonemize = self.kokoro.tokenizer.phonemize
+                    
+                    def patched_phonemize(text: str, lang: str = "en-us", norm: bool = True) -> str:
+                        phonemes = original_phonemize(text, lang=lang, norm=norm)
+                        # Remove language switch tags like (en), (it), (fr), (es), etc.
+                        return re.sub(r'\([a-z]{2}\)', '', phonemes)
+                        
+                    self.kokoro.tokenizer.phonemize = patched_phonemize
             return True
         except ImportError:
             logger.error("kokoro-onnx is not installed. KokoroEngine cannot be used.")
