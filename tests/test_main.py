@@ -45,17 +45,16 @@ def test_on_text_selected(mock_app):
         # Stop event should be cleared before processing
         assert not mock_app._stop_event.is_set()
 
-@patch('select_to_speech.main.detect')
-def test_process_text(mock_detect, mock_app):
-    mock_detect.return_value = "en"
+def test_process_text(mock_app):
     stop_event = threading.Event()
     
     mock_app.tts_engine.synthesize_stream.return_value = iter([(b"audio", 22050)])
     mock_app.audio_player.play_stream.return_value = True
     
-    # Process text runs background threads, since we mock play_stream and synthesize_stream, it should work
-    result = mock_app.process_text("Hello there", stop_event)
-    
-    assert result is True
-    # Verify the language fallback and playback
-    mock_app.audio_player.play_stream.assert_called_once()
+    with patch.object(mock_app, '_detect_language', return_value="en"):
+        # Process text runs background threads, since we mock play_stream and synthesize_stream, it should work
+        result = mock_app.process_text("Hello there", stop_event)
+        
+        assert result is True
+        # Verify the language fallback and playback
+        mock_app.audio_player.play_stream.assert_called_once()

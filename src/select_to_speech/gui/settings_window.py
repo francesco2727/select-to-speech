@@ -29,8 +29,7 @@ from PySide6.QtWidgets import (
 
 from KWidgetsAddons import KPageDialog, KPageWidgetItem
 
-from ..config import AppConfig, AudioConfig, KeyboardConfig, OllamaConfig, VoiceConfig, load_config, save_config
-from .. import ollama_client
+from ..config import AppConfig, AudioConfig, KeyboardConfig, VoiceConfig, load_config, save_config
 from .. import voice_manager
 from ..i18n import _, set_language
 from ..system_check import get_audio_devices
@@ -288,6 +287,9 @@ class ModifierKeySelector(QFrame):
 
 # ═══════════════════════════════════════════════════════════════════
 
+MAX_CONTROL_WIDTH = 400
+MAX_PAGE_WIDTH = 680
+
 _GUI_LANGUAGES = [
     ("auto", "Auto (system)"),
     ("en", "English"),
@@ -302,8 +304,6 @@ class SettingsWindow(KPageDialog):
 
     # Signal emitted from background thread to reset play button on the GUI thread
     _reset_play_btn = Signal(str)
-    # Signal to update Ollama model combos from background thread (carries model list)
-    _ollama_models_ready = Signal(list)
     # Piper voice management signals
     _voices_ready = Signal(list)           # list[str] of remote voice names
     _download_progress = Signal(int, int)  # downloaded_bytes, total_bytes
@@ -337,15 +337,10 @@ class SettingsWindow(KPageDialog):
 
         # Connect the thread-safe signal for resetting play buttons
         self._reset_play_btn.connect(self._do_reset_play_btn)
-        # Connect Ollama model list signal
-        self._ollama_models_ready.connect(self._do_populate_ollama_combos)
         # Connect Piper voice management signals
         self._voices_ready.connect(self._do_populate_remote_voices)
         self._download_progress.connect(self._do_update_download_progress)
         self._download_done.connect(self._do_on_download_done)
-
-        # Auto-fetch Ollama models in background on startup
-        self._auto_fetch_ollama_models()
 
     # ──────────────────────── UI Construction ────────────────────────
 
@@ -363,13 +358,12 @@ class SettingsWindow(KPageDialog):
         btn_box.button(QDialogButtonBox.StandardButton.Cancel).setText(_("Cancel"))
 
     def _add_pages(self):
-        """Add the four settings pages to the KPageDialog."""
+        """Add the settings pages to the KPageDialog."""
         pages = [
             (_("Engine"),        "applications-engineering", self._scrollable_page(self._build_voice_tab())),
             (_("Audio"),         "audio-headphones",          self._scrollable_page(self._build_audio_tab())),
             (_("Shortcuts"),     "configure-shortcuts",       self._scrollable_page(self._build_keyboard_tab())),
-            (_("Screen Reader"), "view-preview",              self._scrollable_page(self._build_screen_reader_tab())),
-            (_("General"),       "configure",                 self._scrollable_page(self._build_general_tab(), max_width=750)),
+            (_("General"),       "configure",                 self._scrollable_page(self._build_general_tab())),
         ]
         # Keep Python-side references so Shiboken doesn't GC the C++ objects
         # before KPageDialog has a chance to take ownership of them.
@@ -383,29 +377,21 @@ class SettingsWindow(KPageDialog):
             self._page_items.append(item)
 
     @staticmethod
-    def _scrollable_page(content: QWidget, max_width: int = 600) -> QScrollArea:
-        """Wrap *content* in a scroll area with a centred, max-width container."""
-        content.setMaximumWidth(max_width)
-        content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-
-        wrapper = QWidget()
-        h = QHBoxLayout(wrapper)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.addStretch()
-        h.addWidget(content)
-        h.addStretch()
+    def _scrollable_page(content: QWidget) -> QScrollArea:
+        """Wrap *content* in a scroll area that limits its maximum width and centers it."""
+        container = QWidget()
+        h_layout = QHBoxLayout(container)
+        h_layout.setContentsMargins(16, 16, 16, 16)
+        
+        h_layout.addStretch(1)
+        content.setMaximumWidth(MAX_PAGE_WIDTH)
+        h_layout.addWidget(content)
+        h_layout.addStretch(1)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setWidget(wrapper)
-
-        # Ensure the scroll area triggers vertical scrollbars instead of
-        # compressing content when the viewport is too short.
-        def _enforce_min_height():
-            wrapper.setMinimumHeight(content.sizeHint().height())
-        wrapper.resizeEvent = lambda e: _enforce_min_height()
+        scroll.setWidget(container)
 
         return scroll
 
@@ -421,6 +407,7 @@ class SettingsWindow(KPageDialog):
         top_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         self.engine_combo = QComboBox()
+        self.engine_combo.setMaximumWidth(MAX_CONTROL_WIDTH)
         self.engine_combo.addItems(["kokoro", "piper"])
         self.engine_combo.currentTextChanged.connect(self._on_engine_changed)
         top_form.addRow(_("Engine:"), self.engine_combo)
@@ -512,13 +499,14 @@ class SettingsWindow(KPageDialog):
 
             # Play button to preview the selected voice
             play_btn = QPushButton("\u25b6")
-            play_btn.setFixedSize(32, 32)
+            play_btn.setFixedWidth(32)
             play_btn.setToolTip(_("Play"))
             play_btn.setEnabled(bool(voices))
             play_btn.clicked.connect(lambda checked, l=lang: self._on_play_voice(l))
             self._lang_play_btns[lang] = play_btn
 
             row_widget = QWidget()
+            row_widget.setMaximumWidth(MAX_CONTROL_WIDTH)
             row_layout = QHBoxLayout(row_widget)
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(4)
@@ -546,6 +534,7 @@ class SettingsWindow(KPageDialog):
         form.addRow(_("Volume:"), self._h_pair(self.volume_slider, self.volume_spin))
 
         self.device_combo = QComboBox()
+        self.device_combo.setMaximumWidth(MAX_CONTROL_WIDTH)
         self.device_combo.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
@@ -582,6 +571,7 @@ class SettingsWindow(KPageDialog):
     @staticmethod
     def _h_pair(left: QWidget, right: QWidget) -> QWidget:
         w = QWidget()
+        w.setMaximumWidth(MAX_CONTROL_WIDTH)
         h = QHBoxLayout(w)
         h.setContentsMargins(0, 0, 0, 0)
         h.addWidget(left, stretch=1)
@@ -605,18 +595,22 @@ class SettingsWindow(KPageDialog):
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         self.mod_selector = ModifierKeySelector()
+        self.mod_selector.setMaximumWidth(MAX_CONTROL_WIDTH)
         self.mod_selector.modifiersChanged.connect(lambda _: self._update_shortcut_preview())
         form.addRow(_("Modifier keys:"), self.mod_selector)
 
         self.trigger_capture = KeyCaptureWidget()
+        self.trigger_capture.setMaximumWidth(MAX_CONTROL_WIDTH)
         self.trigger_capture.keyChanged.connect(lambda _: self._update_shortcut_preview())
         form.addRow(_("Play key:"), self.trigger_capture)
 
         self.pause_capture = KeyCaptureWidget()
+        self.pause_capture.setMaximumWidth(MAX_CONTROL_WIDTH)
         self.pause_capture.keyChanged.connect(lambda _: self._update_shortcut_preview())
         form.addRow(_("Pause / Resume key:"), self.pause_capture)
 
         self.stop_capture = KeyCaptureWidget()
+        self.stop_capture.setMaximumWidth(MAX_CONTROL_WIDTH)
         self.stop_capture.keyChanged.connect(lambda _: self._update_shortcut_preview())
         form.addRow(_("Stop key:"), self.stop_capture)
 
@@ -649,153 +643,7 @@ class SettingsWindow(KPageDialog):
             parts.append(f"{_('Stop:')} {stop}")
         self.shortcut_preview.setText("   |   ".join(parts))
 
-    # ── Screen Reader Tab ─────────────────────────────────────────────
 
-    def _build_screen_reader_tab(self) -> QWidget:
-        tab = QWidget()
-        outer = QVBoxLayout(tab)
-        outer.setContentsMargins(0, 0, 0, 0)
-
-        # ── Ollama Server section ──
-        server_group = QGroupBox(_("Ollama Server"))
-        server_form = QFormLayout(server_group)
-        server_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-
-        self.ollama_url_edit = QLineEdit()
-        self.ollama_url_edit.setPlaceholderText("http://localhost:11434")
-        server_form.addRow(_("Server URL:"), self.ollama_url_edit)
-
-        status_row = QWidget()
-        status_layout = QHBoxLayout(status_row)
-        status_layout.setContentsMargins(0, 0, 0, 0)
-        self.ollama_status_label = QLabel("")
-        self.ollama_test_btn = QPushButton(_("Test Connection"))
-        self.ollama_test_btn.clicked.connect(self._on_test_ollama)
-        status_layout.addWidget(self.ollama_status_label, stretch=1)
-        status_layout.addWidget(self.ollama_test_btn)
-        server_form.addRow("", status_row)
-
-        outer.addWidget(server_group)
-
-        # ── Models section ──
-        models_group = QGroupBox(_("Models"))
-        models_form = QFormLayout(models_group)
-        models_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-
-        describe_model_row = QWidget()
-        describe_layout = QHBoxLayout(describe_model_row)
-        describe_layout.setContentsMargins(0, 0, 0, 0)
-        self.describe_model_combo = QComboBox()
-        self.describe_model_combo.setEditable(True)
-        self.describe_model_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        describe_layout.addWidget(self.describe_model_combo, stretch=1)
-        models_form.addRow(_("Describe Screen model:"), describe_model_row)
-
-        refresh_btn = QPushButton(_("Refresh model list"))
-        refresh_btn.setIcon(QIcon.fromTheme("view-refresh"))
-        refresh_btn.clicked.connect(self._on_refresh_ollama_models)
-        models_form.addRow("", refresh_btn)
-
-        note_label = QLabel(_("To add new models, use the Ollama CLI: ollama pull <model-name>"))
-        note_label.setWordWrap(True)
-        note_label.setStyleSheet("font-style: italic; color: palette(mid);")
-        models_form.addRow("", note_label)
-
-        outer.addWidget(models_group)
-
-        # ── Shortcuts section ──
-        shortcuts_group = QGroupBox(_("Shortcuts"))
-        shortcuts_form = QFormLayout(shortcuts_group)
-        shortcuts_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-
-        self.describe_screen_mod = ModifierKeySelector()
-        self.describe_screen_mod.modifiersChanged.connect(lambda _: self._update_screen_shortcut_preview())
-        shortcuts_form.addRow(_("Describe Screen modifier:"), self.describe_screen_mod)
-
-        self.describe_screen_key_capture = KeyCaptureWidget()
-        self.describe_screen_key_capture.keyChanged.connect(lambda _: self._update_screen_shortcut_preview())
-        shortcuts_form.addRow(_("Describe Screen key:"), self.describe_screen_key_capture)
-
-        self.screen_shortcut_preview = QLabel()
-        self.screen_shortcut_preview.setStyleSheet("font-style: italic;")
-        placeholder_color = QApplication.palette().color(QPalette.ColorRole.PlaceholderText)
-        p = self.screen_shortcut_preview.palette()
-        p.setColor(QPalette.ColorRole.WindowText, placeholder_color)
-        self.screen_shortcut_preview.setPalette(p)
-        shortcuts_form.addRow("", self.screen_shortcut_preview)
-
-        outer.addWidget(shortcuts_group)
-        outer.addStretch()
-
-        return tab
-
-    def _update_screen_shortcut_preview(self):
-        desc_mod = self.describe_screen_mod.modifiers()
-        desc_mod_display = "+".join(m.capitalize() for m in desc_mod.split("+") if m)
-        desc_key = _display_key(self.describe_screen_key_capture.key_name()) if self.describe_screen_key_capture.key_name() else "\u2014"
-
-        if desc_mod_display:
-            preview = f"{_('Describe Screen:')} {desc_mod_display}+{desc_key}"
-        else:
-            preview = f"{_('Describe Screen:')} {desc_key}"
-        self.screen_shortcut_preview.setText(preview)
-
-    def _auto_fetch_ollama_models(self):
-        """Fetch Ollama models in a background thread on settings open."""
-        url = self.ollama_url_edit.text().strip() or "http://localhost:11434"
-
-        def _run():
-            models = ollama_client.list_models(url)
-            if models:
-                self._ollama_models_ready.emit(models)
-
-        threading.Thread(target=_run, daemon=True).start()
-
-    def _do_populate_ollama_combos(self, models: list):
-        """Populate the describe model combo box on the GUI thread (called via signal)."""
-        prev = self.describe_model_combo.currentText()
-        self.describe_model_combo.clear()
-        self.describe_model_combo.addItems(models)
-        if prev:
-            idx = self.describe_model_combo.findText(prev)
-            if idx >= 0:
-                self.describe_model_combo.setCurrentIndex(idx)
-
-    def _on_test_ollama(self):
-        url = self.ollama_url_edit.text().strip() or "http://localhost:11434"
-        self.ollama_test_btn.setEnabled(False)
-        self.ollama_status_label.setText(_("Connecting..."))
-
-        def _run():
-            ok = ollama_client.check_server(url)
-            models = ollama_client.list_models(url) if ok else []
-            count = len(models)
-            QMetaObject.invokeMethod(
-                self.ollama_status_label,
-                "setText",
-                QtConst.ConnectionType.QueuedConnection,
-                Q_ARG(str, _("Connected") + f" ({count} " + _("models") + ")" if ok else _("Not connected")),
-            )
-            QMetaObject.invokeMethod(
-                self.ollama_test_btn,
-                "setEnabled",
-                QtConst.ConnectionType.QueuedConnection,
-                Q_ARG(bool, True),
-            )
-            if models:
-                self._ollama_models_ready.emit(models)
-
-        threading.Thread(target=_run, daemon=True).start()
-
-    def _on_refresh_ollama_models(self):
-        url = self.ollama_url_edit.text().strip() or "http://localhost:11434"
-
-        def _run():
-            models = ollama_client.list_models(url)
-            if models:
-                self._ollama_models_ready.emit(models)
-
-        threading.Thread(target=_run, daemon=True).start()
 
     # ── General Tab ──────────────────────────────────────────────────
 
@@ -814,6 +662,7 @@ class SettingsWindow(KPageDialog):
         form.addRow(self.debug_check)
 
         self.lang_combo = QComboBox()
+        self.lang_combo.setMaximumWidth(MAX_CONTROL_WIDTH)
         for code, display in _GUI_LANGUAGES:
             if code == "auto":
                 self.lang_combo.addItem(_("Auto (system)"), code)
@@ -923,6 +772,7 @@ class SettingsWindow(KPageDialog):
 
         toolbar_layout.addWidget(QLabel(_("Language filter:")))
         self._voices_lang_combo = QComboBox()
+        self._voices_lang_combo.setMaximumWidth(MAX_CONTROL_WIDTH)
         self._voices_lang_combo.addItem(_("All languages"), "")
         for code, display in sorted(_LANGUAGE_DISPLAY.items(), key=lambda x: x[1]):
             self._voices_lang_combo.addItem(f"{display} ({code})", code)
@@ -1141,13 +991,7 @@ class SettingsWindow(KPageDialog):
         self.stop_capture.set_key(k.stop_key)
         self._update_shortcut_preview()
 
-        # Ollama / Screen Reader
-        o = self.config.ollama
-        self.ollama_url_edit.setText(o.server_url)
-        self.describe_model_combo.setCurrentText(o.describe_screen_model)
-        self.describe_screen_mod.set_modifiers(o.describe_screen_modifier)
-        self.describe_screen_key_capture.set_key(o.describe_screen_key)
-        self._update_screen_shortcut_preview()
+
 
         self.debug_check.setChecked(self.config.debug)
 
@@ -1183,12 +1027,6 @@ class SettingsWindow(KPageDialog):
                 trigger_key=self.trigger_capture.key_name(),
                 pause_key=self.pause_capture.key_name(),
                 stop_key=self.stop_capture.key_name(),
-            ),
-            ollama=OllamaConfig(
-                server_url=self.ollama_url_edit.text().strip() or "http://localhost:11434",
-                describe_screen_model=self.describe_model_combo.currentText().strip() or "llava",
-                describe_screen_key=self.describe_screen_key_capture.key_name(),
-                describe_screen_modifier=self.describe_screen_mod.modifiers(),
             ),
             debug=self.debug_check.isChecked(),
             gui_language=self.lang_combo.currentData() or "auto",
@@ -1237,7 +1075,6 @@ class SettingsWindow(KPageDialog):
         # Reconnect signals after rebuild
         for sig, slot in (
             (self._reset_play_btn, self._do_reset_play_btn),
-            (self._ollama_models_ready, self._do_populate_ollama_combos),
             (self._voices_ready, self._do_populate_remote_voices),
             (self._download_progress, self._do_update_download_progress),
             (self._download_done, self._do_on_download_done),
@@ -1247,9 +1084,6 @@ class SettingsWindow(KPageDialog):
             except TypeError:
                 pass
             sig.connect(slot)
-
-        # Re-fetch Ollama models for the new combo widgets
-        self._auto_fetch_ollama_models()
 
     def _on_play_voice(self, language: str):
         """Synthesise and play a short sample for the selected voice in *language*."""

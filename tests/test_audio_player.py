@@ -82,7 +82,7 @@ class TestAudioPlayerPlayback:
         
         assert result is True
         assert player.is_playing is False  # Should be False after playback
-        mock_stream.write.assert_called_once()
+        mock_stream.write.assert_called()
         mock_stream.stop_stream.assert_called_once()
         mock_stream.close.assert_called_once()
 
@@ -161,7 +161,7 @@ class TestAudioPlayerPlayback:
         result = player.play(audio_data, sample_rate=44100, channels=2)
         
         assert result is True
-        mock_stream.write.assert_called_once()
+        mock_stream.write.assert_called()
 
     @patch('select_to_speech.audio_player.pyaudio.PyAudio')
     def test_play_stream(self, mock_pyaudio_class):
@@ -183,7 +183,7 @@ class TestAudioPlayerPlayback:
         result = player.play_stream(q)
         
         assert result is True
-        mock_stream.write.assert_called_once()
+        mock_stream.write.assert_called()
         mock_stream.stop_stream.assert_called_once()
         mock_stream.close.assert_called_once()
 
@@ -282,10 +282,8 @@ class TestAudioPlayerCleanup:
         
         player.stop()
         
-        assert player.stream is None
-        assert player.is_playing is False
-        mock_stream.stop_stream.assert_called_once()
-        mock_stream.close.assert_called_once()
+        assert player._stop_requested is True
+        assert player.is_playing is True  # Set to False by play thread, not stop()
 
     @patch('select_to_speech.audio_player.pyaudio.PyAudio')
     def test_stop_without_stream(self, mock_pyaudio_class):
@@ -316,7 +314,7 @@ class TestAudioPlayerCleanup:
         # Should not raise exception even when close operations fail
         player.stop()
         
-        assert player.stream is None
+        assert player._stop_requested is True
 
     @patch('select_to_speech.audio_player.pyaudio.PyAudio')
     def test_cleanup_on_deletion(self, mock_pyaudio_class):

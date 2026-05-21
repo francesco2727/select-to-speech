@@ -1,6 +1,6 @@
 # Select-to-Speech
 
-A Wayland-native text-to-speech application for Linux that reads selected text aloud using a keyboard shortcut. It supports multilingual automatic language detection, streaming audio playback, and optional AI-powered screen reading via Ollama vision models.
+A Wayland-native text-to-speech application for Linux that reads selected text aloud using a keyboard shortcut. It supports multilingual automatic language detection and streaming audio playback.
 
 ## Features
 
@@ -8,7 +8,6 @@ A Wayland-native text-to-speech application for Linux that reads selected text a
 - **Automatic language detection** — switches voice per language segment (e.g. Italian + English in the same paragraph)
 - **Smart English Loanword Detection** — correctly pronounces English tech terms and loanwords within non-English text without switching the voice
 - **Two TTS engines** — [Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx) (default, high quality) and [Piper TTS](https://github.com/rhasspy/piper)
-- **Screen reading via Ollama** — capture the screen and have a local vision LLM extract or describe its content, then read it aloud
 - **KDE Plasma system tray GUI** — native PySide6/KDE tray icon with settings window
 - **Pause / resume / stop** playback from tray or keyboard
 
@@ -136,12 +135,6 @@ poetry run select-to-speech-audio
 
 ---
 
-## Ollama (optional — screen reading features)
-
-The screen reading and screen description features require a locally running [Ollama](https://ollama.com) server with a vision-capable model. You must install Ollama and pull a vision model (like `gemma4:e2b`, `llava:7b`, etc) for the shortcuts (`Alt + Ctrl + R` and `Alt + Ctrl + D`) to become active.
-
----
-
 ## Default keyboard shortcuts
 
 | Action | Shortcut |
@@ -149,8 +142,6 @@ The screen reading and screen description features require a locally running [Ol
 | Read selected text | `Alt + Esc` |
 | Pause / Resume | `Alt + W` |
 | Stop playback | `Alt + S` |
-| Read screen text (Ollama) | `Alt + Ctrl + R` |
-| Describe screen (Ollama) | `Alt + Ctrl + D` |
 
 All shortcuts are configurable in `~/.config/select-to-speech/config.yaml`.
 
@@ -173,7 +164,6 @@ If the file does not exist, defaults are used. You can edit it manually or use t
 | `voice` | TTS engine selection, default language, and per-language voice mapping |
 | `audio` | Output device, playback speed, pitch, and volume |
 | `keyboard` | Modifier and trigger keys for all hotkeys |
-| `ollama` | Ollama server URL, vision model names, and screen-feature hotkeys |
 | `debug` | Set to `true` to enable verbose logging |
 | `gui_language` | Language for the settings GUI (`auto` follows the system locale) |
 

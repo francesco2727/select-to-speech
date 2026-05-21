@@ -32,12 +32,12 @@ def test_load_config_file_not_found(mock_open, mock_exists):
 
 @patch('select_to_speech.config.Path.exists')
 @patch('builtins.open')
-@patch('json.load')
-def test_load_config_with_file(mock_json_load, mock_open, mock_exists):
+@patch('yaml.safe_load')
+def test_load_config_with_file(mock_yaml_load, mock_open, mock_exists):
     mock_exists.return_value = True
     
-    # Provide a dummy JSON config mapping
-    mock_json_load.return_value = {
+    # Provide a dummy YAML config mapping
+    mock_yaml_load.return_value = {
         "debug": True,
         "voice": {
             "engine": "piper",

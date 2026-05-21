@@ -64,15 +64,15 @@ class AudioPlayer:
         for i in range(self.pyaudio.get_device_count()):
             try:
                 info = self.pyaudio.get_device_info_by_index(i)
+                if info["maxOutputChannels"] <= 0:
+                    continue
+                name = info["name"].lower()
+                if "pipewire" in name:
+                    pipewire_ids.append(i)
+                elif "pulse" in name:
+                    pulse_ids.append(i)
             except Exception:
                 continue
-            if info["maxOutputChannels"] <= 0:
-                continue
-            name = info["name"].lower()
-            if "pipewire" in name:
-                pipewire_ids.append(i)
-            elif "pulse" in name:
-                pulse_ids.append(i)
 
         devices.extend(pipewire_ids)
         devices.extend(pulse_ids)

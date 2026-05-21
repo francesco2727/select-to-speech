@@ -13,11 +13,6 @@ from lingua import Language, LanguageDetectorBuilder
 
 from .config import load_config, AppConfig
 from .keyboard_handler import KeyboardHandler
-from .ollama_client import (
-    PROMPT_DESCRIBE_SCREEN,
-    generate_with_image,
-)
-from .screenshot import capture_fullscreen
 from .selection_listener import WaylandSelectionListener
 from .loanword_detector import segment_with_loanwords
 from .tts_engine import get_tts_engine
@@ -63,7 +58,6 @@ class SelectToSpeechApp:
         self.selection_listener = WaylandSelectionListener(
             on_selection_change=self._on_text_selected,
         )
-        extra_hotkeys = self._build_ollama_hotkeys()
         self.keyboard_handler = KeyboardHandler(
             on_play=self._on_shortcut_pressed,
             on_pause=self._on_pause_pressed,
@@ -72,7 +66,6 @@ class SelectToSpeechApp:
             trigger_key=self.config.keyboard.trigger_key,
             pause_key=self.config.keyboard.pause_key,
             stop_key=self.config.keyboard.stop_key,
-            extra_hotkeys=extra_hotkeys,
         )
 
         self.should_exit = False
@@ -172,52 +165,6 @@ class SelectToSpeechApp:
             logger.debug(f"Mixed-language text split into {len(merged)} segments: {langs}")
 
         return merged
-
-    def _build_ollama_hotkeys(self) -> dict:
-        """Build extra hotkey mappings for the Ollama describe screen feature."""
-        ollama = self.config.ollama
-        hotkeys = {}
-        if ollama.describe_screen_key:
-            hk = KeyboardHandler.format_hotkey(ollama.describe_screen_modifier, ollama.describe_screen_key)
-            hotkeys[hk] = self._on_describe_screen_pressed
-        return hotkeys
-
-    def _ollama_screen_pipeline(self, prompt: str, feature_name: str) -> None:
-        """Pipeline: screenshot -> Ollama vision -> TTS (used by Describe Screen)."""
-        logger.info("%s: capturing screen...", feature_name)
-        image_bytes = capture_fullscreen()
-        if not image_bytes:
-            logger.error("%s: screenshot capture failed", feature_name)
-            return
-
-        ollama = self.config.ollama
-        model = ollama.describe_screen_model
-        logger.info("%s: sending to Ollama model '%s'...", feature_name, model)
-        text = generate_with_image(
-            ollama.server_url, model, prompt, image_bytes,
-        )
-        if not text or not text.strip():
-            logger.warning("%s: Ollama returned empty response", feature_name)
-            return
-
-        logger.info("%s: got %d chars, sending to TTS", feature_name, len(text))
-        self._on_text_selected(text.strip())
-
-    def _on_describe_screen_pressed(self) -> None:
-        """Callback: screenshot -> Ollama screen description -> TTS."""
-        logger.info("Describe Screen shortcut pressed")
-        self._stop_event.set()
-        self.audio_player.stop()
-        if self._process_thread and self._process_thread.is_alive():
-            self._process_thread.join(timeout=0.2)
-
-        self._stop_event = threading.Event()
-        self._process_thread = threading.Thread(
-            target=self._ollama_screen_pipeline,
-            args=(PROMPT_DESCRIBE_SCREEN, "Describe Screen"),
-            daemon=True,
-        )
-        self._process_thread.start()
 
     def _on_text_selected(self, text: str) -> None:
         """

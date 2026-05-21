@@ -65,7 +65,6 @@ class GUIApp:
         """Wrap _on_text_selected / _on_stop_pressed / screen reader to emit state."""
         original_on_text = self.app._on_text_selected
         original_on_stop = self.app._on_stop_pressed
-        original_describe_screen = self.app._on_describe_screen_pressed
 
         def wrapped_on_text(text: str):
             self.bridge.set_state(AppState.SPEAKING)
@@ -76,14 +75,8 @@ class GUIApp:
             original_on_stop()
             self.bridge.set_state(AppState.IDLE)
 
-        def wrapped_describe_screen():
-            self.bridge.set_state(AppState.SPEAKING)
-            self._notify_speaking(_("Describing screen..."))
-            original_describe_screen()
-
         self.app._on_text_selected = wrapped_on_text
         self.app._on_stop_pressed = wrapped_on_stop
-        self.app._on_describe_screen_pressed = wrapped_describe_screen
 
     def _poll_state(self):
         """Sync tray state with audio_player (handles natural end-of-playback)."""
@@ -145,7 +138,6 @@ class GUIApp:
         from ..keyboard_handler import KeyboardHandler
 
         self.app.config = self.config
-        extra_hotkeys = self.app._build_ollama_hotkeys()
         self.app.keyboard_handler = KeyboardHandler(
             on_play=self.app._on_shortcut_pressed,
             on_pause=self.app._on_pause_pressed,
@@ -154,7 +146,6 @@ class GUIApp:
             trigger_key=self.config.keyboard.trigger_key,
             pause_key=self.config.keyboard.pause_key,
             stop_key=self.config.keyboard.stop_key,
-            extra_hotkeys=extra_hotkeys,
         )
         self.app.keyboard_handler.start()
 

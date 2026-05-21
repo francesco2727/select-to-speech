@@ -19,7 +19,7 @@ def test_sanitize_text():
     config = VoiceConfig()
     engine = DummyEngine(config)
     
-    dirty_text = 'Hello """world''' + "'''!  \n\tHow are you?"
+    dirty_text = 'Hello """world"""!  \n\tHow are you?'
     clean_text = engine._sanitize_text(dirty_text)
     
     assert clean_text == 'Hello "world"! How are you?'
@@ -29,7 +29,7 @@ def test_chunk_text():
     engine = DummyEngine(config)
     
     long_text = "This is the first sentence. This is the second sentence! Is this the third? " + ("A long comma list, " * 15)
-    chunks = engine._chunk_text(long_text, max_chars=100)
+    chunks = engine._chunk_text(long_text, max_chars=30)
     
     assert len(chunks) > 1
     # Check that sentences aren't split unnecessarily

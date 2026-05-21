@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from pynput import keyboard
 
 import sys
@@ -7,40 +7,46 @@ sys.path.insert(0, '/home/francescov/develop/select-to-speach/src')
 
 from select_to_speech.keyboard_handler import KeyboardHandler
 
-def test_keyboard_handler_shortcut_triggered():
-    callback = MagicMock()
-    handler = KeyboardHandler(on_shortcut=callback, modifier="alt", trigger_key="esc")
+def test_keyboard_handler_initialization():
+    on_play = MagicMock()
+    on_pause = MagicMock()
+    on_stop = MagicMock()
     
-    # Simulate ALT press
-    handler._on_press(keyboard.Key.alt)
-    assert keyboard.Key.alt in handler.keys_pressed
+    handler = KeyboardHandler(
+        on_play=on_play,
+        on_pause=on_pause,
+        on_stop=on_stop,
+        modifier="alt",
+        trigger_key="esc",
+        pause_key="w",
+        stop_key="s"
+    )
     
-    # Simulate ESC press
-    handler._on_press(keyboard.Key.esc)
-    callback.assert_called_once()
-    
-    # Simulate ALT release
-    handler._on_release(keyboard.Key.alt)
-    assert keyboard.Key.alt not in handler.keys_pressed
+    assert handler.hotkeys["<alt>+<esc>"] == on_play
+    assert handler.hotkeys["<alt>+w"] == on_pause
+    assert handler.hotkeys["<alt>+s"] == on_stop
 
-def test_keyboard_handler_wrong_modifier():
-    callback = MagicMock()
-    handler = KeyboardHandler(on_shortcut=callback, modifier="alt", trigger_key="esc")
-    
-    # Simulate CTRL press
-    handler._on_press(keyboard.Key.ctrl)
-    
-    # Simulate ESC press
-    handler._on_press(keyboard.Key.esc)
-    callback.assert_not_called()
+def test_keyboard_handler_format_hotkey():
+    assert KeyboardHandler.format_hotkey("alt", "esc") == "<alt>+<esc>"
+    assert KeyboardHandler.format_hotkey("ctrl+alt", "a") == "<ctrl>+<alt>+a"
+    assert KeyboardHandler.format_hotkey("shift", "f1") == "<shift>+<f1>"
+    assert KeyboardHandler.format_hotkey("", "space") == "<space>"
 
-def test_keyboard_handler_key_error_handling():
-    callback = MagicMock()
-    handler = KeyboardHandler(on_shortcut=callback, modifier="alt", trigger_key="esc")
+@patch('select_to_speech.keyboard_handler.keyboard.GlobalHotKeys')
+def test_keyboard_handler_start_stop(mock_hotkeys_class):
+    mock_listener = MagicMock()
+    mock_hotkeys_class.return_value = mock_listener
     
-    # Try an unmapped type
-    try:
-        handler._on_press(None)
-        handler._on_release(None)
-    except Exception as e:
-        pytest.fail(f"Handler should not raise on non-Key press: {e}")
+    on_play = MagicMock()
+    handler = KeyboardHandler(on_play=on_play, modifier="alt", trigger_key="esc")
+    
+    # Test start
+    handler.start()
+    mock_hotkeys_class.assert_called_once_with(handler.hotkeys)
+    mock_listener.start.assert_called_once()
+    assert handler.listener == mock_listener
+    
+    # Test stop
+    handler.stop()
+    mock_listener.stop.assert_called_once()
+    assert handler.listener is None
