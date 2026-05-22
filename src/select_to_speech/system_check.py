@@ -53,8 +53,6 @@ def check_system_dependencies() -> bool:
     """
     required_packages = {
         "wl-paste": "wl-clipboard",
-        "pactl": "pulseaudio",
-        "espeak-ng": "espeak-ng",
     }
     # Optional: enables selection capture inside XWayland (non-native Wayland) apps.
     optional_packages = {

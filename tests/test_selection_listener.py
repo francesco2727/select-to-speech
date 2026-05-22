@@ -101,14 +101,30 @@ def test_selection_listener_xwayland_primary_fallback(mock_run):
     assert selected == "xwayland text"
 
 
-# ---- XWayland CLIPBOARD fallback ------------------------------------
+# ---- Wayland/XWayland CLIPBOARD fallbacks ---------------------------
 
 @patch('select_to_speech.selection_listener.subprocess.run')
-def test_selection_listener_xwayland_clipboard_fallback(mock_run):
-    """When both PRIMARY sources are stale, a new CLIPBOARD value is returned."""
+def test_selection_listener_wayland_clipboard_fallback(mock_run):
+    """When both PRIMARY sources are stale, a new Wayland CLIPBOARD value is returned."""
     mock_run.side_effect = [
         _result("stale wayland"),    # wl-paste --primary
         _result("stale wayland"),    # xclip -selection primary
+        _result("copied in wayland"),# wl-paste (clipboard) (new!)
+    ]
+    listener = _make_listener()
+    listener.last_selection = "stale wayland"
+
+    selected = listener.get_primary_selection()
+    assert selected == "copied in wayland"
+
+
+@patch('select_to_speech.selection_listener.subprocess.run')
+def test_selection_listener_xwayland_clipboard_fallback(mock_run):
+    """When PRIMARY sources and Wayland clipboard are stale/empty, a new X11 CLIPBOARD value is returned."""
+    mock_run.side_effect = [
+        _result("stale wayland"),    # wl-paste --primary
+        _result("stale wayland"),    # xclip -selection primary
+        _result("", returncode=1),   # wl-paste (clipboard) (empty/error)
         _result("copied in cef"),    # xclip -selection clipboard (new!)
     ]
     listener = _make_listener()
@@ -124,6 +140,7 @@ def test_selection_listener_clipboard_ignored_when_stale(mock_run):
     mock_run.side_effect = [
         _result("stale wayland"),    # wl-paste
         _result("stale wayland"),    # xclip primary
+        _result("old clipboard"),    # wl-paste (clipboard) (already seen)
         _result("old clipboard"),    # xclip clipboard (already seen)
     ]
     listener = _make_listener()

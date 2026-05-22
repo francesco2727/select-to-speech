@@ -77,6 +77,26 @@ class WaylandSelectionListener:
             logger.debug(f"Error retrieving Wayland selection: {e}")
         return None
 
+    def _get_wayland_clipboard(self) -> Optional[str]:
+        """Return the Wayland clipboard selection via ``wl-paste``, or None."""
+        try:
+            result = subprocess.run(
+                ["wl-paste"],
+                capture_output=True,
+                text=True,
+                timeout=1,
+            )
+            if result.returncode == 0:
+                return result.stdout
+        except FileNotFoundError:
+            # Already logged in _get_wayland_primary if wl-paste is missing
+            pass
+        except subprocess.TimeoutExpired:
+            logger.debug("Timeout retrieving Wayland clipboard selection")
+        except Exception as e:
+            logger.debug(f"Error retrieving Wayland clipboard: {e}")
+        return None
+
     def _run_xclip(self, selection: str) -> Optional[str]:
         """Run ``xclip -selection <selection> -o`` and return stdout, or None."""
         if not self._check_xclip():
@@ -122,7 +142,8 @@ class WaylandSelectionListener:
         1. Wayland PRIMARY (``wl-paste --primary``) – native Wayland apps.
         2. X11 PRIMARY (``xclip -selection primary``) – XWayland apps that
            set the traditional PRIMARY buffer on text highlight.
-        3. X11 CLIPBOARD (``xclip -selection clipboard``) – XWayland apps
+        3. Wayland CLIPBOARD (``wl-paste``) – native Wayland apps clipboard fallback.
+        4. X11 CLIPBOARD (``xclip -selection clipboard``) – XWayland apps
            (e.g. ONLYOFFICE / Chromium-based) that only populate CLIPBOARD
            after the user copies (Ctrl+C).  Only used when the clipboard
            content has changed since the last read, to avoid stale data.
@@ -143,15 +164,27 @@ class WaylandSelectionListener:
             logger.debug("Using X11 primary selection (XWayland fallback)")
             return x11_text
 
-        # Last resort: X11 CLIPBOARD — only if its content changed since our
+        # Fallback 1: Wayland CLIPBOARD — only if its content changed since our
         # last check (avoids returning stale Ctrl+C data).
-        clipboard_text = self._get_x11_clipboard()
-        if clipboard_text:
-            clip_stripped = clipboard_text.strip()
+        wayland_clip = self._get_wayland_clipboard()
+        if wayland_clip:
+            clip_stripped = wayland_clip.strip()
+            if clip_stripped and clip_stripped != self._last_clipboard and clip_stripped != self.last_selection:
+                logger.debug("Using Wayland clipboard selection (Wayland clipboard fallback)")
+                self._last_clipboard = clip_stripped
+                return wayland_clip
+            if clip_stripped:
+                self._last_clipboard = clip_stripped
+
+        # Fallback 2: X11 CLIPBOARD — only if its content changed since our
+        # last check (avoids returning stale Ctrl+C data).
+        x11_clip = self._get_x11_clipboard()
+        if x11_clip:
+            clip_stripped = x11_clip.strip()
             if clip_stripped and clip_stripped != self._last_clipboard and clip_stripped != self.last_selection:
                 logger.debug("Using X11 clipboard selection (XWayland clipboard fallback)")
                 self._last_clipboard = clip_stripped
-                return clipboard_text
+                return x11_clip
             # Always track the latest clipboard so we detect future changes.
             if clip_stripped:
                 self._last_clipboard = clip_stripped
