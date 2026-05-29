@@ -257,8 +257,7 @@ class BaseTTSEngine(ABC):
 
         Args:
             phoneme_lang: If set, overrides the phonemization language without
-                changing the voice (e.g. use Italian voice with English
-                phonemization for loanwords).
+                changing the voice.
         """
         pass
 

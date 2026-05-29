@@ -6,7 +6,6 @@ A Wayland-native text-to-speech application for Linux that reads selected text a
 
 - **Read selected text** — highlight any text and press a hotkey to hear it spoken
 - **Automatic language detection** — switches voice per language segment (e.g. Italian + English in the same paragraph)
-- **Smart English Loanword Detection** — correctly pronounces English tech terms and loanwords within non-English text without switching the voice
 - **Two TTS engines** — [Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx) (default, high quality) and [Piper TTS](https://github.com/rhasspy/piper)
 - **KDE Plasma system tray GUI** — native PySide6/KDE tray icon with settings window
 - **Pause / resume / stop** playback from tray or keyboard

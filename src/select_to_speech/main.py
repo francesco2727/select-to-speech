@@ -14,7 +14,6 @@ from lingua import Language, LanguageDetectorBuilder
 from .config import load_config, AppConfig
 from .keyboard_handler import KeyboardHandler
 from .selection_listener import WaylandSelectionListener
-from .loanword_detector import segment_with_loanwords
 from .tts_engine import get_tts_engine
 from .audio_player import AudioPlayer
 
@@ -326,7 +325,7 @@ class SelectToSpeechApp:
         # Preprocess text to expand math symbols and domain/filename dots
         text = self.tts_engine.preprocess_text(text, language)
 
-        segments = segment_with_loanwords(text, language)
+        segments = [(text, language, None)]
         return language, segments
 
     def process_text(self, text: str, stop_event: threading.Event) -> bool:
