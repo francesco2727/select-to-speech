@@ -323,6 +323,9 @@ class SelectToSpeechApp:
         if stop_event.is_set():
             return None
 
+        # Preprocess text to expand math symbols and domain/filename dots
+        text = self.tts_engine.preprocess_text(text, language)
+
         segments = segment_with_loanwords(text, language)
         return language, segments
 

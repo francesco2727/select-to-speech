@@ -62,6 +62,76 @@ _KOKORO_LANG_CODES: dict[str, str] = {
     "zh": "zh",
 }
 
+# Word mappings for mathematical symbols and punctuation by language
+_SYMBOL_WORDS: dict[str, dict[str, str]] = {
+    "en": {
+        "percent": "percent",
+        "plus": "plus",
+        "minus": "minus",
+        "times": "times",
+        "divide": "divided by",
+        "equals": "equals",
+        "less": "less than",
+        "greater": "greater than",
+        "dot": "dot",
+    },
+    "it": {
+        "percent": "percento",
+        "plus": "più",
+        "minus": "meno",
+        "times": "per",
+        "divide": "diviso",
+        "equals": "uguale",
+        "less": "minore di",
+        "greater": "maggiore di",
+        "dot": "punto",
+    },
+    "es": {
+        "percent": "por ciento",
+        "plus": "más",
+        "minus": "menos",
+        "times": "por",
+        "divide": "dividido por",
+        "equals": "igual a",
+        "less": "menor que",
+        "greater": "mayor que",
+        "dot": "punto",
+    },
+    "fr": {
+        "percent": "pour cent",
+        "plus": "plus",
+        "minus": "moins",
+        "times": "fois",
+        "divide": "divisé par",
+        "equals": "égal",
+        "less": "inférieur à",
+        "greater": "supérieur à",
+        "dot": "point",
+    },
+    "de": {
+        "percent": "Prozent",
+        "plus": "plus",
+        "minus": "minus",
+        "times": "mal",
+        "divide": "geteilt durch",
+        "equals": "gleich",
+        "less": "kleiner als",
+        "greater": "größer als",
+        "dot": "Punkt",
+    },
+    "pt": {
+        "percent": "por cento",
+        "plus": "mais",
+        "minus": "menos",
+        "times": "vezes",
+        "divide": "dividido por",
+        "equals": "igual a",
+        "less": "menor que",
+        "greater": "maior que",
+        "dot": "ponto",
+    },
+}
+
 
 class BaseTTSEngine(ABC):
     """Abstract base class for TTS engines"""
@@ -71,8 +141,56 @@ class BaseTTSEngine(ABC):
         self.voices_dir = get_data_dir() / "voices"
         self.voices_dir.mkdir(parents=True, exist_ok=True)
 
-    def _sanitize_text(self, text: str) -> str:
+    def preprocess_text(self, text: str, language: Optional[str] = None) -> str:
+        """Preprocess text to replace mathematical symbols and dots in domains/filenames with words."""
+        if not text:
+            return text
+
+        # Normalize language code (e.g. "en-us" -> "en", "it_IT" -> "it")
+        lang_key = (language or "").split("-")[0].split("_")[0].lower()
+        if lang_key not in _SYMBOL_WORDS:
+            lang_key = "en"
+        words = _SYMBOL_WORDS[lang_key]
+
+        # 1. Replace dots in domains/filenames
+        # Matches dots preceded by a letter/hyphen/underscore and followed by alphanumeric/hyphen/underscore,
+        # or preceded by alphanumeric/hyphen/underscore and followed by a letter/hyphen/underscore.
+        # This excludes decimal numbers like 3.14 or versions like 1.0.
+        dot_pattern = r'(?<=[a-zA-Z_-])\.(?=[a-zA-Z0-9_-])|(?<=[a-zA-Z0-9_-])\.(?=[a-zA-Z_-])'
+        text = re.sub(dot_pattern, f" {words['dot']} ", text)
+
+        # 2. Replace percent symbol (%)
+        text = text.replace('%', f" {words['percent']} ")
+
+        # 3. Replace plus symbol (+)
+        text = text.replace('+', f" {words['plus']} ")
+
+        # 4. Replace minus symbol (-) when used mathematically
+        # Surrounded by spaces: " - "
+        text = re.sub(r'\s+-\s+', f" {words['minus']} ", text)
+        # Negative sign before a digit: "-5" (must be preceded by whitespace or start of string)
+        text = re.sub(r'(^|\s)-(?=\d)', rf'\1{words["minus"]} ', text)
+
+        # 5. Replace times symbol (*) when used mathematically (between digits or surrounded by spaces)
+        text = re.sub(r'(?<=\d)\s*\*\s*(?=\d)', f" {words['times']} ", text)
+        text = re.sub(r'\s+\*\s+', f" {words['times']} ", text)
+
+        # 6. Replace division symbol (/) when used mathematically (between digits or surrounded by spaces)
+        text = re.sub(r'(?<=\d)\s*/\s*(?=\d)', f" {words['divide']} ", text)
+        text = re.sub(r'\s+/\s+', f" {words['divide']} ", text)
+
+        # 7. Replace equals symbol (=)
+        text = text.replace('=', f" {words['equals']} ")
+
+        # 8. Replace less than (<) and greater than (>)
+        text = text.replace('<', f" {words['less']} ")
+        text = text.replace('>', f" {words['greater']} ")
+
+        return text
+
+    def _sanitize_text(self, text: str, language: Optional[str] = None) -> str:
         """Sanitize text for TTS processing."""
+        text = self.preprocess_text(text, language)
         text = text.replace('"""', '"')
         text = text.replace("'''", "'")
         text = re.sub(r'\s+', ' ', text)
@@ -81,7 +199,7 @@ class BaseTTSEngine(ABC):
         logger.debug(f"Sanitized: '{text[:100]}{'...' if len(text) > 100 else ''}'")
         return text
 
-    def _chunk_text(self, text: str, max_chars: int = 180) -> list[str]:
+    def _chunk_text(self, text: str, max_chars: int = 180, language: Optional[str] = None) -> list[str]:
         """Split text into logical, speakable chunks for streaming TTS."""
         # Normalize newlines to sentence boundaries before sanitization so that
         # paragraph/line breaks produce natural TTS pauses.
@@ -89,7 +207,7 @@ class BaseTTSEngine(ABC):
         text = re.sub(r'([^.!?])\n+', r'\1. ', text)
         text = re.sub(r'([.!?])\n+', r'\1 ', text)
 
-        text = self._sanitize_text(text)
+        text = self._sanitize_text(text, language=language)
         
         # 1. Split by strong sentence boundaries (. ! ?) keeping the punctuation attached
         raw_sentences = re.split(r'(?<=[.!?])\s+', text)
@@ -229,7 +347,7 @@ class PiperEngine(BaseTTSEngine):
                 logger.warning("Empty text provided for synthesis")
                 return None
 
-            text = self._sanitize_text(text)
+            text = self._sanitize_text(text, language=language)
             
             if not text:
                 return None
@@ -283,7 +401,7 @@ class PiperEngine(BaseTTSEngine):
             volume=volume
         )
         
-        for chunk in self._chunk_text(text):
+        for chunk in self._chunk_text(text, language=language):
             if not chunk.strip():
                 continue
             try:
@@ -376,7 +494,7 @@ class KokoroEngine(BaseTTSEngine):
                 logger.warning("Empty text provided for synthesis")
                 return None
 
-            text = self._sanitize_text(text)
+            text = self._sanitize_text(text, language=language)
             if not text:
                 return None
 
@@ -429,7 +547,7 @@ class KokoroEngine(BaseTTSEngine):
         effective_lang = phoneme_lang or language
         lang_code = _KOKORO_LANG_CODES.get(effective_lang, "en-us") if effective_lang else "en-us"
 
-        for chunk in self._chunk_text(text):
+        for chunk in self._chunk_text(text, language=language):
             if not chunk.strip():
                 continue
             logger.debug(f"Synthesizing stream chunk with voice {target_voice}: '{chunk[:100]}{'...' if len(chunk) > 100 else ''}'")

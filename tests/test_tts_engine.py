@@ -60,3 +60,44 @@ def test_piper_engine_stream(mock_ensure):
     assert len(stream_results) == 1
     assert stream_results[0][0] == b"dummy_audio"
     assert stream_results[0][1] == 22050
+
+def test_preprocess_text():
+    config = VoiceConfig()
+    engine = DummyEngine(config)
+    
+    # Italian math symbols & dots in domains/filenames
+    text_it = "Il file.py sul dominio portal.azure.com contiene il 5% di codice + 3 - 2 * 4 / 2 = 10, che è > di 9 e < di 11. Anche -5 è negativo."
+    processed_it = engine.preprocess_text(text_it, language="it")
+    
+    assert "file punto py" in processed_it
+    assert "portal punto azure punto com" in processed_it
+    assert "5 percento" in processed_it
+    assert "più" in processed_it
+    assert "meno" in processed_it
+    assert "per" in processed_it
+    assert "diviso" in processed_it
+    assert "uguale" in processed_it
+    assert "maggiore di" in processed_it
+    assert "minore di" in processed_it
+    assert "meno 5" in processed_it
+    
+    # Test decimal numbers and version strings are kept as is
+    dec_test = "Il valore pi è 3.14 o 10.5 e la versione è 1.0."
+    processed_dec = engine.preprocess_text(dec_test, language="it")
+    assert "3.14" in processed_dec
+    assert "10.5" in processed_dec
+    assert "1.0" in processed_dec
+    
+    # Test English translations
+    text_en = "File file.py at google.com has 5% plus 3 - 2 * 4 / 2 = 10. Also -5."
+    processed_en = engine.preprocess_text(text_en, language="en")
+    
+    assert "file dot py" in processed_en
+    assert "google dot com" in processed_en
+    assert "5 percent" in processed_en
+    assert "plus" in processed_en
+    assert "minus" in processed_en
+    assert "times" in processed_en
+    assert "divided by" in processed_en
+    assert "equals" in processed_en
+    assert "minus 5" in processed_en
