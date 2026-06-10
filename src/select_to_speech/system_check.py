@@ -19,28 +19,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _check_python_imports() -> tuple[list[tuple[str, str]], list[str]]:
-    """Check required Python packages that must be installed as system packages.
-
-    Returns:
-        (missing, found) where missing is a list of (import_name, pacman_package) tuples
-        and found is a list of display strings for found packages.
-    """
-    required_python = {
-        "PySide6": "pyside6",
-        "KNotifications": "knotifications (installed with KDE Plasma)",
-    }
-    missing = []
-    found = []
-    for module, package in required_python.items():
-        try:
-            __import__(module)
-            found.append(f"✓ {module} ({package})")
-        except ImportError:
-            missing.append((module, package))
-    return missing, found
-
-
 def check_system_dependencies() -> bool:
     """
     Check for required system dependencies.
@@ -75,9 +53,6 @@ def check_system_dependencies() -> bool:
         else:
             missing_optional.append((command, package))
 
-    missing_python, found_python = _check_python_imports()
-    found.extend(found_python)
-
     logger.info("\n=== System Dependencies Check ===\n")
 
     for item in found:
@@ -92,13 +67,6 @@ def check_system_dependencies() -> bool:
         packages_opt = list(set(pkg for _, pkg in missing_optional))
         logger.warning(f"  Install with: sudo pacman -S {' '.join(packages_opt)}")
 
-    if missing_python:
-        logger.error("\nMissing required Python system packages:")
-        for module, pkg in missing_python:
-            logger.error(f"✗ {module} ({pkg})")
-        pacman_pkgs = list(dict.fromkeys(pkg for _, pkg in missing_python))
-        logger.error(f"  Install with: sudo pacman -S {' '.join(pacman_pkgs)}")
-
     if missing:
         logger.error("\nMissing required binary dependencies:")
         for cmd, pkg in missing:
@@ -108,7 +76,7 @@ def check_system_dependencies() -> bool:
         packages = list(set(pkg for _, pkg in missing))
         logger.error(f"  sudo pacman -S {' '.join(packages)}\n")
 
-    if missing or missing_python:
+    if missing:
         return False
 
     logger.info("\n✓ All required system dependencies are installed!\n")

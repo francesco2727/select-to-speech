@@ -1,9 +1,0 @@
-[Global]
-Name=Select to Speech
-Comment=Notifications for Select to Speech
-
-[Event/speaking-started]
-Name=Speaking started
-Comment=Triggered when TTS starts reading selected text
-Action=Popup
-IconName=media-playback-start

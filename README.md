@@ -17,11 +17,10 @@ A Wayland-native text-to-speech application for Linux that reads selected text a
 ### System packages (Arch / CachyOS)
 
 ```bash
-sudo pacman -S wl-clipboard gettext
+sudo pacman -S wl-clipboard
 ```
 
 - `wl-clipboard` — required for Wayland primary-selection access
-- `gettext` — required to compile translation files during installation
 
 ### Python (managed by uv)
 
@@ -103,28 +102,36 @@ sudo cp select-to-speech.notifyrc /usr/share/knotifications6/
 
 ---
 
-## Running the app (manual)
+## Running the app (manual / development)
 
-### GUI mode (system tray — recommended)
+To run the application manually from the repository:
+
+### Start the GUI (System Tray + Settings window)
+
+Run the GUI wrapper script:
 
 ```bash
-uv run select-to-speech-gui
+./bin/select-to-speech-gui.sh
 ```
 
-Starts the app with a KDE system tray icon. Right-click the tray for pause/stop and settings.
+Starts the app with a system tray icon. Right-click the tray for pause/stop and settings.
 
-### Headless / CLI mode
+### Start the core daemon only (Headless mode)
+
+To run the API server and keyboard shortcut listener without showing a GUI window:
 
 ```bash
 uv run select-to-speech
 ```
 
-Runs without a GUI. Use keyboard shortcuts to control playback. Exit with `Ctrl+C`.
+Runs the backend API and hotkey listeners in the foreground. Use keyboard shortcuts to control playback. Exit with `Ctrl+C`.
 
 ### Open settings window only
 
+You can launch the GUI specifically into the settings tab by running:
+
 ```bash
-uv run select-to-speech-settings
+./bin/select-to-speech-settings.sh
 ```
 
 ### Utility commands
