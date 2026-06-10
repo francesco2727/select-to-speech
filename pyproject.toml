@@ -1,49 +1,46 @@
-[tool.poetry]
-name = "select-to-speach"
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "select-to-speech"
 version = "0.1.0"
 description = "A Wayland-native text-to-speech app for reading selected text with keyboard shortcut"
-authors = ["Francesco <francescov@example.com>"]
 readme = "README.md"
-packages = [{include = "select_to_speech", from = "src"}]
-include = ["src", "src/select_to_speech/locale/**/*.mo", "select-to-speech.notifyrc"]
-# System dependencies (CachyOS/Arch) — REQUIRED before poetry install:
-#   sudo pacman -S pyside6 shiboken6
-#   - wl-clipboard: for Wayland primary selection access (required)
-#   - xclip: for XWayland app selection fallback (optional)
-#   - pulseaudio or pipewire: for audio playback (usually pre-installed)
-#   - pyside6: Qt6 Python bindings (system package, not managed by poetry)
-#   - KDE Frameworks Python bindings (KWidgetsAddons, KCoreAddons, KNotifications, KStatusNotifierItem)
-#     are bundled with KDE Plasma system packages (already present on a KDE system)
-# After install, copy the notifyrc file for desktop notifications:
-#   sudo cp select-to-speech.notifyrc /usr/share/knotifications6/
+requires-python = ">=3.14,<3.15"
+authors = [
+    { name = "Francesco", email = "francescov@example.com" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "piper-tts>=1.4.1",
+    "pynput>=1.7.6",
+    "pyaudio>=0.2.13",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "lingua-language-detector",
+    "pedalboard>=0.9.8",
+    "kokoro-onnx",
+    "onnxruntime",
+    "soundfile",
+    "requests",
+    "misaki",
+]
 
-[tool.poetry.dependencies]
-python = ">=3.14,<3.15"
-piper-tts = "^1.4.1"
-pynput = "^1.7.6"
-pyaudio = "^0.2.13"
-pydantic = "^2.0"
-pyyaml = "^6.0"
-lingua-language-detector = "*"
-pedalboard = "^0.9.8"
-kokoro-onnx = "*"
-onnxruntime = "*"
-soundfile = "*"
-requests = "*"
-misaki = "*"
-
-[tool.poetry.scripts]
+[project.scripts]
 select-to-speech = "select_to_speech.main:main"
 select-to-speech-check = "select_to_speech.system_check:check_system_dependencies"
 select-to-speech-audio = "select_to_speech.system_check:list_audio_devices"
 select-to-speech-gui = "select_to_speech.gui.main:main"
 select-to-speech-settings = "select_to_speech.gui.main:open_settings"
+select-to-speech-download = "select_to_speech.voice_manager:download_kokoro_cli"
 
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+[tool.hatch.build.targets.wheel]
+packages = ["src/select_to_speech"]
 
 [dependency-groups]
 dev = [
-    "pytest (>=9.0.2,<10.0.0)"
+    "pytest>=9.0.2,<10.0.0",
 ]

@@ -24,9 +24,19 @@ if [[ ${#MISSING_PKGS[@]} -gt 0 ]]; then
     sudo pacman -S --needed "${MISSING_PKGS[@]}"
 fi
 
-# ── Poetry install ─────────────────────────────────────────────────────────────
-info "Running poetry install..."
-poetry -C "$REPO_DIR" install
+# ── uv install ─────────────────────────────────────────────────────────────────
+info "Setting up virtual environment with system packages..."
+uv venv --allow-existing --system-site-packages "$REPO_DIR/.venv"
+info "Running uv sync..."
+uv sync --project "$REPO_DIR"
+
+# ── Download Kokoro models ─────────────────────────────────────────────────────
+info "Downloading Kokoro TTS model files (~350 MB)..."
+if ! uv run --project "$REPO_DIR" select-to-speech-download; then
+    warn "Failed to download Kokoro model files during installation."
+    warn "You can download them manually later via the settings GUI or by running:"
+    warn "  uv run select-to-speech-download"
+fi
 
 # ── Wrapper symlinks ───────────────────────────────────────────────────────────
 info "Installing wrapper scripts to $BIN_DIR..."

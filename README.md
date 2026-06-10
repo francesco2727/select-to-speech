@@ -25,17 +25,22 @@ sudo pacman -S pyside6 shiboken6 wl-clipboard
 - `pulseaudio` or `pipewire` — audio playback (usually pre-installed on KDE)
 - KDE Frameworks Python bindings (`KWidgetsAddons`, `KCoreAddons`, `KNotifications`, `KStatusNotifierItem`) — bundled with KDE Plasma system packages
 
-### Python (managed by Poetry)
+### Python (managed by uv)
 
 Python 3.14 is required.
 
 ```bash
-pip install poetry   # or use your distro's poetry package
+# uv is used for project and dependency management
+# Install uv if you don't have it:
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 ---
 
 ## Installation
+
+> [!NOTE]
+> **Migration from Poetry to `uv`**: The project has transitioned from Poetry to `uv` for faster installation, simpler dependency management, and lighter runtime footprints. If you are upgrading from an older Poetry-based version, simply run `git pull` followed by `./install.sh`. The install script will recreate the virtual environment using `uv` and update all services automatically. You can then safely remove old Poetry files or environments if desired.
 
 ### System install (recommended)
 
@@ -49,13 +54,13 @@ cd select-to-speech
 
 The script:
 1. Installs missing system packages via `pacman`
-2. Runs `poetry install`
-3. Creates symlinks in `~/.local/bin/`
+2. Runs `uv sync` (after creating a virtual environment in `.venv/` with system site packages)
+3. Creates wrapper scripts in `~/.local/bin/` that run directly using the virtual environment's executables (this ensures they run successfully without requiring `uv` to be in the `$PATH` when launched by systemd or desktop menus)
 4. Adds a `.desktop` entry to the KDE launcher
 5. Installs the KDE notification config (requires sudo)
 6. Registers and starts a systemd user service (`select-to-speech.service`)
 
-On first run the Kokoro model files (~350 MB) are downloaded automatically.
+During installation, the Kokoro model files (~350 MB) are downloaded automatically (with a fallback to downloading on first run or manually if installation download fails or is skipped).
 
 #### After a code update
 
@@ -90,7 +95,9 @@ Removes the service, symlinks, and desktop entry. Config and voice files in `~/.
 git clone https://github.com/your-user/select-to-speech.git
 cd select-to-speech
 
-poetry install
+# Create virtual environment with access to system packages, then sync dependencies
+uv venv --system-site-packages
+uv sync
 
 # Copy the KDE notification config (needed for desktop notifications)
 sudo cp select-to-speech.notifyrc /usr/share/knotifications6/
@@ -103,7 +110,7 @@ sudo cp select-to-speech.notifyrc /usr/share/knotifications6/
 ### GUI mode (system tray — recommended)
 
 ```bash
-poetry run select-to-speech-gui
+uv run select-to-speech-gui
 ```
 
 Starts the app with a KDE system tray icon. Right-click the tray for pause/stop and settings.
@@ -111,7 +118,7 @@ Starts the app with a KDE system tray icon. Right-click the tray for pause/stop 
 ### Headless / CLI mode
 
 ```bash
-poetry run select-to-speech
+uv run select-to-speech
 ```
 
 Runs without a GUI. Use keyboard shortcuts to control playback. Exit with `Ctrl+C`.
@@ -119,17 +126,17 @@ Runs without a GUI. Use keyboard shortcuts to control playback. Exit with `Ctrl+
 ### Open settings window only
 
 ```bash
-poetry run select-to-speech-settings
+uv run select-to-speech-settings
 ```
 
 ### Utility commands
 
 ```bash
 # Check system dependencies
-poetry run select-to-speech-check
+uv run select-to-speech-check
 
 # List available audio output devices (to find device_id)
-poetry run select-to-speech-audio
+uv run select-to-speech-audio
 ```
 
 ---
@@ -168,7 +175,7 @@ If the file does not exist, defaults are used. You can edit it manually or use t
 
 ### Voice models
 
-**Kokoro** (default): model files are downloaded automatically on first run (~350 MB) to `~/.local/share/select-to-speech/voices/`. Voice names follow the pattern `{lang_prefix}_{name}` (e.g. `if_sara` for Italian female, `af_heart` for American English female).
+**Kokoro** (default): model files are downloaded automatically during installation (~350 MB) to `~/.local/share/select-to-speech/voices/` (or on first run if missing). Voice names follow the pattern `{lang_prefix}_{name}` (e.g. `if_sara` for Italian female, `af_heart` for American English female).
 
 **Piper**: download `.onnx` + `.onnx.json` files from [HuggingFace rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) and place them in `~/.local/share/select-to-speech/voices/`.
 

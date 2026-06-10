@@ -257,3 +257,46 @@ def delete_voice(voice_name: str) -> bool:
     if not deleted:
         logger.warning("No files found for voice '%s'.", voice_name)
     return deleted
+
+
+def download_kokoro_cli() -> None:
+    """CLI wrapper to download Kokoro models with terminal progress feedback."""
+    import sys
+
+    # Configure logging level for the CLI session
+    logging.getLogger().setLevel(logging.WARNING)
+
+    if is_kokoro_installed():
+        print("Kokoro model files are already installed.")
+        return
+
+    print("Downloading Kokoro TTS model files (~350 MB)...")
+
+    last_pct = -1
+    def progress_cb(downloaded: int, total: int) -> None:
+        nonlocal last_pct
+        if total > 0:
+            pct = int((downloaded / total) * 100)
+            if pct != last_pct:
+                bar_length = 45
+                filled_length = int(bar_length * pct // 100)
+                bar = '█' * filled_length + '-' * (bar_length - filled_length)
+                sys.stdout.write(f"\rProgress: |{bar}| {pct}% ({downloaded / (1024*1024):.1f}/{total / (1024*1024):.1f} MB)")
+                sys.stdout.flush()
+                last_pct = pct
+        else:
+            sys.stdout.write(f"\rDownloaded: {downloaded / (1024*1024):.1f} MB")
+            sys.stdout.flush()
+
+    try:
+        success = download_kokoro(progress_cb=progress_cb)
+        print()  # Newline after progress bar
+        if success:
+            print("✓ Kokoro model files downloaded successfully!")
+        else:
+            print("✗ Failed to download Kokoro model files.")
+            sys.exit(1)
+    except KeyboardInterrupt:
+        print("\n✗ Download interrupted by user.")
+        sys.exit(1)
+
