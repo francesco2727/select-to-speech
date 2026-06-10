@@ -9,6 +9,34 @@ from typing import Callable
 SUPPORTED_LANGUAGES = ("en", "it", "es", "fr")
 _LOCALE_DIR = Path(__file__).parent / "locale"
 
+def compile_translations() -> None:
+    """Compile all .po files to .mo files if they are missing or outdated."""
+    import subprocess
+    import shutil
+
+    msgfmt = shutil.which("msgfmt")
+    if not msgfmt:
+        return
+
+    for lang in SUPPORTED_LANGUAGES:
+        po_path = _LOCALE_DIR / lang / "LC_MESSAGES" / "select_to_speech.po"
+        mo_path = _LOCALE_DIR / lang / "LC_MESSAGES" / "select_to_speech.mo"
+        if po_path.exists():
+            if not mo_path.exists() or po_path.stat().st_mtime > mo_path.stat().st_mtime:
+                try:
+                    mo_path.parent.mkdir(parents=True, exist_ok=True)
+                    subprocess.run(
+                        [msgfmt, "-o", str(mo_path), str(po_path)],
+                        check=True,
+                        capture_output=True,
+                    )
+                except Exception:
+                    pass
+
+
+# Compile translations on import to ensure .mo files are up-to-date
+compile_translations()
+
 # Module-level translation function — replaced by set_language()
 _current: gettext.GNUTranslations | gettext.NullTranslations = gettext.NullTranslations()
 

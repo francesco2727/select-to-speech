@@ -15,7 +15,7 @@ error()   { echo -e "${RED}[✗]${NC} $*" >&2; }
 # ── System dependencies ────────────────────────────────────────────────────────
 info "Checking system dependencies..."
 MISSING_PKGS=()
-for pkg in pyside6 shiboken6 wl-clipboard; do
+for pkg in gettext pyside6 shiboken6 wl-clipboard; do
     pacman -Qi "$pkg" &>/dev/null || MISSING_PKGS+=("$pkg")
 done
 
@@ -29,6 +29,20 @@ info "Setting up virtual environment with system packages..."
 uv venv --allow-existing --system-site-packages "$REPO_DIR/.venv"
 info "Running uv sync..."
 uv sync --project "$REPO_DIR"
+
+# ── Compile translations ───────────────────────────────────────────────────────
+info "Compiling translations..."
+if which msgfmt &>/dev/null; then
+    for po_file in "$REPO_DIR"/src/select_to_speech/locale/*/LC_MESSAGES/*.po; do
+        if [[ -f "$po_file" ]]; then
+            mo_file="${po_file%.po}.mo"
+            info "  Compiling $po_file -> $mo_file"
+            msgfmt -o "$mo_file" "$po_file"
+        fi
+    done
+else
+    warn "msgfmt not found, translations will be compiled at runtime if msgfmt becomes available."
+fi
 
 # ── Download Kokoro models ─────────────────────────────────────────────────────
 info "Downloading Kokoro TTS model files (~350 MB)..."

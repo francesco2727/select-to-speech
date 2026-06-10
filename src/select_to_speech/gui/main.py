@@ -220,6 +220,8 @@ def main():
         _notify_already_running()
         sys.exit(0)
 
+    config = load_config()
+    set_language(config.gui_language)
     _setup_about_data()
 
     qt_app = QApplication(sys.argv)
@@ -239,13 +241,13 @@ def main():
 
 def open_settings():
     """Standalone settings window — no tray, no background app."""
+    config = load_config()
+    set_language(config.gui_language)
     _setup_about_data()
 
     qt_app = QApplication(sys.argv)
     qt_app.setApplicationName("Select-to-Speech Settings")
 
-    config = load_config()
-    set_language(config.gui_language)
     dialog = SettingsWindow(config)
     dialog.show()
 
