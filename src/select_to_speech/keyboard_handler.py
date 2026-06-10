@@ -65,6 +65,8 @@ class KeyboardHandler:
         if modifier:
             for m in modifier.split("+"):
                 m = m.strip().lower()
+                if m == "super":
+                    m = "cmd"
                 if m:
                     parts.append(f"<{m}>")
 

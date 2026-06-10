@@ -6,8 +6,8 @@ A Wayland-native text-to-speech application for Linux that reads selected text a
 
 - **Read selected text** — highlight any text and press a hotkey to hear it spoken
 - **Automatic language detection** — switches voice per language segment (e.g. Italian + English in the same paragraph)
-- **Two TTS engines** — [Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx) (default, high quality) and [Piper TTS](https://github.com/rhasspy/piper)
-- **KDE Plasma system tray GUI** — native PySide6/KDE tray icon with settings window
+- **TTS engine** — [Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx) (high quality, offline)
+- **System tray GUI** — native tray icon with settings window
 - **Pause / resume / stop** playback from tray or keyboard
 
 ---
@@ -17,13 +17,11 @@ A Wayland-native text-to-speech application for Linux that reads selected text a
 ### System packages (Arch / CachyOS)
 
 ```bash
-sudo pacman -S pyside6 shiboken6 wl-clipboard
+sudo pacman -S wl-clipboard gettext
 ```
 
 - `wl-clipboard` — required for Wayland primary-selection access
-- `xclip` — optional, fallback for XWayland apps
-- `pulseaudio` or `pipewire` — audio playback (usually pre-installed on KDE)
-- KDE Frameworks Python bindings (`KWidgetsAddons`, `KCoreAddons`, `KNotifications`, `KStatusNotifierItem`) — bundled with KDE Plasma system packages
+- `gettext` — required to compile translation files during installation
 
 ### Python (managed by uv)
 
@@ -175,9 +173,7 @@ If the file does not exist, defaults are used. You can edit it manually or use t
 
 ### Voice models
 
-**Kokoro** (default): model files are downloaded automatically during installation (~350 MB) to `~/.local/share/select-to-speech/voices/` (or on first run if missing). Voice names follow the pattern `{lang_prefix}_{name}` (e.g. `if_sara` for Italian female, `af_heart` for American English female).
-
-**Piper**: download `.onnx` + `.onnx.json` files from [HuggingFace rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) and place them in `~/.local/share/select-to-speech/voices/`.
+**Kokoro**: model files are downloaded automatically during installation (~350 MB) to `~/.local/share/select-to-speech/voices/` (or on first run if missing). Voice names follow the pattern `{lang_prefix}_{name}` (e.g. `if_sara` for Italian female, `af_heart` for American English female).
 
 ---
 

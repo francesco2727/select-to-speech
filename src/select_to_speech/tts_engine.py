@@ -277,150 +277,6 @@ class BaseTTSEngine(ABC):
         pass
 
 
-class PiperEngine(BaseTTSEngine):
-    """Text-to-Speech engine wrapper for Piper TTS"""
-
-    def __init__(self, voice_config: VoiceConfig):
-        super().__init__(voice_config)
-        self.voices: Dict[str, "PiperVoice"] = {}
-        try:
-            from piper.voice import PiperVoice
-            self.PiperVoice = PiperVoice
-        except ImportError:
-            logger.error("piper-tts is not installed. PiperEngine cannot be used.")
-            self.PiperVoice = None
-
-    def _get_voice_path(self, model_name: str) -> Path:
-        return self.voices_dir / f"{model_name}.onnx"
-
-    def ensure_voice_loaded(self, model_name: str) -> bool:
-        if not self.PiperVoice:
-            return False
-
-        if model_name in self.voices:
-            return True
-
-        try:
-            voice_path = self._get_voice_path(model_name)
-
-            if not voice_path.exists():
-                logger.error(
-                    f"Voice model not found: {voice_path}\n"
-                    f"Download voice models from: https://huggingface.co/rhasspy/piper-voices\n"
-                    f"Note: Both .onnx and .onnx.json files are required for each voice."
-                )
-                return False
-
-            logger.info(f"Loading voice model: {model_name}")
-            voice = self.PiperVoice.load(str(voice_path))
-            self.voices[model_name] = voice
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to load voice model {model_name}: {e}")
-            return False
-
-    def synthesize(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0, phoneme_lang: Optional[str] = None) -> Optional[Tuple[bytes, int]]:
-        if not text:
-            return None
-
-        from piper.config import SynthesisConfig
-
-        target_model = self.voice_config.model
-        if language:
-            target_model = self.get_model_for_language(language)
-
-        if not self.ensure_voice_loaded(target_model):
-            if target_model != self.voice_config.model:
-                logger.warning(f"Failed to load {target_model}, falling back to default {self.voice_config.model}")
-                target_model = self.voice_config.model
-                if not self.ensure_voice_loaded(target_model):
-                    return None
-            else:
-                return None
-        
-        voice = self.voices[target_model]
-
-        try:
-            if not text.strip():
-                logger.warning("Empty text provided for synthesis")
-                return None
-
-            text = self._sanitize_text(text, language=language)
-            
-            if not text:
-                return None
-
-            logger.debug(f"Synthesizing text with model {target_model}: '{text[:100]}{'...' if len(text) > 100 else ''}'")
-            
-            syn_config = SynthesisConfig(
-                length_scale=1.0 / speed if speed > 0 else 1.0,
-                volume=volume
-            )
-            
-            with io.BytesIO() as output:
-                with wave.open(output, "wb") as wav_file:
-                    voice.synthesize_wav(text, wav_file, syn_config=syn_config)
-                
-                audio_bytes = output.getvalue()
-                
-            sample_rate = voice.config.sample_rate
-
-            logger.info(f"Synthesized {len(text)} chars to {len(audio_bytes)} bytes at {sample_rate}Hz using {target_model}")
-            
-            return audio_bytes, sample_rate
-
-        except Exception as e:
-            logger.error(f"TTS Engine failed to synthesize text. Error: {e}", exc_info=True)
-            return None
-
-    def synthesize_stream(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0, phoneme_lang: Optional[str] = None) -> Iterator[Tuple[bytes, int]]:
-        if not text:
-            return
-
-        from piper.config import SynthesisConfig
-
-        target_model = self.voice_config.model
-        if language:
-            target_model = self.get_model_for_language(language)
-
-        if not self.ensure_voice_loaded(target_model):
-            if target_model != self.voice_config.model:
-                logger.warning(f"Failed to load {target_model}, falling back to default {self.voice_config.model}")
-                target_model = self.voice_config.model
-                if not self.ensure_voice_loaded(target_model):
-                    return
-            else:
-                return
-        
-        voice = self.voices[target_model]
-
-        syn_config = SynthesisConfig(
-            length_scale=1.0 / speed if speed > 0 else 1.0,
-            volume=volume
-        )
-        
-        for chunk in self._chunk_text(text, language=language):
-            if not chunk.strip():
-                continue
-            try:
-                def _synth(c=chunk):
-                    with io.BytesIO() as output:
-                        with wave.open(output, "wb") as wav_file:
-                            voice.synthesize_wav(c, wav_file, syn_config=syn_config)
-                        return output.getvalue(), voice.config.sample_rate
-
-                audio_bytes, sample_rate = _retry_synthesis(_synth)
-                logger.debug(f"Synthesized streaming chunk: {len(chunk)} chars")
-                yield audio_bytes, sample_rate
-
-            except Exception as e:
-                logger.error(f"Failed synthesising chunk after retries. Error: {e}", exc_info=True)
-
-    def stop(self) -> None:
-        self.voices.clear()
-        logger.info("Piper TTS engine stopped")
-
 
 class KokoroEngine(BaseTTSEngine):
     """Text-to-Speech engine wrapper for Kokoro ONNX"""
@@ -582,34 +438,18 @@ class KokoroEngine(BaseTTSEngine):
 
 def get_tts_engine(config: VoiceConfig) -> BaseTTSEngine:
     """Factory function to get the configured TTS engine"""
-    if config.engine == "kokoro":
-        return KokoroEngine(config)
-    elif config.engine == "piper":
-        return PiperEngine(config)
-    else:
-        logger.warning(f"Unknown TTS engine '{config.engine}', falling back to Kokoro")
-        return KokoroEngine(config)
+    return KokoroEngine(config)
 
 
-def get_available_models(engine: str) -> list[str]:
-    """Scan the data directory for installed models for *engine*."""
+def get_available_models(engine: str = "kokoro") -> list[str]:
+    """Scan the data directory for installed models."""
     voices_dir = get_data_dir() / "voices"
     if not voices_dir.exists():
         return []
 
-    if engine == "kokoro":
-        # Kokoro models are kokoro-*.onnx sitting directly in voices_dir
-        return sorted(
-            p.stem for p in voices_dir.glob("kokoro*.onnx")
-        )
-    elif engine == "piper":
-        # Piper voice files are <name>.onnx (with companion .onnx.json)
-        return sorted(
-            p.stem
-            for p in voices_dir.glob("*.onnx")
-            if not p.stem.startswith("kokoro")
-        )
-    return []
+    return sorted(
+        p.stem for p in voices_dir.glob("kokoro*.onnx")
+    )
 
 
 def get_kokoro_voices(language: str | None = None) -> list[str]:
@@ -638,16 +478,7 @@ def get_kokoro_voices(language: str | None = None) -> list[str]:
 
 
 def get_voices_for_language(engine: str, language: str) -> list[str]:
-    """Return the voice/model names available for *engine* + *language*.
+    """Return the voice/model names available for *language*."""
+    return get_kokoro_voices(language)
 
-    * **kokoro** — reads the voices binary and filters by language prefix.
-    * **piper** — filters installed ``.onnx`` models by the ``{lang}_`` prefix
-      (e.g. ``it_IT-paola-medium`` starts with ``it_``).
-    """
-    if engine == "kokoro":
-        return get_kokoro_voices(language)
-    elif engine == "piper":
-        prefix = f"{language}_"
-        return [m for m in get_available_models("piper") if m.startswith(prefix)]
-    return []
 

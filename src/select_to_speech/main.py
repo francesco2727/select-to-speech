@@ -98,6 +98,39 @@ class SelectToSpeechApp:
         logger.info(f"Received signal {signum}, shutting down...")
         self.should_exit = True
 
+    def reload_config(self, config: AppConfig) -> None:
+        """Reload configuration and update running handlers/components"""
+        logger.info("Reloading configuration...")
+        self.config = config
+
+        # 1. Update TTS engine config
+        self.tts_engine.voice_config = config.voice
+
+        # 2. Update Audio player device_id (recreate if changed)
+        if self.audio_player.device_id != config.audio.device_id:
+            logger.info(f"Updating audio device ID to {config.audio.device_id}")
+            self.audio_player.stop()
+            self.audio_player = AudioPlayer(config.audio.device_id)
+
+        # 3. Update keyboard shortcuts (restart listener with new keys)
+        logger.info("Recreating keyboard handler with new shortcuts...")
+        self.keyboard_handler.stop()
+        self.keyboard_handler = KeyboardHandler(
+            on_play=self._on_shortcut_pressed,
+            on_pause=self._on_pause_pressed,
+            on_stop=self._on_stop_pressed,
+            modifier=config.keyboard.modifier_key,
+            trigger_key=config.keyboard.trigger_key,
+            pause_key=config.keyboard.pause_key,
+            stop_key=config.keyboard.stop_key,
+        )
+        self.keyboard_handler.start()
+
+        # 4. Rebuild the lingua detector in case language_models config changed
+        self._lingua_detector = self._build_lingua_detector()
+        
+        logger.info("Configuration successfully reloaded")
+
     def _build_lingua_detector(self):
         """Build a lingua detector for all configured languages."""
         configured_langs = [
@@ -415,9 +448,9 @@ class SelectToSpeechApp:
 
 def main() -> int:
     """Main entry point for the application"""
+    from select_to_speech.api.server import run_server
     try:
-        app = SelectToSpeechApp()
-        app.run()
+        run_server()
         return 0
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)

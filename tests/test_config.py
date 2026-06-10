@@ -40,8 +40,8 @@ def test_load_config_with_file(mock_yaml_load, mock_open, mock_exists):
     mock_yaml_load.return_value = {
         "debug": True,
         "voice": {
-            "engine": "piper",
-            "model": "en_US-lessac-medium"
+            "engine": "kokoro",
+            "model": "kokoro-v1.0"
         },
         "audio": {
             "speed": 1.2
@@ -54,8 +54,8 @@ def test_load_config_with_file(mock_yaml_load, mock_open, mock_exists):
     config = load_config()
     
     assert config.debug is True
-    assert config.voice.engine == "piper"
-    assert config.voice.model == "en_US-lessac-medium"
+    assert config.voice.engine == "kokoro"
+    assert config.voice.model == "kokoro-v1.0"
     assert config.audio.speed == 1.2
     assert config.keyboard.modifier_key == "ctrl"
     assert config.keyboard.trigger_key == "esc" # Default value remains

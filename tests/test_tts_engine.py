@@ -39,28 +39,6 @@ def test_chunk_text():
         # Give a small padding for edge cases, but it shouldn't exceed 100 heavily
         assert len(chunk) <= 120 
 
-@patch('select_to_speech.tts_engine.PiperEngine.ensure_voice_loaded')
-def test_piper_engine_stream(mock_ensure):
-    mock_ensure.return_value = True
-    config = VoiceConfig(engine="piper", model="en_US-lessac-medium")
-    
-    from select_to_speech.tts_engine import PiperEngine
-    engine = PiperEngine(config)
-    
-    # Mock PiperVoice
-    mock_voice = MagicMock()
-    mock_voice.config.sample_rate = 22050
-    engine.voices["en_US-lessac-medium"] = mock_voice
-    
-    # Needs to be mocked properly to avoid exception
-    with patch('wave.open') as mock_wave, patch('io.BytesIO') as mock_io:
-        mock_io.return_value.__enter__.return_value.getvalue.return_value = b"dummy_audio"
-        stream_results = list(engine.synthesize_stream("Hello world."))
-        
-    assert len(stream_results) == 1
-    assert stream_results[0][0] == b"dummy_audio"
-    assert stream_results[0][1] == 22050
-
 def test_preprocess_text():
     config = VoiceConfig()
     engine = DummyEngine(config)

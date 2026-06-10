@@ -12,7 +12,7 @@ from select_to_speech.config import AppConfig, VoiceConfig, AudioConfig, Keyboar
 @pytest.fixture
 def mock_app():
     config = AppConfig(
-        voice=VoiceConfig(engine="piper"),
+        voice=VoiceConfig(engine="kokoro"),
         audio=AudioConfig(),
         keyboard=KeyboardConfig()
     )

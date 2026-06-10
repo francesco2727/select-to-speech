@@ -20,7 +20,7 @@ class AudioConfig(BaseModel):
 class VoiceConfig(BaseModel):
     """Voice configuration"""
 
-    engine: str = Field("kokoro", description="TTS engine to use ('kokoro' or 'piper')")
+    engine: str = Field("kokoro", description="TTS engine to use (always 'kokoro')")
     model: str = Field("kokoro-v1.0", description="Voice model name")
     language: str = Field("it", description="Language code")
     language_models: dict[str, str] = Field(
