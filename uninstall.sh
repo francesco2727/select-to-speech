@@ -11,21 +11,32 @@ info() { echo -e "${GREEN}[+]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 
 # ── Systemd user service ───────────────────────────────────────────────────────
-if systemctl --user is-enabled "$SERVICE_NAME" &>/dev/null; then
-    info "Disabling and stopping systemd service..."
-    systemctl --user disable --now "$SERVICE_NAME"
+info "Disabling and stopping systemd service..."
+systemctl --user disable --now "$SERVICE_NAME" &>/dev/null || true
+
+if [ -d "$SYSTEMD_DIR" ] && [ ! -w "$SYSTEMD_DIR" ]; then
+    warn "Directory $SYSTEMD_DIR is not writable. Fixing ownership..."
+    sudo chown -R "$(id -u):$(id -g)" "$SYSTEMD_DIR"
 fi
-rm -f "$SYSTEMD_DIR/$SERVICE_NAME.service"
-systemctl --user daemon-reload
+rm -f "$SYSTEMD_DIR/$SERVICE_NAME.service" || true
+systemctl --user daemon-reload &>/dev/null || true
 
 # ── Wrapper symlinks ───────────────────────────────────────────────────────────
 info "Removing wrapper scripts..."
-rm -f "$BIN_DIR/select-to-speech-gui"
-rm -f "$BIN_DIR/select-to-speech-settings"
+if [ -d "$BIN_DIR" ] && [ ! -w "$BIN_DIR" ]; then
+    warn "Directory $BIN_DIR is not writable. Fixing ownership..."
+    sudo chown -R "$(id -u):$(id -g)" "$BIN_DIR"
+fi
+rm -f "$BIN_DIR/select-to-speech-gui" || true
+rm -f "$BIN_DIR/select-to-speech-settings" || true
 
 # ── Desktop file ───────────────────────────────────────────────────────────────
 info "Removing .desktop file..."
-rm -f "$APPS_DIR/select-to-speech.desktop"
+if [ -d "$APPS_DIR" ] && [ ! -w "$APPS_DIR" ]; then
+    warn "Directory $APPS_DIR is not writable. Fixing ownership..."
+    sudo chown -R "$(id -u):$(id -g)" "$APPS_DIR"
+fi
+rm -f "$APPS_DIR/select-to-speech.desktop" || true
 
 # ── KDE notification config ────────────────────────────────────────────────────
 NOTIFYRC="/usr/share/knotifications6/select-to-speech.notifyrc"
