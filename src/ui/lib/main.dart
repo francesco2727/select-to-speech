@@ -347,10 +347,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener, Sing
   }
 
   Future<void> _initTray() async {
-    String iconPath = Platform.isWindows ? 'images/tray_icon.ico' : 'images/tray_icon.svg';
+    String iconPath = Platform.isWindows ? 'images/tray_icon.ico' : 'images/select_to_speech_tray_icon.svg';
     if (Platform.isLinux) {
       final String exeDir = File(Platform.resolvedExecutable).parent.path;
-      iconPath = '$exeDir/data/flutter_assets/images/tray_icon.svg';
+      iconPath = '$exeDir/data/flutter_assets/images/select_to_speech_tray_icon.svg';
     }
     await trayManager.setIcon(iconPath);
     await _updateTrayMenu();

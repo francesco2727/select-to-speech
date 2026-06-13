@@ -55,24 +55,22 @@ info "Setting up Flutter UI..."
 UI_BINARY="$REPO_DIR/src/ui/build/linux/x64/release/bundle/ui"
 UI_BUNDLE_DIR="$REPO_DIR/src/ui/build/linux/x64/release/bundle"
 
-if [ -f "$UI_BINARY" ] && [ "${FORCE_DOWNLOAD:-0}" != "1" ]; then
-    info "Found existing UI binary, skipping build."
+if ! command -v flutter &> /dev/null; then
+    if [ -d "$HOME/develop/flutter/bin" ]; then
+        export PATH="$HOME/develop/flutter/bin:$PATH"
+    fi
+fi
+
+if [ "${FORCE_DOWNLOAD:-0}" = "1" ]; then
+    info "Force download enabled. Cleaning local UI bundle..."
+    rm -rf "$UI_BUNDLE_DIR"
+fi
+
+if [ "${FORCE_DOWNLOAD:-0}" != "1" ] && command -v flutter &> /dev/null; then
+    info "Compiling Flutter user interface locally (release mode)..."
+    (cd "$REPO_DIR/src/ui" && flutter clean && flutter build linux --release)
 else
-    if [ "${FORCE_DOWNLOAD:-0}" = "1" ]; then
-        info "Force download enabled. Cleaning local UI bundle..."
-        rm -rf "$UI_BUNDLE_DIR"
-    fi
-
-    if ! command -v flutter &> /dev/null; then
-        if [ -d "$HOME/develop/flutter/bin" ]; then
-            export PATH="$HOME/develop/flutter/bin:$PATH"
-        fi
-    fi
-
-    if [ "${FORCE_DOWNLOAD:-0}" != "1" ] && command -v flutter &> /dev/null; then
-        info "Compiling Flutter user interface locally (release mode)..."
-        (cd "$REPO_DIR/src/ui" && flutter clean && flutter build linux --release)
-    else
+    if [ ! -f "$UI_BINARY" ] || [ "${FORCE_DOWNLOAD:-0}" = "1" ]; then
         info "Flutter SDK not found. Attempting to download pre-compiled GUI from GitHub Releases..."
         REPO_NAME="francesco2727/select-to-speech"
         if command -v git &> /dev/null; then
@@ -97,6 +95,8 @@ else
             rm -f "$REPO_DIR/select-to-speech-gui-linux.tar.gz"
             exit 1
         fi
+    else
+        info "Flutter SDK not found but existing UI binary was found. Skipping download."
     fi
 fi
 
