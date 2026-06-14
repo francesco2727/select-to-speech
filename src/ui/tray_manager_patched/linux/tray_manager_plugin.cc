@@ -134,8 +134,11 @@ static FlMethodResponse* set_icon(TrayManagerPlugin* self, FlValue* args) {
   const char* effective_name = icon_name ? icon_name : icon_path;
 
   if (!indicator) {
-    indicator = app_indicator_new(id, effective_name,
-                                  APP_INDICATOR_CATEGORY_APPLICATION_STATUS);
+    indicator = APP_INDICATOR(g_object_new(APP_INDICATOR_TYPE,
+                                           "id", id,
+                                           "icon-name", effective_name,
+                                           "category", APP_INDICATOR_CATEGORY_APPLICATION_STATUS,
+                                           NULL));
     if (icon_dir)
       app_indicator_set_icon_theme_path(indicator, icon_dir);
 
