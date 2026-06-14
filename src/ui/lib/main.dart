@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:tray_manager/tray_manager.dart';
@@ -103,9 +104,9 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> with TrayListener, SingleTickerProviderStateMixin {
+class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   late http.Client apiClient;
-  late TabController _tabController;
+  int _selectedIndex = 0;
   
   bool isLoading = true;
   Map<String, dynamic>? config;
@@ -341,7 +342,6 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener, Sing
   void initState() {
     super.initState();
     apiClient = createUdsClient();
-    _tabController = TabController(length: 4, vsync: this);
     _initTray();
     _fetchData();
   }
@@ -517,8 +517,184 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener, Sing
   @override
   void dispose() {
     trayManager.removeListener(this);
-    _tabController.dispose();
     super.dispose();
+  }
+
+  Widget _getSelectedTabWidget() {
+    switch (_selectedIndex) {
+      case 0:
+        return _buildVoiceTab();
+      case 1:
+        return _buildAudioTab();
+      case 2:
+        return _buildKeyboardTab();
+      case 3:
+        return _buildGeneralTab();
+      default:
+        return _buildVoiceTab();
+    }
+  }
+
+  Widget _buildCenteredTab(Widget tabContent) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: constraints.maxHeight,
+            ),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 550),
+                child: tabContent,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSidebarItem(int index, IconData icon, String label) {
+    final isSelected = _selectedIndex == index;
+    
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _selectedIndex = index;
+        });
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? const Color(0xFF7B61FF).withOpacity(0.15)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected
+                ? const Color(0xFF7B61FF).withOpacity(0.3)
+                : Colors.transparent,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? const Color(0xFF00E5FF) : Colors.white54,
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : Colors.white70,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            if (isSelected)
+              Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF00E5FF),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Color(0xFF00E5FF),
+                      blurRadius: 4,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSidebar(BuildContext context) {
+    return Container(
+      width: 260,
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E2E).withOpacity(0.4),
+        border: Border(
+          right: BorderSide(
+            color: Colors.white.withOpacity(0.08),
+            width: 1,
+          ),
+        ),
+      ),
+      child: ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 12.0),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF7B61FF).withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: const Color(0xFF7B61FF).withOpacity(0.4),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: SvgPicture.asset(
+                          'images/select_to_speech_tray_icon.svg',
+                          width: 24,
+                          height: 24,
+                          colorFilter: const ColorFilter.mode(
+                            Color(0xFF00E5FF),
+                            BlendMode.srcIn,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          t('app_title'),
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                            color: Colors.white,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 32),
+                _buildSidebarItem(0, Icons.record_voice_over_rounded, t('tab_voice')),
+                const SizedBox(height: 8),
+                _buildSidebarItem(1, Icons.volume_up_rounded, t('tab_audio')),
+                const SizedBox(height: 8),
+                _buildSidebarItem(2, Icons.keyboard_rounded, t('tab_shortcuts')),
+                const SizedBox(height: 8),
+                _buildSidebarItem(3, Icons.settings_rounded, t('tab_general')),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -544,30 +720,6 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener, Sing
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(t('app_title'), style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        flexibleSpace: ClipRect(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-            child: Container(color: const Color(0xFF1E1E2E).withOpacity(0.5)),
-          ),
-        ),
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: const Color(0xFF00E5FF),
-          indicatorWeight: 3,
-          labelColor: const Color(0xFF00E5FF),
-          unselectedLabelColor: Colors.white54,
-          tabs: [
-            Tab(icon: const Icon(Icons.record_voice_over), text: t('tab_voice')),
-            Tab(icon: const Icon(Icons.volume_up), text: t('tab_audio')),
-            Tab(icon: const Icon(Icons.keyboard), text: t('tab_shortcuts')),
-            Tab(icon: const Icon(Icons.settings), text: t('tab_general')),
-          ],
-        ),
-      ),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -576,20 +728,19 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener, Sing
             colors: [Color(0xFF0F0F1A), Color(0xFF1A1A2E)],
           ),
         ),
-        child: TabBarView(
-          controller: _tabController,
+        child: Row(
           children: [
-            _buildVoiceTab(),
-            _buildAudioTab(),
-            _buildKeyboardTab(),
-            _buildGeneralTab(),
+            _buildSidebar(context),
+            Expanded(
+              child: _buildCenteredTab(_getSelectedTabWidget()),
+            ),
           ],
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _saveConfig,
         backgroundColor: const Color(0xFF7B61FF),
-        icon: const Icon(Icons.save),
+        icon: const Icon(Icons.save_rounded),
         label: Text(t('save_settings'), style: const TextStyle(fontWeight: FontWeight.bold)),
       ),
     );
@@ -630,42 +781,39 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener, Sing
     
     final label = t('voice_lang_template').replaceAll('{lang}', t('lang_$langCode'));
     
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 400),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(color: Colors.white70)),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white12),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                isExpanded: true,
-                value: currentVal,
-                items: [
-                  DropdownMenuItem(value: '', child: Text(t('none_disabled'))),
-                  ...voices.map((v) => DropdownMenuItem(value: v, child: Text(v))),
-                ],
-                onChanged: (val) {
-                  if (val != null) {
-                    setState(() {
-                      config!['voice']['language_models'][langCode] = val;
-                    });
-                  }
-                },
-                dropdownColor: const Color(0xFF1E1E2E),
-              ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white70)),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              value: currentVal,
+              items: [
+                DropdownMenuItem(value: '', child: Text(t('none_disabled'))),
+                ...voices.map((v) => DropdownMenuItem(value: v, child: Text(v))),
+              ],
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() {
+                    config!['voice']['language_models'][langCode] = val;
+                  });
+                }
+              },
+              dropdownColor: const Color(0xFF1E1E2E),
             ),
           ),
-          const SizedBox(height: 16),
-        ],
-      ),
+        ),
+        const SizedBox(height: 16),
+      ],
     );
   }
 
@@ -681,107 +829,96 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener, Sing
       {'code': 'zh', 'name': 'Chinese'},
     ];
 
-    return SingleChildScrollView(
-      child: _buildGlassCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(t('voice_config'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-            const SizedBox(height: 24),
-            
-            Text(t('voice_model'), style: const TextStyle(color: Colors.white70)),
-            const SizedBox(height: 8),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 400),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      initialValue: config!['voice']['model'],
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        filled: true,
-                        fillColor: Colors.black.withOpacity(0.2),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: Colors.white12),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: Colors.white12),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: Color(0xFF00E5FF)),
-                        ),
-                      ),
-                      onChanged: (val) => _updateNestedConfig('voice', 'model', val),
+    return _buildGlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(t('voice_config'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+          const SizedBox(height: 24),
+          
+          Text(t('voice_model'), style: const TextStyle(color: Colors.white70)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  initialValue: config!['voice']['model'],
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: Colors.black.withOpacity(0.2),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Colors.white12),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Colors.white12),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF00E5FF)),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  ElevatedButton.icon(
-                    onPressed: isDownloading ? null : _startDownload,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF7B61FF),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    icon: isDownloading
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                          )
-                        : const Icon(Icons.download, size: 18),
-                    label: Text(isDownloading ? t('downloading') : t('redownload')),
-                  ),
-                ],
+                  onChanged: (val) => _updateNestedConfig('voice', 'model', val),
+                ),
               ),
+              const SizedBox(width: 12),
+              ElevatedButton.icon(
+                onPressed: isDownloading ? null : _startDownload,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF7B61FF),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                icon: isDownloading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      )
+                    : const Icon(Icons.download, size: 18),
+                label: Text(isDownloading ? t('downloading') : t('redownload')),
+              ),
+            ],
+          ),
+          
+          if (isDownloading) ...[
+            const SizedBox(height: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LinearProgressIndicator(
+                  value: downloadProgress > 0 ? downloadProgress : null,
+                  backgroundColor: Colors.white10,
+                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF00E5FF)),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  downloadProgress > 0
+                      ? '${t('downloading')} ${(downloadProgress * 100).toInt()}%'
+                      : t('preparing_download'),
+                  style: const TextStyle(fontSize: 12, color: Colors.white70),
+                ),
+              ],
             ),
-            
-            if (isDownloading) ...[
-              const SizedBox(height: 12),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 400),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    LinearProgressIndicator(
-                      value: downloadProgress > 0 ? downloadProgress : null,
-                      backgroundColor: Colors.white10,
-                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF00E5FF)),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      downloadProgress > 0
-                          ? '${t('downloading')} ${(downloadProgress * 100).toInt()}%'
-                          : t('preparing_download'),
-                      style: const TextStyle(fontSize: 12, color: Colors.white70),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            if (downloadError != null) ...[
-              const SizedBox(height: 8),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 400),
-                child: Text(
-                  '${t('error')}: $downloadError',
-                  style: const TextStyle(color: Colors.redAccent, fontSize: 13),
-                ),
-              ),
-            ],
-            
-            const SizedBox(height: 32),
-            Text(t('language_voices'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-            const SizedBox(height: 16),
-            ...supportedLanguagesList.map((lang) => _buildLanguageVoiceDropdown(lang['code']!, lang['name']!)),
           ],
-        ),
+          if (downloadError != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              '${t('error')}: $downloadError',
+              style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+            ),
+          ],
+          
+          const SizedBox(height: 32),
+          Text(t('language_voices'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+          const SizedBox(height: 16),
+          ...supportedLanguagesList.map((lang) => _buildLanguageVoiceDropdown(lang['code']!, lang['name']!)),
+        ],
       ),
     );
   }
@@ -794,88 +931,79 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener, Sing
       deviceItems.add(DropdownMenuItem(value: dev['id'], child: Text('${dev['name']} (ID: ${dev['id']})')));
     }
 
-    return SingleChildScrollView(
-      child: _buildGlassCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(t('audio_settings'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-            const SizedBox(height: 24),
-            
-            Text(t('output_device'), style: const TextStyle(color: Colors.white70)),
-            const SizedBox(height: 8),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 400),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.white12),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<int?>(
-                    isExpanded: true,
-                    value: config!['audio']['device_id'],
-                    items: deviceItems,
-                    onChanged: (val) => _updateNestedConfig('audio', 'device_id', val),
-                    dropdownColor: const Color(0xFF1E1E2E),
-                  ),
-                ),
+    return _buildGlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(t('audio_settings'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+          const SizedBox(height: 24),
+          
+          Text(t('output_device'), style: const TextStyle(color: Colors.white70)),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<int?>(
+                isExpanded: true,
+                value: config!['audio']['device_id'],
+                items: deviceItems,
+                onChanged: (val) => _updateNestedConfig('audio', 'device_id', val),
+                dropdownColor: const Color(0xFF1E1E2E),
               ),
             ),
-            const SizedBox(height: 24),
+          ),
+          const SizedBox(height: 24),
 
-            _buildSlider(t('speed'), 'audio', 'speed', 0.5, 2.0),
-            _buildSlider(t('pitch'), 'audio', 'pitch', 0.5, 2.0),
-            _buildSlider(t('volume'), 'audio', 'volume', 0.0, 2.0),
-          ],
-        ),
+          _buildSlider(t('speed'), 'audio', 'speed', 0.5, 2.0),
+          _buildSlider(t('pitch'), 'audio', 'pitch', 0.5, 2.0),
+          _buildSlider(t('volume'), 'audio', 'volume', 0.0, 2.0),
+        ],
       ),
     );
   }
 
   Widget _buildKeyboardTab() {
-    return SingleChildScrollView(
-      child: _buildGlassCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(t('keyboard_shortcuts'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-            const SizedBox(height: 24),
-            _buildDropdown(t('modifier_key'), 'keyboard', 'modifier_key', ['alt', 'ctrl', 'shift', 'super']),
-            const SizedBox(height: 16),
-            _buildTextField(t('trigger_key'), 'keyboard', 'trigger_key'),
-            const SizedBox(height: 16),
-            _buildTextField(t('pause_key'), 'keyboard', 'pause_key'),
-            const SizedBox(height: 16),
-            _buildTextField(t('stop_key'), 'keyboard', 'stop_key'),
-          ],
-        ),
+    return _buildGlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(t('keyboard_shortcuts'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+          const SizedBox(height: 24),
+          _buildDropdown(t('modifier_key'), 'keyboard', 'modifier_key', ['alt', 'ctrl', 'shift', 'super']),
+          const SizedBox(height: 16),
+          _buildTextField(t('trigger_key'), 'keyboard', 'trigger_key'),
+          const SizedBox(height: 16),
+          _buildTextField(t('pause_key'), 'keyboard', 'pause_key'),
+          const SizedBox(height: 16),
+          _buildTextField(t('stop_key'), 'keyboard', 'stop_key'),
+        ],
       ),
     );
   }
 
   Widget _buildGeneralTab() {
-    return SingleChildScrollView(
-      child: _buildGlassCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(t('general_settings'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-            const SizedBox(height: 24),
-            _buildDropdown(t('gui_language'), null, 'gui_language', ['auto', 'en', 'it', 'es', 'fr']),
-            const SizedBox(height: 16),
-            SwitchListTile(
-              title: Text(t('enable_debug'), style: const TextStyle(color: Colors.white)),
-              subtitle: Text(t('check_logs'), style: const TextStyle(color: Colors.white54)),
-              value: config!['debug'] ?? false,
-              activeColor: const Color(0xFF00E5FF),
-              onChanged: (val) => setState(() => config!['debug'] = val),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ],
-        ),
+    return _buildGlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(t('general_settings'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+          const SizedBox(height: 24),
+          _buildDropdown(t('gui_language'), null, 'gui_language', ['auto', 'en', 'it', 'es', 'fr']),
+          const SizedBox(height: 16),
+          SwitchListTile(
+            title: Text(t('enable_debug'), style: const TextStyle(color: Colors.white)),
+            subtitle: Text(t('check_logs'), style: const TextStyle(color: Colors.white54)),
+            value: config!['debug'] ?? false,
+            activeColor: const Color(0xFF00E5FF),
+            onChanged: (val) => setState(() => config!['debug'] = val),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ],
       ),
     );
   }
@@ -898,116 +1026,107 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener, Sing
       'super': 'Super',
     };
 
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 400),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(color: Colors.white70)),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white12),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                isExpanded: true,
-                value: currentVal,
-                items: options.map((o) {
-                  final displayName = optionNames[o] ?? o;
-                  return DropdownMenuItem(value: o, child: Text(displayName));
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) {
-                    setState(() {
-                      if (section != null) {
-                        config![section][key] = val;
-                      } else {
-                        config![key] = val;
-                      }
-                    });
-                    if (key == 'gui_language') {
-                      _updateTrayMenu();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white70)),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              value: currentVal,
+              items: options.map((o) {
+                final displayName = optionNames[o] ?? o;
+                return DropdownMenuItem(value: o, child: Text(displayName));
+              }).toList(),
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() {
+                    if (section != null) {
+                      config![section][key] = val;
+                    } else {
+                      config![key] = val;
                     }
+                  });
+                  if (key == 'gui_language') {
+                    _updateTrayMenu();
                   }
-                },
-                dropdownColor: const Color(0xFF1E1E2E),
-              ),
+                }
+              },
+              dropdownColor: const Color(0xFF1E1E2E),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   Widget _buildTextField(String label, String section, String key) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 400),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(color: Colors.white70)),
-          const SizedBox(height: 8),
-          Semantics(
-            label: label,
-            child: TextFormField(
-              initialValue: config![section][key],
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                filled: true,
-                fillColor: Colors.black.withOpacity(0.2),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Colors.white12),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Colors.white12),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFF00E5FF)),
-                ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white70)),
+        const SizedBox(height: 8),
+        Semantics(
+          label: label,
+          child: TextFormField(
+            initialValue: config![section][key],
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              filled: true,
+              fillColor: Colors.black.withOpacity(0.2),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Colors.white12),
               ),
-              onChanged: (val) => _updateNestedConfig(section, key, val),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Colors.white12),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Color(0xFF00E5FF)),
+              ),
             ),
+            onChanged: (val) => _updateNestedConfig(section, key, val),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   Widget _buildSlider(String label, String section, String key, double min, double max) {
     double val = config![section][key].toDouble();
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 400),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(label, style: const TextStyle(color: Colors.white70)),
-              Text(val.toStringAsFixed(2), style: const TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold)),
-            ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(color: Colors.white70)),
+            Text(val.toStringAsFixed(2), style: const TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold)),
+          ],
+        ),
+        Semantics(
+          label: '$label Slider',
+          value: val.toStringAsFixed(2),
+          child: Slider(
+            value: val,
+            min: min,
+            max: max,
+            divisions: ((max - min) * 10).toInt(),
+            onChanged: (newVal) => _updateNestedConfig(section, key, newVal),
           ),
-          Semantics(
-            label: '$label Slider',
-            value: val.toStringAsFixed(2),
-            child: Slider(
-              value: val,
-              min: min,
-              max: max,
-              divisions: ((max - min) * 10).toInt(),
-              onChanged: (newVal) => _updateNestedConfig(section, key, newVal),
-            ),
-          ),
-          const SizedBox(height: 16),
-        ],
-      ),
+        ),
+        const SizedBox(height: 16),
+      ],
     );
   }
 }

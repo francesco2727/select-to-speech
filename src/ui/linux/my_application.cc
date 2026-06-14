@@ -14,6 +14,11 @@ struct _MyApplication {
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
+static gboolean on_window_delete(GtkWidget* widget, GdkEvent* event, gpointer user_data) {
+  gtk_widget_hide(widget);
+  return TRUE;
+}
+
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
 
@@ -26,6 +31,7 @@ static void my_application_activate(GApplication* application) {
 
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
+  g_signal_connect(window, "delete-event", G_CALLBACK(on_window_delete), nullptr);
 
   gboolean show_window = TRUE;
   if (self->dart_entrypoint_arguments != nullptr) {
