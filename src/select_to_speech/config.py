@@ -62,6 +62,7 @@ class AppConfig(BaseModel):
     keyboard: KeyboardConfig = Field(default_factory=KeyboardConfig)
     debug: bool = Field(False, description="Enable debug logging")
     gui_language: str = Field("auto", description="GUI language: 'auto', 'en', 'it', 'es', 'fr'")
+    theme_mode: str = Field("system", description="Theme mode: 'dark', 'light', 'system'")
 
     class Config:
         """Pydantic config"""

@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:tray_manager/tray_manager.dart';
 
+final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier(ThemeMode.system);
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await startPythonBackend();
@@ -70,28 +72,51 @@ class SelectToSpeechApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Select to Speech',
-      themeMode: ThemeMode.dark,
-      darkTheme: ThemeData(
-        brightness: Brightness.dark,
-        primaryColor: const Color(0xFF7B61FF),
-        scaffoldBackgroundColor: const Color(0xFF0F0F1A),
-        cardColor: const Color(0xFF1E1E2E),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF7B61FF),
-          secondary: Color(0xFF00E5FF),
-          surface: Color(0xFF1E1E2E),
-        ),
-        fontFamily: 'Inter',
-        sliderTheme: const SliderThemeData(
-          activeTrackColor: Color(0xFF00E5FF),
-          inactiveTrackColor: Color(0xFF33334D),
-          thumbColor: Color(0xFFFFFFFF),
-          overlayColor: Color(0x3300E5FF),
-        ),
-      ),
-      home: const SettingsScreen(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeModeNotifier,
+      builder: (context, currentThemeMode, _) {
+        return MaterialApp(
+          title: 'Select to Speech',
+          themeMode: currentThemeMode,
+          theme: ThemeData(
+            brightness: Brightness.light,
+            primaryColor: const Color(0xFF7B61FF),
+            scaffoldBackgroundColor: const Color(0xFFF5F5FA),
+            cardColor: const Color(0xFFFFFFFF),
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF7B61FF),
+              secondary: Color(0xFF00E5FF),
+              surface: Color(0xFFFFFFFF),
+            ),
+            fontFamily: 'Inter',
+            sliderTheme: const SliderThemeData(
+              activeTrackColor: Color(0xFF7B61FF),
+              inactiveTrackColor: Color(0xFFE0E0E0),
+              thumbColor: Color(0xFF7B61FF),
+              overlayColor: Color(0x337B61FF),
+            ),
+          ),
+          darkTheme: ThemeData(
+            brightness: Brightness.dark,
+            primaryColor: const Color(0xFF7B61FF),
+            scaffoldBackgroundColor: const Color(0xFF0F0F1A),
+            cardColor: const Color(0xFF1E1E2E),
+            colorScheme: const ColorScheme.dark(
+              primary: Color(0xFF7B61FF),
+              secondary: Color(0xFF00E5FF),
+              surface: Color(0xFF1E1E2E),
+            ),
+            fontFamily: 'Inter',
+            sliderTheme: const SliderThemeData(
+              activeTrackColor: Color(0xFF00E5FF),
+              inactiveTrackColor: Color(0xFF33334D),
+              thumbColor: Color(0xFFFFFFFF),
+              overlayColor: Color(0x3300E5FF),
+            ),
+          ),
+          home: const SettingsScreen(),
+        );
+      }
     );
   }
 }
@@ -117,6 +142,14 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   double downloadProgress = 0.0;
   String downloadStatus = 'idle';
   String? downloadError;
+
+  bool get isDark => Theme.of(context).brightness == Brightness.dark;
+  Color get textColor => isDark ? Colors.white : const Color(0xFF1E1E2E);
+  Color get textColor70 => isDark ? Colors.white70 : Colors.black87;
+  Color get textColor54 => isDark ? Colors.white54 : Colors.black54;
+  Color get dropdownBgColor => isDark ? const Color(0xFF1E1E2E) : const Color(0xFFFFFFFF);
+  Color get inputBgColor => isDark ? Colors.black.withValues(alpha: 0.2) : Colors.black.withValues(alpha: 0.04);
+  Color get inputBorderColor => isDark ? Colors.white12 : Colors.black12;
 
   static const Map<String, Map<String, String>> translations = {
     'en': {
@@ -167,6 +200,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'lang_ja': 'Japanese',
       'lang_zh': 'Chinese',
       'voice_lang_template': '{lang} Voice',
+      'theme': 'Theme',
+      'theme_dark': 'Dark',
+      'theme_light': 'Light',
+      'theme_system': 'System Default',
     },
     'it': {
       'app_title': 'Select to Speech',
@@ -216,6 +253,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'lang_ja': 'Giapponese',
       'lang_zh': 'Cinese',
       'voice_lang_template': 'Voce {lang}',
+      'theme': 'Tema',
+      'theme_dark': 'Scuro',
+      'theme_light': 'Chiaro',
+      'theme_system': 'Predefinito di Sistema',
     },
     'es': {
       'app_title': 'Select to Speech',
@@ -265,6 +306,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'lang_ja': 'Japonés',
       'lang_zh': 'Chino',
       'voice_lang_template': 'Voz {lang}',
+      'theme': 'Tema',
+      'theme_dark': 'Oscuro',
+      'theme_light': 'Claro',
+      'theme_system': 'Predeterminato del Sistema',
     },
     'fr': {
       'app_title': 'Select to Speech',
@@ -314,6 +359,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'lang_ja': 'Japonais',
       'lang_zh': 'Chinois',
       'voice_lang_template': 'Voix {lang}',
+      'theme': 'Thème',
+      'theme_dark': 'Sombre',
+      'theme_light': 'Clair',
+      'theme_system': 'Par Défaut du Système',
     }
   };
 
@@ -457,6 +506,15 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         if (configRes.statusCode == 200) {
           setState(() {
             config = jsonDecode(configRes.body);
+            config!['theme_mode'] ??= 'dark';
+            final themeStr = config!['theme_mode'];
+            if (themeStr == 'light') {
+              themeModeNotifier.value = ThemeMode.light;
+            } else if (themeStr == 'system') {
+              themeModeNotifier.value = ThemeMode.system;
+            } else {
+              themeModeNotifier.value = ThemeMode.dark;
+            }
             if (devicesRes.statusCode == 200) {
               audioDevices = jsonDecode(devicesRes.body);
             }
@@ -586,7 +644,9 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
           children: [
             Icon(
               icon,
-              color: isSelected ? const Color(0xFF00E5FF) : Colors.white54,
+              color: isSelected 
+                  ? const Color(0xFF7B61FF) 
+                  : (isDark ? Colors.white54 : Colors.black45),
               size: 20,
             ),
             const SizedBox(width: 12),
@@ -594,7 +654,9 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
               child: Text(
                 label,
                 style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.white70,
+                  color: isSelected 
+                      ? (isDark ? Colors.white : const Color(0xFF7B61FF)) 
+                      : (isDark ? Colors.white70 : Colors.black87),
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                   fontSize: 14,
                 ),
@@ -626,10 +688,14 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
     return Container(
       width: 260,
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E2E).withValues(alpha: 0.4),
+        color: isDark
+            ? const Color(0xFF1E1E2E).withValues(alpha: 0.4)
+            : const Color(0xFFFFFFFF).withValues(alpha: 0.4),
         border: Border(
           right: BorderSide(
-            color: Colors.white.withValues(alpha: 0.08),
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.black.withValues(alpha: 0.08),
             width: 1,
           ),
         ),
@@ -661,7 +727,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
                           width: 24,
                           height: 24,
                           colorFilter: const ColorFilter.mode(
-                            Color(0xFF00E5FF),
+                            Color(0xFF7B61FF),
                             BlendMode.srcIn,
                           ),
                         ),
@@ -670,11 +736,11 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
                       Expanded(
                         child: Text(
                           t('app_title'),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                             letterSpacing: 0.5,
-                            color: Colors.white,
+                            color: textColor,
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -701,7 +767,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator(color: Color(0xFF00E5FF))));
+      return const Scaffold(body: Center(child: CircularProgressIndicator(color: Color(0xFF7B61FF))));
     }
     if (config == null) {
       return Scaffold(
@@ -711,7 +777,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             children: [
               const Icon(Icons.error_outline, size: 48, color: Colors.redAccent),
               const SizedBox(height: 16),
-              Text(t('failed_connect'), style: const TextStyle(fontSize: 18)),
+              Text(t('failed_connect'), style: TextStyle(fontSize: 18, color: textColor)),
               const SizedBox(height: 16),
               ElevatedButton(onPressed: _fetchData, child: Text(t('retry')))
             ],
@@ -722,11 +788,13 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
 
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF0F0F1A), Color(0xFF1A1A2E)],
+            colors: isDark 
+                ? [const Color(0xFF0F0F1A), const Color(0xFF1A1A2E)]
+                : [const Color(0xFFF5F5FA), const Color(0xFFE8E8F3)],
           ),
         ),
         child: Row(
@@ -741,6 +809,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _saveConfig,
         backgroundColor: const Color(0xFF7B61FF),
+        foregroundColor: Colors.white,
         icon: const Icon(Icons.save_rounded),
         label: Text(t('save_settings'), style: const TextStyle(fontWeight: FontWeight.bold)),
       ),
@@ -757,11 +826,23 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
           child: Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: const Color(0xFF2D2D44).withValues(alpha: 0.4),
+              color: isDark
+                  ? const Color(0xFF2D2D44).withValues(alpha: 0.4)
+                  : const Color(0xFFFFFFFF).withValues(alpha: 0.7),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.1)
+                    : Colors.black.withValues(alpha: 0.08),
+              ),
               boxShadow: [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 5))
+                BoxShadow(
+                  color: isDark
+                      ? Colors.black.withValues(alpha: 0.2)
+                      : Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 5),
+                )
               ]
             ),
             child: child,
@@ -785,22 +866,23 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(color: Colors.white70)),
+        Text(label, style: TextStyle(color: textColor70)),
         const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.2),
+            color: inputBgColor,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.white12),
+            border: Border.all(color: inputBorderColor),
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               isExpanded: true,
               value: currentVal,
+              style: TextStyle(color: textColor, fontFamily: 'Inter'),
               items: [
-                DropdownMenuItem(value: '', child: Text(t('none_disabled'))),
-                ...voices.map((v) => DropdownMenuItem(value: v, child: Text(v))),
+                DropdownMenuItem(value: '', child: Text(t('none_disabled'), style: TextStyle(color: textColor))),
+                ...voices.map((v) => DropdownMenuItem(value: v, child: Text(v, style: TextStyle(color: textColor)))),
               ],
               onChanged: (val) {
                 if (val != null) {
@@ -809,7 +891,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
                   });
                 }
               },
-              dropdownColor: const Color(0xFF1E1E2E),
+              dropdownColor: dropdownBgColor,
             ),
           ),
         ),
@@ -834,27 +916,27 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(t('voice_config'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+          Text(t('voice_config'), style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
           const SizedBox(height: 24),
           
-          Text(t('voice_model'), style: const TextStyle(color: Colors.white70)),
+          Text(t('voice_model'), style: TextStyle(color: textColor70)),
           const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
                 child: TextFormField(
                   initialValue: config!['voice']['model'],
-                  style: const TextStyle(color: Colors.white),
+                  style: TextStyle(color: textColor),
                   decoration: InputDecoration(
                     filled: true,
-                    fillColor: Colors.black.withValues(alpha: 0.2),
+                    fillColor: inputBgColor,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Colors.white12),
+                      borderSide: BorderSide(color: inputBorderColor),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Colors.white12),
+                      borderSide: BorderSide(color: inputBorderColor),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
@@ -894,7 +976,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
               children: [
                 LinearProgressIndicator(
                   value: downloadProgress > 0 ? downloadProgress : null,
-                  backgroundColor: Colors.white10,
+                  backgroundColor: isDark ? Colors.white10 : Colors.black12,
                   valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF00E5FF)),
                 ),
                 const SizedBox(height: 4),
@@ -902,7 +984,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
                   downloadProgress > 0
                       ? '${t('downloading')} ${(downloadProgress * 100).toInt()}%'
                       : t('preparing_download'),
-                  style: const TextStyle(fontSize: 12, color: Colors.white70),
+                  style: TextStyle(fontSize: 12, color: textColor70),
                 ),
               ],
             ),
@@ -916,7 +998,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
           ],
           
           const SizedBox(height: 32),
-          Text(t('language_voices'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+          Text(t('language_voices'), style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor)),
           const SizedBox(height: 16),
           ...supportedLanguagesList.map((lang) => _buildLanguageVoiceDropdown(lang['code']!, lang['name']!)),
         ],
@@ -926,35 +1008,36 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
 
   Widget _buildAudioTab() {
     List<DropdownMenuItem<int?>> deviceItems = [
-      DropdownMenuItem(value: null, child: Text(t('default_device'))),
+      DropdownMenuItem(value: null, child: Text(t('default_device'), style: TextStyle(color: textColor))),
     ];
     for (var dev in audioDevices) {
-      deviceItems.add(DropdownMenuItem(value: dev['id'], child: Text('${dev['name']} (ID: ${dev['id']})')));
+      deviceItems.add(DropdownMenuItem(value: dev['id'], child: Text('${dev['name']} (ID: ${dev['id']})', style: TextStyle(color: textColor))));
     }
 
     return _buildGlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(t('audio_settings'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+          Text(t('audio_settings'), style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
           const SizedBox(height: 24),
           
-          Text(t('output_device'), style: const TextStyle(color: Colors.white70)),
+          Text(t('output_device'), style: TextStyle(color: textColor70)),
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.2),
+              color: inputBgColor,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white12),
+              border: Border.all(color: inputBorderColor),
             ),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<int?>(
                 isExpanded: true,
                 value: config!['audio']['device_id'],
+                style: TextStyle(color: textColor, fontFamily: 'Inter'),
                 items: deviceItems,
                 onChanged: (val) => _updateNestedConfig('audio', 'device_id', val),
-                dropdownColor: const Color(0xFF1E1E2E),
+                dropdownColor: dropdownBgColor,
               ),
             ),
           ),
@@ -973,7 +1056,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(t('keyboard_shortcuts'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+          Text(t('keyboard_shortcuts'), style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
           const SizedBox(height: 24),
           _buildDropdown(t('modifier_key'), 'keyboard', 'modifier_key', ['alt', 'ctrl', 'shift', 'super']),
           const SizedBox(height: 16),
@@ -992,15 +1075,17 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(t('general_settings'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+          Text(t('general_settings'), style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
           const SizedBox(height: 24),
           _buildDropdown(t('gui_language'), null, 'gui_language', ['auto', 'en', 'it', 'es', 'fr']),
           const SizedBox(height: 16),
+          _buildDropdown(t('theme'), null, 'theme_mode', ['dark', 'light', 'system']),
+          const SizedBox(height: 16),
           SwitchListTile(
-            title: Text(t('enable_debug'), style: const TextStyle(color: Colors.white)),
-            subtitle: Text(t('check_logs'), style: const TextStyle(color: Colors.white54)),
+            title: Text(t('enable_debug'), style: TextStyle(color: textColor)),
+            subtitle: Text(t('check_logs'), style: TextStyle(color: textColor54)),
             value: config!['debug'] ?? false,
-            activeThumbColor: const Color(0xFF00E5FF),
+            activeThumbColor: const Color(0xFF7B61FF),
             onChanged: (val) => setState(() => config!['debug'] = val),
             contentPadding: EdgeInsets.zero,
           ),
@@ -1025,27 +1110,31 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'ctrl': 'Ctrl',
       'shift': 'Shift',
       'super': 'Super',
+      'dark': t('theme_dark'),
+      'light': t('theme_light'),
+      'system': t('theme_system'),
     };
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(color: Colors.white70)),
+        Text(label, style: TextStyle(color: textColor70)),
         const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.2),
+            color: inputBgColor,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.white12),
+            border: Border.all(color: inputBorderColor),
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               isExpanded: true,
               value: currentVal,
+              style: TextStyle(color: textColor, fontFamily: 'Inter'),
               items: options.map((o) {
                 final displayName = optionNames[o] ?? o;
-                return DropdownMenuItem(value: o, child: Text(displayName));
+                return DropdownMenuItem(value: o, child: Text(displayName, style: TextStyle(color: textColor)));
               }).toList(),
               onChanged: (val) {
                 if (val != null) {
@@ -1058,10 +1147,18 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
                   });
                   if (key == 'gui_language') {
                     _updateTrayMenu();
+                  } else if (key == 'theme_mode') {
+                    if (val == 'light') {
+                      themeModeNotifier.value = ThemeMode.light;
+                    } else if (val == 'system') {
+                      themeModeNotifier.value = ThemeMode.system;
+                    } else {
+                      themeModeNotifier.value = ThemeMode.dark;
+                    }
                   }
                 }
               },
-              dropdownColor: const Color(0xFF1E1E2E),
+              dropdownColor: dropdownBgColor,
             ),
           ),
         ),
@@ -1073,23 +1170,23 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(color: Colors.white70)),
+        Text(label, style: TextStyle(color: textColor70)),
         const SizedBox(height: 8),
         Semantics(
           label: label,
           child: TextFormField(
             initialValue: config![section][key],
-            style: const TextStyle(color: Colors.white),
+            style: TextStyle(color: textColor),
             decoration: InputDecoration(
               filled: true,
-              fillColor: Colors.black.withValues(alpha: 0.2),
+              fillColor: inputBgColor,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Colors.white12),
+                borderSide: BorderSide(color: inputBorderColor),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Colors.white12),
+                borderSide: BorderSide(color: inputBorderColor),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
@@ -1111,8 +1208,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(label, style: const TextStyle(color: Colors.white70)),
-            Text(val.toStringAsFixed(2), style: const TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold)),
+            Text(label, style: TextStyle(color: textColor70)),
+            Text(val.toStringAsFixed(2), style: const TextStyle(color: Color(0xFF7B61FF), fontWeight: FontWeight.bold)),
           ],
         ),
         Semantics(
