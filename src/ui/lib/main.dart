@@ -21,7 +21,7 @@ Future<void> startPythonBackend() async {
   try {
     final res = await client.get(Uri.parse('http://localhost/status')).timeout(const Duration(milliseconds: 250));
     if (res.statusCode == 200) {
-      print('Python backend is already running.');
+      debugPrint('Python backend is already running.');
       client.close();
       return;
     }
@@ -45,12 +45,12 @@ Future<void> startPythonBackend() async {
   if (venvPath != null) {
     try {
       pythonBackend = await Process.start(venvPath, []);
-      print('Python backend started with PID: ${pythonBackend?.pid}');
+      debugPrint('Python backend started with PID: ${pythonBackend?.pid}');
     } catch (e) {
-      print('Error starting python backend: $e');
+      debugPrint('Error starting python backend: $e');
     }
   } else {
-    print('Warning: could not find .venv');
+    debugPrint('Warning: could not find .venv');
   }
 }
 
@@ -82,7 +82,6 @@ class SelectToSpeechApp extends StatelessWidget {
           primary: Color(0xFF7B61FF),
           secondary: Color(0xFF00E5FF),
           surface: Color(0xFF1E1E2E),
-          background: Color(0xFF0F0F1A),
         ),
         fontFamily: 'Inter',
         sliderTheme: const SliderThemeData(
@@ -366,7 +365,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   }
 
   @override
-  void onTrayIconClick() {
+  void onTrayIconMouseDown() {
     Process.run(Platform.resolvedExecutable, []);
   }
 
@@ -487,6 +486,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(config),
       );
+      if (!mounted) return;
       if (res.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(t('save_success')), backgroundColor: Colors.green),
@@ -500,6 +500,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         );
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${t('save_failed')}: $e'), backgroundColor: Colors.redAccent),
       );
@@ -571,12 +572,12 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
         decoration: BoxDecoration(
           color: isSelected
-              ? const Color(0xFF7B61FF).withOpacity(0.15)
+              ? const Color(0xFF7B61FF).withValues(alpha: 0.15)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected
-                ? const Color(0xFF7B61FF).withOpacity(0.3)
+                ? const Color(0xFF7B61FF).withValues(alpha: 0.3)
                 : Colors.transparent,
             width: 1,
           ),
@@ -625,10 +626,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
     return Container(
       width: 260,
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E2E).withOpacity(0.4),
+        color: const Color(0xFF1E1E2E).withValues(alpha: 0.4),
         border: Border(
           right: BorderSide(
-            color: Colors.white.withOpacity(0.08),
+            color: Colors.white.withValues(alpha: 0.08),
             width: 1,
           ),
         ),
@@ -648,10 +649,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF7B61FF).withOpacity(0.2),
+                          color: const Color(0xFF7B61FF).withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: const Color(0xFF7B61FF).withOpacity(0.4),
+                            color: const Color(0xFF7B61FF).withValues(alpha: 0.4),
                             width: 1.5,
                           ),
                         ),
@@ -756,11 +757,11 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
           child: Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: const Color(0xFF2D2D44).withOpacity(0.4),
+              color: const Color(0xFF2D2D44).withValues(alpha: 0.4),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white.withOpacity(0.1)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 5))
+                BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 5))
               ]
             ),
             child: child,
@@ -789,7 +790,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.2),
+            color: Colors.black.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(color: Colors.white12),
           ),
@@ -846,7 +847,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
                     filled: true,
-                    fillColor: Colors.black.withOpacity(0.2),
+                    fillColor: Colors.black.withValues(alpha: 0.2),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                       borderSide: const BorderSide(color: Colors.white12),
@@ -943,7 +944,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.2),
+              color: Colors.black.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: Colors.white12),
             ),
@@ -999,7 +1000,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             title: Text(t('enable_debug'), style: const TextStyle(color: Colors.white)),
             subtitle: Text(t('check_logs'), style: const TextStyle(color: Colors.white54)),
             value: config!['debug'] ?? false,
-            activeColor: const Color(0xFF00E5FF),
+            activeThumbColor: const Color(0xFF00E5FF),
             onChanged: (val) => setState(() => config!['debug'] = val),
             contentPadding: EdgeInsets.zero,
           ),
@@ -1034,7 +1035,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.2),
+            color: Colors.black.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(color: Colors.white12),
           ),
@@ -1081,7 +1082,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
               filled: true,
-              fillColor: Colors.black.withOpacity(0.2),
+              fillColor: Colors.black.withValues(alpha: 0.2),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
                 borderSide: const BorderSide(color: Colors.white12),
