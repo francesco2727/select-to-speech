@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v0.2.1] - Unreleased
 
 ### Added
+- **Quick Install**: Restructured `install.sh` to support remote installation via `curl`, automatically downloading pre-compiled releases and avoiding local build steps for end-users.
 - **Light Theme**: Implemented a new light theme for the Flutter GUI settings window.
 - **Theme Selection Config**: Added `theme_mode` configuration option in `config.py` supporting `dark`, `light`, and `system` modes.
 
