@@ -91,6 +91,8 @@ UI_BUNDLE_DIR="$INSTALL_DIR/src/ui/build/linux/x64/release/bundle"
 if ! command -v flutter &> /dev/null; then
     if [ -d "$HOME/develop/flutter/bin" ]; then
         export PATH="$HOME/develop/flutter/bin:$PATH"
+    elif [ -d "$HOME/development/flutter/bin" ]; then
+        export PATH="$HOME/development/flutter/bin:$PATH"
     fi
 fi
 

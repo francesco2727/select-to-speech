@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
@@ -142,6 +143,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   double downloadProgress = 0.0;
   String downloadStatus = 'idle';
   String? downloadError;
+
+  Timer? _saveTimer;
 
   bool get isDark => Theme.of(context).brightness == Brightness.dark;
   Color get textColor => isDark ? Colors.white : const Color(0xFF1E1E2E);
@@ -536,33 +539,24 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
     setState(() => isLoading = false);
   }
 
-  Future<void> _saveConfig() async {
+  Timer? get saveTimer => _saveTimer;
+
+  void _scheduleSave() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 500), () {
+      _saveConfigSilent();
+    });
+  }
+
+  Future<void> _saveConfigSilent() async {
     if (config == null) return;
     try {
-      final res = await apiClient.post(
+      await apiClient.post(
         Uri.parse('http://localhost/config'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(config),
       );
-      if (!mounted) return;
-      if (res.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(t('save_success')), backgroundColor: Colors.green),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${t('save_failed')}: ${res.statusCode}'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${t('save_failed')}: $e'), backgroundColor: Colors.redAccent),
-      );
-    }
+    } catch (_) {}
   }
 
   void _updateNestedConfig(String section, String key, dynamic value) {
@@ -571,10 +565,12 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         config![section][key] = value;
       }
     });
+    _scheduleSave();
   }
 
   @override
   void dispose() {
+    _saveTimer?.cancel();
     trayManager.removeListener(this);
     super.dispose();
   }
@@ -806,13 +802,6 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _saveConfig,
-        backgroundColor: const Color(0xFF7B61FF),
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.save_rounded),
-        label: Text(t('save_settings'), style: const TextStyle(fontWeight: FontWeight.bold)),
-      ),
     );
   }
 
@@ -889,6 +878,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
                   setState(() {
                     config!['voice']['language_models'][langCode] = val;
                   });
+                  _scheduleSave();
                 }
               },
               dropdownColor: dropdownBgColor,
@@ -1086,7 +1076,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             subtitle: Text(t('check_logs'), style: TextStyle(color: textColor54)),
             value: config!['debug'] ?? false,
             activeThumbColor: const Color(0xFF7B61FF),
-            onChanged: (val) => setState(() => config!['debug'] = val),
+            onChanged: (val) {
+              setState(() => config!['debug'] = val);
+              _scheduleSave();
+            },
             contentPadding: EdgeInsets.zero,
           ),
         ],
@@ -1145,6 +1138,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
                       config![key] = val;
                     }
                   });
+                  _scheduleSave();
                   if (key == 'gui_language') {
                     _updateTrayMenu();
                   } else if (key == 'theme_mode') {

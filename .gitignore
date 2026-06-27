@@ -16,6 +16,7 @@ eggs/
 .eggs/
 lib/
 !src/ui/lib/
+!src/ui/tray_manager_patched/lib/
 lib64/
 parts/
 sdist/
@@ -199,5 +200,3 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-
-GEMINI.md

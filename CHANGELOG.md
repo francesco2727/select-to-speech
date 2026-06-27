@@ -5,7 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v0.2.1] - Unreleased
+## [v0.2.2] - Unreleased
+
+### Changed
+- **Auto-Save Settings**: Removed the manual "Save Settings" button. Settings are now saved automatically and silently in the background when changed.
+
+## [v0.2.1] - 2026-06-21
 
 ### Added
 - **Quick Install**: Restructured `install.sh` to support remote installation via `curl`, automatically downloading pre-compiled releases and avoiding local build steps for end-users.
