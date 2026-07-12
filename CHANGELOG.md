@@ -7,8 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.2.2] - Unreleased
 
+### Added
+- **Audio Feedback (Earcons)**: Added synthetic, non-blocking audio feedback tones (`sound_feedback` option in `config.py`) for text selection start, OCR region selection activation, OCR success, and audio error alerts.
+- **Screen OCR & Read**: Added support for capturing a rectangular region of the screen (`Alt + r` default shortcut) using KDE Spectacle (`spectacle -r -b -n`) and reading extracted text via CLI `tesseract` OCR.
+- **OCR Shortcut Configuration**: Added configurable OCR hotkey setting (`ocr_key`) in `config.py` and editable directly from the Flutter GUI Keyboard Shortcuts tab.
+
 ### Changed
+- **Screen OCR Capture Tool**: Configured KDE Spectacle with `-k` (`--release-capture`) for immediate region capture on click-and-release as the primary capture tool on KDE Wayland systems, with `slurp` + `grim` as fallback for wlroots environments.
 - **Auto-Save Settings**: Removed the manual "Save Settings" button. Settings are now saved automatically and silently in the background when changed.
+
+### Fixed
+- **TTS Chunking Crash**: Fixed an `IndexError: index 510 is out of bounds` crash in Kokoro TTS caused by unpunctuated OCR segments exceeding 510 tokens by adding automatic word-level fallback chunking.
+- **OCR Language Handling**: Filtered out `osd` from Tesseract available languages and added warning logs when requested language packs are missing.
+
 
 ## [v0.2.1] - 2026-06-21
 

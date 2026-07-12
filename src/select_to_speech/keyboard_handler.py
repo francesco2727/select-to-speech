@@ -17,10 +17,12 @@ class KeyboardHandler:
         on_play: Callable[[], None],
         on_pause: Callable[[], None] = None,
         on_stop: Callable[[], None] = None,
+        on_ocr: Callable[[], None] = None,
         modifier: str = "alt",
         trigger_key: str = "esc",
         pause_key: str = "w",
         stop_key: str = "s",
+        ocr_key: str = "r",
         extra_hotkeys: Optional[dict[str, Callable[[], None]]] = None,
     ):
         """
@@ -30,10 +32,12 @@ class KeyboardHandler:
             on_play: Callback function when play shortcut is triggered
             on_pause: Callback function when pause shortcut is triggered
             on_stop: Callback function when stop shortcut is triggered
+            on_ocr: Callback function when OCR screen capture shortcut is triggered
             modifier: Modifier key ('alt', 'ctrl', 'shift')
             trigger_key: Trigger key name for play (e.g., 'esc', 'f1')
             pause_key: Trigger key name for pause/resume
             stop_key: Trigger key name for explicit stop
+            ocr_key: Trigger key name for OCR screen capture
             extra_hotkeys: Additional pre-formatted hotkey->callback mappings
         """
         self.listener: Optional[keyboard.GlobalHotKeys] = None
@@ -50,6 +54,10 @@ class KeyboardHandler:
         if on_stop:
             stop_hotkey = self.format_hotkey(modifier, stop_key)
             self.hotkeys[stop_hotkey] = on_stop
+
+        if on_ocr:
+            ocr_hotkey = self.format_hotkey(modifier, ocr_key)
+            self.hotkeys[ocr_hotkey] = on_ocr
 
         if extra_hotkeys:
             self.hotkeys.update(extra_hotkeys)

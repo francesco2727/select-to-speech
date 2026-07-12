@@ -15,6 +15,7 @@ class AudioConfig(BaseModel):
     speed: float = Field(1.0, ge=0.5, le=2.0, description="Speech speed multiplier")
     pitch: float = Field(1.0, ge=0.5, le=2.0, description="Speech pitch multiplier")
     volume: float = Field(1.0, ge=0.0, le=2.0, description="Audio volume multiplier")
+    sound_feedback: bool = Field(True, description="Enable audio earcon feedback tones")
 
 
 class VoiceConfig(BaseModel):
@@ -52,6 +53,8 @@ class KeyboardConfig(BaseModel):
     trigger_key: str = Field("esc", description="Trigger key when combined with modifier")
     pause_key: str = Field("w", description="Pause/Resume toggle key when combined with modifier")
     stop_key: str = Field("s", description="Explicit stop key when combined with modifier")
+    ocr_key: str = Field("r", description="OCR Screen Capture key when combined with modifier")
+
 
 
 class AppConfig(BaseModel):

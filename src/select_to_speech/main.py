@@ -16,6 +16,10 @@ from .keyboard_handler import KeyboardHandler
 from .selection_listener import WaylandSelectionListener
 from .tts_engine import get_tts_engine
 from .audio_player import AudioPlayer
+from .ocr_engine import OcrEngine
+from .screen_capture import ScreenCapture
+from .sound_feedback import SoundFeedback
+
 
 
 # ISO 639-1 code → lingua Language enum
@@ -53,6 +57,7 @@ class SelectToSpeechApp:
         # Initialize components
         self.tts_engine = get_tts_engine(self.config.voice)
         self.audio_player = AudioPlayer(self.config.audio.device_id)
+        self.ocr_engine = OcrEngine()
         self._lingua_detector = self._build_lingua_detector()
         self.selection_listener = WaylandSelectionListener(
             on_selection_change=self._on_text_selected,
@@ -61,10 +66,12 @@ class SelectToSpeechApp:
             on_play=self._on_shortcut_pressed,
             on_pause=self._on_pause_pressed,
             on_stop=self._on_stop_pressed,
+            on_ocr=self._on_ocr_pressed,
             modifier=self.config.keyboard.modifier_key,
             trigger_key=self.config.keyboard.trigger_key,
             pause_key=self.config.keyboard.pause_key,
             stop_key=self.config.keyboard.stop_key,
+            ocr_key=self.config.keyboard.ocr_key,
         )
 
         self.should_exit = False
@@ -119,10 +126,12 @@ class SelectToSpeechApp:
             on_play=self._on_shortcut_pressed,
             on_pause=self._on_pause_pressed,
             on_stop=self._on_stop_pressed,
+            on_ocr=self._on_ocr_pressed,
             modifier=config.keyboard.modifier_key,
             trigger_key=config.keyboard.trigger_key,
             pause_key=config.keyboard.pause_key,
             stop_key=config.keyboard.stop_key,
+            ocr_key=config.keyboard.ocr_key,
         )
         self.keyboard_handler.start()
 
@@ -198,12 +207,13 @@ class SelectToSpeechApp:
 
         return merged
 
-    def _on_text_selected(self, text: str) -> None:
+    def _on_text_selected(self, text: str, play_feedback: bool = True) -> None:
         """
         Callback when user triggers playback (hotkey press or force-replay).
 
         Args:
             text: Selected text to read
+            play_feedback: Whether to play start feedback tone
         """
         logger.debug(f"Text selected: {text[:50]}...")
 
@@ -219,6 +229,8 @@ class SelectToSpeechApp:
             self._process_thread.join(timeout=0.2)
 
         self._stop_event = threading.Event()
+        if play_feedback and getattr(self.config.audio, "sound_feedback", True):
+            SoundFeedback.play_start()
         self._process_thread = threading.Thread(
             target=self.process_text,
             args=(text, self._stop_event),
@@ -251,7 +263,7 @@ class SelectToSpeechApp:
         if current_text:
             # Reuse the already-fetched text — no second subprocess call needed
             self.selection_listener.last_selection = current_text
-            self._on_text_selected(current_text)
+            self._on_text_selected(current_text, play_feedback=True)
         elif not is_playing:
             # Nothing selected and not playing: force re-read of last selection
             self.selection_listener.on_trigger(force=True)
@@ -272,6 +284,32 @@ class SelectToSpeechApp:
             logger.info("Explicit stop requested...")
             self._stop_event.set()
             self.audio_player.stop()
+
+    def _on_ocr_pressed(self) -> None:
+        """Callback when OCR screen capture shortcut is pressed"""
+        logger.info("OCR screen capture shortcut triggered...")
+        if getattr(self.config.audio, "sound_feedback", True):
+            SoundFeedback.play_ocr_start()
+
+        def _capture_and_read():
+            out_path = Path("/tmp/select_to_speech_ocr.png")
+            success = ScreenCapture.capture_region(out_path)
+            if success:
+                text = self.ocr_engine.extract_text(out_path)
+                if text and text.strip():
+                    logger.info(f"OCR extracted text ({len(text)} chars), starting playback...")
+                    if getattr(self.config.audio, "sound_feedback", True):
+                        SoundFeedback.play_ocr_success()
+                    self._on_text_selected(text, play_feedback=False)
+                else:
+                    logger.warning("No text extracted from screen capture")
+                    if getattr(self.config.audio, "sound_feedback", True):
+                        SoundFeedback.play_error()
+            else:
+                if getattr(self.config.audio, "sound_feedback", True):
+                    SoundFeedback.play_error()
+        threading.Thread(target=_capture_and_read, daemon=True).start()
+
 
     def _run_synthesis(
         self,
@@ -395,6 +433,8 @@ class SelectToSpeechApp:
 
         if error_holder[0] is not None:
             logger.error(f"TTS generation failed: {error_holder[0]}")
+            if getattr(self.config.audio, "sound_feedback", True) and not stop_event.is_set():
+                SoundFeedback.play_error()
             return False
 
         if stop_event.is_set():
@@ -403,6 +443,8 @@ class SelectToSpeechApp:
 
         if not success:
             logger.error("Stream playback failed")
+            if getattr(self.config.audio, "sound_feedback", True) and not stop_event.is_set():
+                SoundFeedback.play_error()
             return False
 
         logger.info("Successfully read text")

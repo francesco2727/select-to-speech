@@ -1055,6 +1055,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
           _buildTextField(t('pause_key'), 'keyboard', 'pause_key'),
           const SizedBox(height: 16),
           _buildTextField(t('stop_key'), 'keyboard', 'stop_key'),
+          const SizedBox(height: 16),
+          _buildTextField(t('ocr_key'), 'keyboard', 'ocr_key'),
         ],
       ),
     );
@@ -1169,7 +1171,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         Semantics(
           label: label,
           child: TextFormField(
-            initialValue: config![section][key],
+            initialValue: (config![section][key] ?? (key == 'ocr_key' ? 'r' : '')).toString(),
             style: TextStyle(color: textColor),
             decoration: InputDecoration(
               filled: true,

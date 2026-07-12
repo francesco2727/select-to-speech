@@ -208,39 +208,55 @@ class BaseTTSEngine(ABC):
         text = re.sub(r'([.!?])\n+', r'\1 ', text)
 
         text = self._sanitize_text(text, language=language)
-        
+
         # 1. Split by strong sentence boundaries (. ! ?) keeping the punctuation attached
         raw_sentences = re.split(r'(?<=[.!?])\s+', text)
-        
+
         chunks = []
         current_chunk = ""
-        
+
+        def _add_piece(piece: str):
+            nonlocal current_chunk
+            piece = piece.strip()
+            if not piece:
+                return
+            if len(piece) <= max_chars:
+                if len(current_chunk) + len(piece) + 1 <= max_chars:
+                    current_chunk = f"{current_chunk} {piece}".strip()
+                else:
+                    if current_chunk:
+                        chunks.append(current_chunk)
+                    current_chunk = piece
+            else:
+                # 3. Fallback: split by words if a segment has no punctuation and exceeds max_chars
+                words = piece.split()
+                for w in words:
+                    if len(current_chunk) + len(w) + 1 <= max_chars:
+                        current_chunk = f"{current_chunk} {w}".strip()
+                    else:
+                        if current_chunk:
+                            chunks.append(current_chunk)
+                        while len(w) > max_chars:
+                            chunks.append(w[:max_chars])
+                            w = w[max_chars:]
+                        current_chunk = w
+
         for sentence in raw_sentences:
             sentence = sentence.strip()
-            if not sentence: continue
-                
+            if not sentence:
+                continue
+
             # 2. If a sentence is still too long, break it by weak boundaries (, ; : —)
             if len(sentence) > max_chars:
                 weak_parts = re.split(r'(?<=[,;:—])\s+', sentence)
                 for part in weak_parts:
-                    part = part.strip()
-                    if not part: continue
-                    
-                    if len(current_chunk) + len(part) < max_chars:
-                        current_chunk += (" " + part) if current_chunk else part
-                    else:
-                        if current_chunk: chunks.append(current_chunk)
-                        current_chunk = part
+                    _add_piece(part)
             else:
-                if len(current_chunk) + len(sentence) < max_chars:
-                    current_chunk += (" " + sentence) if current_chunk else sentence
-                else:
-                    if current_chunk: chunks.append(current_chunk)
-                    current_chunk = sentence
-                    
+                _add_piece(sentence)
+
         if current_chunk:
             chunks.append(current_chunk)
-            
+
         return chunks
 
     def get_model_for_language(self, language: str) -> str:

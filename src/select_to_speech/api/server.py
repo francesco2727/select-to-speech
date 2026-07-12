@@ -56,6 +56,13 @@ def pause():
         sts_app._on_pause_pressed()
     return {"status": "paused_or_resumed"}
 
+@app.post("/ocr_capture")
+def ocr_capture():
+    if sts_app:
+        sts_app._on_ocr_pressed()
+    return {"status": "ocr_started"}
+
+
 @app.get("/config")
 def get_config():
     if sts_app:

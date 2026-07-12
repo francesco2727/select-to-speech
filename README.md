@@ -5,6 +5,7 @@ A Wayland-native text-to-speech application for Linux that reads selected text a
 ## Features
 
 - **Read selected text** — highlight any text and press a hotkey to hear it spoken
+- **Screen OCR & read** — draw a screen region (`Alt + r`) with `slurp`/`grim` (or KDE Spectacle) to extract text via Tesseract and read it aloud
 - **Automatic language detection** — switches voice per language segment (e.g. Italian + English in the same paragraph)
 - **TTS engine** — [Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx) (high quality, offline)
 - **System tray GUI** — native tray icon with settings window
@@ -17,10 +18,12 @@ A Wayland-native text-to-speech application for Linux that reads selected text a
 ### System packages (Arch / CachyOS)
 
 ```bash
-sudo pacman -S wl-clipboard
+sudo pacman -S wl-clipboard slurp grim spectacle tesseract tesseract-data-ita tesseract-data-eng
 ```
 
 - `wl-clipboard` — required for Wayland primary-selection access
+- `slurp` & `grim` (or `spectacle`) & `tesseract` (`tesseract-data-ita`, `tesseract-data-eng`) — required for screen region OCR capture (`Alt + r`)
+
 
 ### Python (managed by uv)
 
