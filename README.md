@@ -148,7 +148,7 @@ You can launch the GUI specifically into the settings tab by running:
 ### Utility commands
 
 ```bash
-# Check system dependencies
+# Check system dependencies and optional OCR utilities (tesseract, spectacle, slurp, grim)
 uv run select-to-speech-check
 
 # List available audio output devices (to find device_id)
@@ -162,6 +162,7 @@ uv run select-to-speech-audio
 | Action | Shortcut |
 |---|---|
 | Read selected text | `Alt + Esc` |
+| Screen OCR & Read | `Alt + R` |
 | Pause / Resume | `Alt + W` |
 | Stop playback | `Alt + S` |
 

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **OCR System Checks**: Added diagnostic verification of OCR dependencies (`tesseract` CLI with language packs `tesseract-data-ita` / `tesseract-data-eng`, plus screen capture tools `spectacle` and `slurp` + `grim`) to `select-to-speech-check` (`system_check.py`), reporting installed OCR capabilities and precise installation instructions (`sudo pacman -S tesseract tesseract-data-ita tesseract-data-eng spectacle slurp grim`) when needed.
+
 ### Fixed
 - **Kokoro ONNX Token Truncation**: Fixed `IndexError: index 510 is out of bounds for axis 0 with size 510` in `kokoro_onnx` when phoneme sequences exceed model capacity by intercepting and truncating tokenized sequences to 509 tokens and chunking long text in `synthesize()`.
 - **Audio Stream Concurrency & Race Conditions**: Added `_play_lock` around `play()` and `play_stream()` in `AudioPlayer` with clean state reset (`_stop_requested = False`) upon lock acquisition, and guarded `stream.write()` with `_stream_lock` to prevent crashes, freezes, or blocked playback when rapid hotkey presses interrupt ongoing audio.

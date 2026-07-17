@@ -2,6 +2,7 @@
 
 import logging
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -49,9 +50,52 @@ def check_system_dependencies() -> bool:
 
     for command, package in optional_packages.items():
         if shutil.which(command):
-            found.append(f"✓ {command} ({package}) [optional]")
+            found.append(f"✓ {command} ({package}) [optional - XWayland support]")
         else:
             missing_optional.append((command, package))
+
+    # Check OCR utilities (tesseract + screen capture tools)
+    missing_ocr = []
+    if shutil.which("tesseract"):
+        tess_info = "✓ tesseract (tesseract) [optional - OCR engine]"
+        try:
+            res = subprocess.run(
+                ["tesseract", "--list-langs"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            if res.returncode == 0:
+                lines = [l.strip() for l in res.stdout.splitlines() if l.strip()]
+                langs = {
+                    l for l in lines
+                    if not l.lower().startswith("list of") and l.lower() != "osd"
+                }
+                if langs:
+                    tess_info += f" (languages: {', '.join(sorted(langs))})"
+                else:
+                    missing_ocr.append(
+                        ("tesseract language packs", "tesseract-data-ita tesseract-data-eng", "no OCR language packs found (es. ita/eng)")
+                    )
+        except Exception:
+            pass
+        found.append(tess_info)
+    else:
+        missing_ocr.append(
+            ("tesseract", "tesseract tesseract-data-ita tesseract-data-eng", "required for OCR text extraction")
+        )
+
+    has_spectacle = shutil.which("spectacle") is not None
+    has_grim_slurp = shutil.which("grim") is not None and shutil.which("slurp") is not None
+
+    if has_spectacle:
+        found.append("✓ spectacle (spectacle) [optional - OCR screen capture (KDE primary)]")
+    if has_grim_slurp:
+        found.append("✓ slurp & grim (slurp grim) [optional - OCR screen capture (wlroots fallback)]")
+    if not has_spectacle and not has_grim_slurp:
+        missing_ocr.append(
+            ("spectacle (or slurp+grim)", "spectacle slurp grim", "required for capturing rectangular screen regions for OCR")
+        )
 
     logger.info("\n=== System Dependencies Check ===\n")
 
@@ -66,6 +110,16 @@ def check_system_dependencies() -> bool:
             )
         packages_opt = list(set(pkg for _, pkg in missing_optional))
         logger.warning(f"  Install with: sudo pacman -S {' '.join(packages_opt)}")
+
+    if missing_ocr:
+        logger.warning("\nOptional OCR utilities not found (screen OCR via Alt+R will not work):")
+        for cmd, pkg, reason in missing_ocr:
+            logger.warning(f"  ⚠ {cmd} ({pkg}) – {reason}")
+        packages_ocr = []
+        for _, pkg, _ in missing_ocr:
+            packages_ocr.extend(pkg.split())
+        packages_ocr = sorted(list(set(packages_ocr)))
+        logger.warning(f"  Install with: sudo pacman -S {' '.join(packages_ocr)}")
 
     if missing:
         logger.error("\nMissing required binary dependencies:")
