@@ -35,7 +35,8 @@ def test_on_text_selected(mock_app):
     mock_app._process_thread = MagicMock()
     mock_app._process_thread.is_alive.return_value = False
     
-    with patch('threading.Thread') as mock_thread:
+    with patch('threading.Thread') as mock_thread, \
+         patch('select_to_speech.main.SoundFeedback'):
         mock_app._on_text_selected("Read this text")
         
         mock_app.audio_player.stop.assert_called_once()

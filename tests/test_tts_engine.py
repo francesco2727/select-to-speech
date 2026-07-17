@@ -79,3 +79,48 @@ def test_preprocess_text():
     assert "divided by" in processed_en
     assert "equals" in processed_en
     assert "minus 5" in processed_en
+
+
+def test_kokoro_tokenizer_truncation():
+    from select_to_speech.tts_engine import KokoroEngine
+    config = MagicMock()
+    config.model = "af"
+    engine = KokoroEngine(config)
+    
+    with patch.object(engine, 'ensure_model_downloaded', return_value=True), \
+         patch('kokoro_onnx.Kokoro') as mock_kokoro_class:
+        mock_kokoro = MagicMock()
+        # Mock original tokenize returning > 509 tokens
+        mock_kokoro.tokenizer.tokenize.return_value = list(range(600))
+        mock_kokoro.tokenizer.phonemize.return_value = "dummy phonemes"
+        mock_kokoro_class.return_value = mock_kokoro
+        
+        assert engine._init_kokoro() is True
+        
+        # Test that calling patched tokenize truncates to 509
+        tokens = engine.kokoro.tokenizer.tokenize("some long text")
+        assert len(tokens) == 509
+        assert tokens == list(range(509))
+
+
+def test_kokoro_synthesize_chunking():
+    from select_to_speech.tts_engine import KokoroEngine
+    import numpy as np
+    config = MagicMock()
+    config.model = "af"
+    engine = KokoroEngine(config)
+    
+    with patch.object(engine, '_init_kokoro', return_value=True):
+        engine.kokoro = MagicMock()
+        # Return 100 samples per chunk
+        engine.kokoro.create.side_effect = [
+            (np.ones(100, dtype=np.float32) * 0.5, 24000),
+            (np.ones(100, dtype=np.float32) * 0.5, 24000)
+        ]
+        
+        with patch.object(engine, '_chunk_text', return_value=["Chunk one.", "Chunk two."]):
+            res = engine.synthesize("Chunk one. Chunk two.")
+            assert res is not None
+            audio_bytes, sr = res
+            assert sr == 24000
+            assert engine.kokoro.create.call_count == 2

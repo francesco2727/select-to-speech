@@ -379,6 +379,38 @@ class TestAudioPlayerEdgeCases:
         player.play(audio_data, sample_rate=22050)
         assert player.is_playing is False
 
+    @patch('select_to_speech.audio_player.pyaudio.PyAudio')
+    def test_play_after_stop_requested(self, mock_pyaudio_class):
+        """Test that play and play_stream succeed after stop() has been called previously"""
+        import queue
+        mock_pyaudio = MagicMock()
+        mock_stream = MagicMock()
+        mock_pyaudio.open.return_value = mock_stream
+        mock_pyaudio.get_format_from_width.return_value = 8
+        mock_pyaudio_class.return_value = mock_pyaudio
+        
+        player = AudioPlayer()
+        audio_data = self.create_valid_wav_data()
+        
+        # Call stop explicitly (as done when interrupting previous playback)
+        player.stop()
+        assert player._stop_requested is True
+        
+        # Next call to play should clear _stop_requested and succeed
+        res = player.play(audio_data, sample_rate=22050)
+        assert res is True
+        assert player._stop_requested is False
+        
+        # Same for play_stream
+        player.stop()
+        assert player._stop_requested is True
+        q = queue.Queue()
+        q.put((audio_data, 22050))
+        q.put(None)
+        res_stream = player.play_stream(q)
+        assert res_stream is True
+        assert player._stop_requested is False
+
     def create_valid_wav_data(self, sample_rate=22050, channels=1, duration_ms=100):
         """Helper to create valid WAV audio data"""
         num_samples = int(sample_rate * duration_ms / 1000)

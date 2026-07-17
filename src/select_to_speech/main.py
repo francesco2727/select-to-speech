@@ -76,6 +76,7 @@ class SelectToSpeechApp:
 
         self.should_exit = False
         self._process_thread: Optional[threading.Thread] = None
+        self._ocr_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
         # Setup signal handlers
@@ -287,28 +288,39 @@ class SelectToSpeechApp:
 
     def _on_ocr_pressed(self) -> None:
         """Callback when OCR screen capture shortcut is pressed"""
+        if self._ocr_thread and self._ocr_thread.is_alive():
+            logger.info("OCR screen capture already in progress, ignoring extra shortcut press.")
+            return
+
         logger.info("OCR screen capture shortcut triggered...")
         if getattr(self.config.audio, "sound_feedback", True):
             SoundFeedback.play_ocr_start()
 
         def _capture_and_read():
-            out_path = Path("/tmp/select_to_speech_ocr.png")
-            success = ScreenCapture.capture_region(out_path)
-            if success:
-                text = self.ocr_engine.extract_text(out_path)
-                if text and text.strip():
-                    logger.info(f"OCR extracted text ({len(text)} chars), starting playback...")
-                    if getattr(self.config.audio, "sound_feedback", True):
-                        SoundFeedback.play_ocr_success()
-                    self._on_text_selected(text, play_feedback=False)
+            try:
+                out_path = Path("/tmp/select_to_speech_ocr.png")
+                success = ScreenCapture.capture_region(out_path)
+                if success:
+                    text = self.ocr_engine.extract_text(out_path)
+                    if text and text.strip():
+                        logger.info(f"OCR extracted text ({len(text)} chars), starting playback...")
+                        if getattr(self.config.audio, "sound_feedback", True):
+                            SoundFeedback.play_ocr_success()
+                        self._on_text_selected(text, play_feedback=False)
+                    else:
+                        logger.warning("No text extracted from screen capture")
+                        if getattr(self.config.audio, "sound_feedback", True):
+                            SoundFeedback.play_error()
                 else:
-                    logger.warning("No text extracted from screen capture")
                     if getattr(self.config.audio, "sound_feedback", True):
                         SoundFeedback.play_error()
-            else:
+            except Exception as e:
+                logger.error(f"Error during OCR capture/read: {e}", exc_info=True)
                 if getattr(self.config.audio, "sound_feedback", True):
                     SoundFeedback.play_error()
-        threading.Thread(target=_capture_and_read, daemon=True).start()
+
+        self._ocr_thread = threading.Thread(target=_capture_and_read, daemon=True)
+        self._ocr_thread.start()
 
 
     def _run_synthesis(

@@ -341,6 +341,25 @@ class KokoroEngine(BaseTTSEngine):
                         return re.sub(r'\([a-z]{2}\)', '', phonemes)
                         
                     self.kokoro.tokenizer.phonemize = patched_phonemize
+
+                    # Intercept tokenizer.tokenize to ensure tokens never exceed 509.
+                    # Kokoro ONNX voice style matrices have shape (510, 1, 256). When
+                    # kokoro_onnx truncates tokens to MAX_PHONEME_LENGTH (510), accessing
+                    # voice[len(tokens)] causes index 510 out of bounds. Truncating to 509
+                    # guarantees voice[len(tokens)] is always in bounds [0..509].
+                    original_tokenize = self.kokoro.tokenizer.tokenize
+
+                    def patched_tokenize(phonemes: str) -> list[int]:
+                        tokens = original_tokenize(phonemes)
+                        if len(tokens) > 509:
+                            logger.warning(
+                                f"Phoneme sequence too long ({len(tokens)} tokens), "
+                                "truncating to 509 to avoid Kokoro ONNX IndexError."
+                            )
+                            tokens = tokens[:509]
+                        return tokens
+
+                    self.kokoro.tokenizer.tokenize = patched_tokenize
             return True
         except ImportError:
             logger.error("kokoro-onnx is not installed. KokoroEngine cannot be used.")
@@ -375,14 +394,24 @@ class KokoroEngine(BaseTTSEngine):
             effective_lang = phoneme_lang or language
             lang_code = _KOKORO_LANG_CODES.get(effective_lang, "en-us") if effective_lang else "en-us"
 
-            with self._lock:
-                # Kokoro returns samples in [-1, 1] range, and sample_rate
-                samples, sample_rate = self.kokoro.create(
-                    text,
-                    voice=target_voice,
-                    speed=speed,
-                    lang=lang_code
-                )
+            all_samples = []
+            sample_rate = 22050
+            for chunk in self._chunk_text(text, language=language):
+                if not chunk.strip():
+                    continue
+                with self._lock:
+                    # Kokoro returns samples in [-1, 1] range, and sample_rate
+                    samples, sample_rate = self.kokoro.create(
+                        chunk,
+                        voice=target_voice,
+                        speed=speed,
+                        lang=lang_code
+                    )
+                all_samples.append(samples)
+
+            if not all_samples:
+                return None
+            samples = np.concatenate(all_samples)
             
             # Apply volume scaling
             if volume != 1.0:
