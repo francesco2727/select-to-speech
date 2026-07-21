@@ -68,7 +68,7 @@ class WaylandSelectionListener:
         except FileNotFoundError:
             logger.error(
                 "wl-paste not found. This is required for Wayland clipboard access.\n"
-                "Install wl-clipboard on CachyOS/Arch: sudo pacman -S wl-clipboard\n"
+                "Install wl-clipboard on Arch Linux: sudo pacman -S wl-clipboard\n"
                 "Or run: python -m select_to_speech.system_check"
             )
         except subprocess.TimeoutExpired:

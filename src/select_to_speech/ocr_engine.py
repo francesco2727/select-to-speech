@@ -93,7 +93,7 @@ class OcrEngine:
         if not self.is_available():
             logger.error(
                 "Tesseract CLI not found. Please install tesseract and language packs:\n"
-                "Arch/CachyOS: sudo pacman -S tesseract tesseract-data-ita tesseract-data-eng"
+                "Arch Linux: sudo pacman -S tesseract tesseract-data-ita tesseract-data-eng"
             )
             return ""
 

@@ -7,11 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Installation Script & System Diagnostics**: Removed automatic installation of system packages via `sudo pacman` from `install.sh`. The script now executes `select-to-speech-check` as its final step, displaying an at-a-glance diagnostic table with clear explanations of what each required and optional dependency is needed for (`wl-clipboard`, `libayatana-appindicator`, `tesseract`, `spectacle`, `slurp`/`grim`, `xclip`) along with exact installation commands (`sudo pacman -S`) for missing packages.
+- **Documentation (`README.md`)**: Reorganized the System Packages section under Requirements into clear, categorized blocks (`Required Core Dependencies`, `Optional OCR Dependencies`, `Optional XWayland Dependencies`, and `Install All Dependencies`) with explicit `sudo pacman -S` commands and detailed explanations for each package.
+
 ### Added
+- **Multilingual System Check (`select-to-speech-check`)**: Added full localization (`en`, `it`, `fr`, `es`) and automatic system language detection (`LC_ALL`, `LANG`, or `locale`) for dependency check descriptions and installation instructions, with English (`en`) as the fallback default and an explicit CLI override option (`--lang en|it|fr|es`).
 - **Language-Adaptive Currency Reading**: Added intelligent text normalization (`preprocess_text`) across all Kokoro supported languages (`en`, `it`, `es`, `fr`, `de`, `pt`, `ja`, `zh`, `hi`, `ko`) for currency symbols (`$`, `€`, `£`, `¥`, `₹`, `₽`, `₩`, `¢`, `฿`, `₺`, `₴`), automatically converting prefix notation (`$100`, `$100 milioni`) and suffix/standalone symbols (`50€`) into naturally spoken words (`100 dollari`, `100 milioni dollari`, `50 euro`, etc.) adapted to the detected language.
 - **OCR System Checks**: Added diagnostic verification of OCR dependencies (`tesseract` CLI with language packs `tesseract-data-ita` / `tesseract-data-eng`, plus screen capture tools `spectacle` and `slurp` + `grim`) to `select-to-speech-check` (`system_check.py`), reporting installed OCR capabilities and precise installation instructions (`sudo pacman -S tesseract tesseract-data-ita tesseract-data-eng spectacle slurp grim`) when needed.
 
 ### Fixed
+- **Installation Script (`install.sh`)**: Added `$HOME/.cargo/bin` alongside `$HOME/.local/bin` to `$PATH` when automatically installing `uv` to ensure seamless detection across different Linux configurations.
 - **Kokoro ONNX Token Truncation**: Fixed `IndexError: index 510 is out of bounds for axis 0 with size 510` in `kokoro_onnx` when phoneme sequences exceed model capacity by intercepting and truncating tokenized sequences to 509 tokens and chunking long text in `synthesize()`.
 - **Audio Stream Concurrency & Race Conditions**: Added `_play_lock` around `play()` and `play_stream()` in `AudioPlayer` with clean state reset (`_stop_requested = False`) upon lock acquisition, and guarded `stream.write()` with `_stream_lock` to prevent crashes, freezes, or blocked playback when rapid hotkey presses interrupt ongoing audio.
 - **Screen Capture Timeouts & Concurrency**: Added timeouts (`30s` for `spectacle`/`slurp`, `10s` for `grim`) and concurrency checks in `_on_ocr_pressed` to prevent deadlocks and infinite hangs when screen capture tools fail or cancel.

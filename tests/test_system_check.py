@@ -32,3 +32,22 @@ def test_check_system_dependencies_missing_required_fails():
         
     with patch("select_to_speech.system_check.shutil.which", side_effect=fake_which):
         assert check_system_dependencies() is False
+
+
+def test_detect_language_and_multilingual_check():
+    """Test language detection and explicit overrides (`en`, `it`, `fr`, `es`, default fallback)."""
+    from select_to_speech.system_check import _detect_language
+    assert _detect_language("it") == "it"
+    assert _detect_language("fr_FR.UTF-8") == "fr"
+    assert _detect_language("es_ES") == "es"
+    assert _detect_language("de_DE") == "en"
+
+    def fake_which(cmd):
+        return f"/usr/bin/{cmd}"
+
+    with patch("select_to_speech.system_check.shutil.which", side_effect=fake_which), \
+         patch("select_to_speech.system_check.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="List of available languages (2):\neng\nita\n")
+        assert check_system_dependencies(lang="fr") is True
+        assert check_system_dependencies(lang="es") is True
+

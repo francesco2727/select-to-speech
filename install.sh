@@ -21,19 +21,6 @@ else
     INSTALL_DIR="$HOME/.local/share/select-to-speech"
     info "Running in remote installation mode."
 fi
-
-# ── System dependencies ────────────────────────────────────────────────────────
-info "Checking system dependencies..."
-MISSING_PKGS=()
-for pkg in wl-clipboard libayatana-appindicator; do
-    pacman -Qi "$pkg" &>/dev/null || MISSING_PKGS+=("$pkg")
-done
-
-if [[ ${#MISSING_PKGS[@]} -gt 0 ]]; then
-    warn "Installing missing system packages: ${MISSING_PKGS[*]}"
-    sudo pacman -S --needed "${MISSING_PKGS[@]}"
-fi
-
 # ── Download App (Remote Mode) ──────────────────────────────────────────────────
 if [ "$INSTALL_MODE" = "remote" ]; then
     info "Downloading latest release..."
@@ -63,7 +50,7 @@ fi
 if ! command -v uv &> /dev/null; then
     warn "uv is not installed. Attempting to install uv automatically..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.local/bin:$PATH"
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
     if ! command -v uv &> /dev/null; then
         error "Failed to install uv. Please install it manually: curl -LsSf https://astral.sh/uv/install.sh | sh"
         exit 1
@@ -172,5 +159,9 @@ else
     echo "  To update to the latest release:"
     echo "    curl -sSL https://raw.githubusercontent.com/francesco2727/select-to-speech/main/install.sh | bash"
 fi
-echo ""
 warn "Make sure $BIN_DIR is in your PATH (it usually is on KDE)."
+
+# ── System Check ───────────────────────────────────────────────────────────────
+echo ""
+info "Running system dependencies check..."
+uv run --project "$INSTALL_DIR" select-to-speech-check || true

@@ -1,9 +1,10 @@
 # Select-to-Speech
 
-A Wayland-native text-to-speech application for Linux that reads selected text aloud using a keyboard shortcut. It supports multilingual automatic language detection and streaming audio playback.
+Designed specifically for people with visual impairments, reading difficulties, or anyone requiring effortless audio feedback, Select-to-Speech is a Wayland-native text-to-speech application for Linux that reads selected text aloud using a simple keyboard shortcut. It supports multilingual automatic language detection and streaming audio playback with natural voices.
 
 ## Features
 
+- **Designed for accessibility** — tailored for visually impaired users to instantly listen to any on-screen text without complex screen reader setup
 - **Read selected text** — highlight any text and press a hotkey to hear it spoken
 - **Screen OCR & read** — draw a screen region (`Alt + r`) with `slurp`/`grim` (or KDE Spectacle) to extract text via Tesseract and read it aloud
 - **Automatic language detection** — switches voice per language segment (e.g. Italian + English in the same paragraph)
@@ -16,14 +17,43 @@ A Wayland-native text-to-speech application for Linux that reads selected text a
 
 ## Requirements
 
-### System packages (Arch / CachyOS)
+### System packages (Arch Linux)
+
+You can check your system's dependency status at any time by running `select-to-speech-check` (or `uv run select-to-speech-check`).
+
+#### 1. Required Core Dependencies
+These packages are strictly required for Wayland text selection access and system tray functionality:
 
 ```bash
-sudo pacman -S wl-clipboard slurp grim spectacle tesseract tesseract-data-ita tesseract-data-eng
+sudo pacman -S wl-clipboard libayatana-appindicator
 ```
+- **`wl-clipboard`** (`wl-paste`) — Required for reading selected or copied text in native Wayland environments.
+- **`libayatana-appindicator`** — System library required by the Flutter GUI to show the system tray icon and menu.
 
-- `wl-clipboard` — required for Wayland primary-selection access
-- `slurp` & `grim` (or `spectacle`) & `tesseract` (`tesseract-data-ita`, `tesseract-data-eng`) — required for screen region OCR capture (`Alt + r`)
+#### 2. Optional Dependencies: Screen Text Recognition (OCR — `Alt + r`)
+Required if you want to select a rectangular region of your screen and read extracted text aloud:
+
+```bash
+sudo pacman -S tesseract tesseract-data-ita tesseract-data-eng spectacle slurp grim
+```
+- **`tesseract`** — Core OCR engine.
+- **`tesseract-data-ita` / `tesseract-data-eng`** — Language packs for Italian and English character recognition (install additional `tesseract-data-*` packages for other languages).
+- **`spectacle`** (or **`slurp` & `grim`**) — Screen capture tools (Spectacle for KDE Wayland; slurp & grim for wlroots-based environments like Sway or Hyprland).
+
+#### 3. Optional Dependencies: XWayland Compatibility
+Required if you want to read selected text inside legacy X11 applications running under XWayland:
+
+```bash
+sudo pacman -S xclip
+```
+- **`xclip`** — Allows intercepting primary selection inside non-native XWayland applications.
+
+#### 👉 Install All Dependencies (Required + Optional)
+To install everything and enable all features right away, run:
+
+```bash
+sudo pacman -S wl-clipboard libayatana-appindicator tesseract tesseract-data-ita tesseract-data-eng spectacle slurp grim xclip
+```
 
 
 ### Python (managed by uv)
@@ -62,12 +92,12 @@ cd select-to-speech
 ```
 
 The script:
-1. Installs missing system packages via `pacman`
-2. Runs `uv sync` (after creating a virtual environment in `.venv/` with system site packages)
+1. Runs `uv sync` (after creating a virtual environment in `.venv/` with system site packages)
+2. Downloads Kokoro TTS model files and sets up the Flutter GUI binary
 3. Creates wrapper scripts in `~/.local/bin/` that run directly using the virtual environment's executables (this ensures they run successfully without requiring `uv` to be in the `$PATH` when launched by systemd or desktop menus)
 4. Adds a `.desktop` entry to the KDE launcher
-5. Installs the KDE notification config (requires sudo)
-6. Registers and starts a systemd user service (`select-to-speech.service`)
+5. Registers and starts a systemd user service (`select-to-speech.service`)
+6. Executes `select-to-speech-check` as its final step to display an at-a-glance check of all required and optional system dependencies along with clear purpose explanations and exact installation instructions if any are missing
 
 During installation, the Kokoro model files (~350 MB) are downloaded automatically (with a fallback to downloading on first run or manually if installation download fails or is skipped).
 
