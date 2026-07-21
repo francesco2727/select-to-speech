@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Language-Adaptive Currency Reading**: Added intelligent text normalization (`preprocess_text`) across all Kokoro supported languages (`en`, `it`, `es`, `fr`, `de`, `pt`, `ja`, `zh`, `hi`, `ko`) for currency symbols (`$`, `€`, `£`, `¥`, `₹`, `₽`, `₩`, `¢`, `฿`, `₺`, `₴`), automatically converting prefix notation (`$100`, `$100 milioni`) and suffix/standalone symbols (`50€`) into naturally spoken words (`100 dollari`, `100 milioni dollari`, `50 euro`, etc.) adapted to the detected language.
 - **OCR System Checks**: Added diagnostic verification of OCR dependencies (`tesseract` CLI with language packs `tesseract-data-ita` / `tesseract-data-eng`, plus screen capture tools `spectacle` and `slurp` + `grim`) to `select-to-speech-check` (`system_check.py`), reporting installed OCR capabilities and precise installation instructions (`sudo pacman -S tesseract tesseract-data-ita tesseract-data-eng spectacle slurp grim`) when needed.
 
 ### Fixed

@@ -62,6 +62,21 @@ _KOKORO_LANG_CODES: dict[str, str] = {
     "zh": "zh",
 }
 
+# Currency symbol to dictionary key mapping
+_CURRENCY_SYMBOLS: dict[str, str] = {
+    "$": "dollar",
+    "€": "euro",
+    "£": "pound",
+    "¥": "yen",
+    "₹": "rupee",
+    "₽": "ruble",
+    "₩": "won",
+    "¢": "cent",
+    "฿": "baht",
+    "₺": "lira",
+    "₴": "hryvnia",
+}
+
 # Word mappings for mathematical symbols and punctuation by language
 _SYMBOL_WORDS: dict[str, dict[str, str]] = {
     "en": {
@@ -74,6 +89,17 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
         "less": "less than",
         "greater": "greater than",
         "dot": "dot",
+        "dollar": "dollars",
+        "euro": "euros",
+        "pound": "pounds",
+        "yen": "yen",
+        "rupee": "rupees",
+        "ruble": "rubles",
+        "won": "won",
+        "cent": "cents",
+        "baht": "baht",
+        "lira": "lira",
+        "hryvnia": "hryvnia",
     },
     "it": {
         "percent": "percento",
@@ -85,6 +111,17 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
         "less": "minore di",
         "greater": "maggiore di",
         "dot": "punto",
+        "dollar": "dollari",
+        "euro": "euro",
+        "pound": "sterline",
+        "yen": "yen",
+        "rupee": "rupie",
+        "ruble": "rubli",
+        "won": "won",
+        "cent": "centesimi",
+        "baht": "baht",
+        "lira": "lire",
+        "hryvnia": "grivne",
     },
     "es": {
         "percent": "por ciento",
@@ -96,6 +133,17 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
         "less": "menor que",
         "greater": "mayor que",
         "dot": "punto",
+        "dollar": "dólares",
+        "euro": "euros",
+        "pound": "libras",
+        "yen": "yenes",
+        "rupee": "rupias",
+        "ruble": "rublos",
+        "won": "won",
+        "cent": "centavos",
+        "baht": "baht",
+        "lira": "liras",
+        "hryvnia": "grivnas",
     },
     "fr": {
         "percent": "pour cent",
@@ -107,6 +155,17 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
         "less": "inférieur à",
         "greater": "supérieur à",
         "dot": "point",
+        "dollar": "dollars",
+        "euro": "euros",
+        "pound": "livres",
+        "yen": "yens",
+        "rupee": "roupies",
+        "ruble": "roubles",
+        "won": "wons",
+        "cent": "centimes",
+        "baht": "bahts",
+        "lira": "lires",
+        "hryvnia": "hryvnias",
     },
     "de": {
         "percent": "Prozent",
@@ -118,6 +177,17 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
         "less": "kleiner als",
         "greater": "größer als",
         "dot": "Punkt",
+        "dollar": "Dollar",
+        "euro": "Euro",
+        "pound": "Pfund",
+        "yen": "Yen",
+        "rupee": "Rupien",
+        "ruble": "Rubel",
+        "won": "Won",
+        "cent": "Cent",
+        "baht": "Baht",
+        "lira": "Lira",
+        "hryvnia": "Hrywnja",
     },
     "pt": {
         "percent": "por cento",
@@ -129,6 +199,105 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
         "less": "menor que",
         "greater": "maior que",
         "dot": "ponto",
+        "dollar": "dólares",
+        "euro": "euros",
+        "pound": "libras",
+        "yen": "ienes",
+        "rupee": "rúpias",
+        "ruble": "rublos",
+        "won": "won",
+        "cent": "centavos",
+        "baht": "baht",
+        "lira": "liras",
+        "hryvnia": "grivnas",
+    },
+    "ja": {
+        "percent": "パーセント",
+        "plus": "プラス",
+        "minus": "マイナス",
+        "times": "かける",
+        "divide": "わる",
+        "equals": "イコール",
+        "less": "より小さい",
+        "greater": "より大きい",
+        "dot": "ドット",
+        "dollar": "ドル",
+        "euro": "ユーロ",
+        "pound": "ポンド",
+        "yen": "円",
+        "rupee": "ルピー",
+        "ruble": "ルーブル",
+        "won": "ウォン",
+        "cent": "セント",
+        "baht": "バーツ",
+        "lira": "リラ",
+        "hryvnia": "フリヴニャ",
+    },
+    "zh": {
+        "percent": "百分之",
+        "plus": "加",
+        "minus": "减",
+        "times": "乘",
+        "divide": "除以",
+        "equals": "等于",
+        "less": "小于",
+        "greater": "大于",
+        "dot": "点",
+        "dollar": "美元",
+        "euro": "欧元",
+        "pound": "英镑",
+        "yen": "日元",
+        "rupee": "卢比",
+        "ruble": "卢布",
+        "won": "韩元",
+        "cent": "分",
+        "baht": "泰铢",
+        "lira": "里拉",
+        "hryvnia": "格里夫纳",
+    },
+    "hi": {
+        "percent": "प्रतिशत",
+        "plus": "प्लस",
+        "minus": "माइनस",
+        "times": "गुना",
+        "divide": "भागा",
+        "equals": "बराबर",
+        "less": "से कम",
+        "greater": "से बड़ा",
+        "dot": "डॉट",
+        "dollar": "डॉलर",
+        "euro": "यूरो",
+        "pound": "पाउंड",
+        "yen": "येन",
+        "rupee": "रुपए",
+        "ruble": "रूबल",
+        "won": "वॉन",
+        "cent": "सेंट",
+        "baht": "बात",
+        "lira": "लीरा",
+        "hryvnia": "रिव्निया",
+    },
+    "ko": {
+        "percent": "퍼센트",
+        "plus": "더하기",
+        "minus": "빼기",
+        "times": "곱하기",
+        "divide": "나누기",
+        "equals": "는",
+        "less": "보다 작음",
+        "greater": "보다 큼",
+        "dot": "점",
+        "dollar": "달러",
+        "euro": "유로",
+        "pound": "파운드",
+        "yen": "엔",
+        "rupee": "루피",
+        "ruble": "루블",
+        "won": "원",
+        "cent": "센트",
+        "baht": "바트",
+        "lira": "리라",
+        "hryvnia": "흐리우냐",
     },
 }
 
@@ -142,7 +311,7 @@ class BaseTTSEngine(ABC):
         self.voices_dir.mkdir(parents=True, exist_ok=True)
 
     def preprocess_text(self, text: str, language: Optional[str] = None) -> str:
-        """Preprocess text to replace mathematical symbols and dots in domains/filenames with words."""
+        """Preprocess text to replace mathematical symbols, currency symbols, and dots in domains/filenames with words."""
         if not text:
             return text
 
@@ -159,30 +328,57 @@ class BaseTTSEngine(ABC):
         dot_pattern = r'(?<=[a-zA-Z_-])\.(?=[a-zA-Z0-9_-])|(?<=[a-zA-Z0-9_-])\.(?=[a-zA-Z_-])'
         text = re.sub(dot_pattern, f" {words['dot']} ", text)
 
-        # 2. Replace percent symbol (%)
+        # 2. Replace currency symbols
+        # Handle prefix currency symbols before numbers (e.g., $100, € 50,25, $100 million),
+        # placing the currency word after the number or after scale words if present.
+        scale_words = r'(?:thousand|thousands|million|millions|billion|billions|trillion|trillions|mila|milione|milioni|miliardo|miliardi|mil|millón|millones|billón|billones|mille|millier|milliers|milliard|milliards|Tausend|Million|Millionen|Milliarde|Milliarden|milhão|milhões|bilhão|bilhões|bilião|biliões)'
+        pattern_prefix = rf'([$€£¥₹₽₩¢฿₺₴])\s*(\d+(?:[.,]\d+)*)(?:\s+({scale_words})\b)?'
+
+        def _replace_prefix_currency(match: re.Match) -> str:
+            sym = match.group(1)
+            num = match.group(2)
+            scale = match.group(3)
+            sym_key = _CURRENCY_SYMBOLS.get(sym, "")
+            sym_name = words.get(sym_key, "")
+            if not sym_name:
+                return match.group(0)
+            if scale:
+                return f" {num} {scale} {sym_name} "
+            return f" {num} {sym_name} "
+
+        text = re.sub(pattern_prefix, _replace_prefix_currency, text, flags=re.IGNORECASE)
+
+        # Replace any remaining currency symbols (e.g., suffix currencies like 100$ or standalone symbols)
+        for sym, key in _CURRENCY_SYMBOLS.items():
+            if sym in text:
+                sym_name = words.get(key, "")
+                if sym_name:
+                    text = text.replace(sym, f" {sym_name} ")
+
+        # 3. Replace percent symbol (%)
         text = text.replace('%', f" {words['percent']} ")
 
-        # 3. Replace plus symbol (+)
+        # 4. Replace plus symbol (+)
         text = text.replace('+', f" {words['plus']} ")
 
-        # 4. Replace minus symbol (-) when used mathematically
+        # 5. Replace minus symbol (-) when used mathematically
         # Surrounded by spaces: " - "
         text = re.sub(r'\s+-\s+', f" {words['minus']} ", text)
         # Negative sign before a digit: "-5" (must be preceded by whitespace or start of string)
         text = re.sub(r'(^|\s)-(?=\d)', rf'\1{words["minus"]} ', text)
 
-        # 5. Replace times symbol (*) when used mathematically (between digits or surrounded by spaces)
+        # 6. Replace times symbol (*) when used mathematically (between digits or surrounded by spaces)
         text = re.sub(r'(?<=\d)\s*\*\s*(?=\d)', f" {words['times']} ", text)
         text = re.sub(r'\s+\*\s+', f" {words['times']} ", text)
 
-        # 6. Replace division symbol (/) when used mathematically (between digits or surrounded by spaces)
+        # 7. Replace division symbol (/) when used mathematically (between digits or surrounded by spaces)
         text = re.sub(r'(?<=\d)\s*/\s*(?=\d)', f" {words['divide']} ", text)
         text = re.sub(r'\s+/\s+', f" {words['divide']} ", text)
 
-        # 7. Replace equals symbol (=)
+        # 8. Replace equals symbol (=)
         text = text.replace('=', f" {words['equals']} ")
 
-        # 8. Replace less than (<) and greater than (>)
+        # 9. Replace less than (<) and greater than (>)
         text = text.replace('<', f" {words['less']} ")
         text = text.replace('>', f" {words['greater']} ")
 

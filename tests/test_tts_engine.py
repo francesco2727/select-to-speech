@@ -81,6 +81,57 @@ def test_preprocess_text():
     assert "minus 5" in processed_en
 
 
+def test_preprocess_currencies():
+    config = VoiceConfig()
+    engine = DummyEngine(config)
+
+    # Italian currency tests ($ = dollari, € = euro, £ = sterline, ¥ = yen)
+    text_it = "Costa $100 oppure 50€ con sconto di £20,50 o ¥1000. Guadagno $100 milioni. Il simbolo $ rappresenta i dollari."
+    processed_it = engine.preprocess_text(text_it, language="it")
+    assert "100 dollari" in processed_it
+    assert "50 euro" in processed_it
+    assert "20,50 sterline" in processed_it
+    assert "1000 yen" in processed_it
+    assert "100 milioni dollari" in processed_it
+    assert "dollari" in processed_it
+
+    # Check sanitized Italian text (normalizes multiple spaces to single spaces)
+    sanitized_it = engine._sanitize_text(text_it, language="it")
+    assert "Il simbolo dollari rappresenta" in sanitized_it
+    assert "Costa 100 dollari oppure 50 euro" in sanitized_it
+
+    # English currency tests
+    text_en = "Price is $100 or 50€ and $100 million in total."
+    processed_en = engine.preprocess_text(text_en, language="en")
+    assert "100 dollars" in processed_en
+    assert "50 euros" in processed_en
+    assert "100 million dollars" in processed_en
+
+    # Spanish currency tests
+    text_es = "El precio es $100 o 50€."
+    processed_es = engine.preprocess_text(text_es, language="es")
+    assert "100 dólares" in processed_es
+    assert "50 euros" in processed_es
+
+    # French currency tests
+    text_fr = "Le prix est $100 ou 50€."
+    processed_fr = engine.preprocess_text(text_fr, language="fr")
+    assert "100 dollars" in processed_fr
+    assert "50 euros" in processed_fr
+
+    # German currency tests
+    text_de = "Der Preis beträgt $100 oder 50€."
+    processed_de = engine.preprocess_text(text_de, language="de")
+    assert "100 Dollar" in processed_de
+    assert "50 Euro" in processed_de
+
+    # Japanese currency tests
+    text_ja = "価格は$100または50€です。"
+    processed_ja = engine.preprocess_text(text_ja, language="ja")
+    assert "100 ドル" in processed_ja
+    assert "50 ユーロ" in processed_ja
+
+
 def test_kokoro_tokenizer_truncation():
     from select_to_speech.tts_engine import KokoroEngine
     config = MagicMock()
