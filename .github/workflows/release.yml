@@ -1,4 +1,4 @@
-name: Build and Release GUI
+name: Build and Release
 
 on:
   push:
@@ -9,6 +9,78 @@ permissions:
   contents: write # Required to upload assets to GitHub Releases
 
 jobs:
+  build-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y portaudio19-dev libayatana-appindicator3-dev patchelf ccache
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install dependencies
+        run: pip install . nuitka ordered-set
+
+      - name: Build select-to-speech
+        run: >
+          python -m nuitka --onefile \
+            --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki \
+            --output-filename=select-to-speech \
+            src/select_to_speech/main.py
+
+      - name: Build select-to-speech-check
+        run: |
+          cat << 'EOF' > run_check.py
+          from select_to_speech.system_check import check_system_dependencies
+          if __name__ == "__main__":
+              check_system_dependencies()
+          EOF
+          python -m nuitka --onefile \
+            --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki \
+            --output-filename=select-to-speech-check \
+            run_check.py
+
+      - name: Build select-to-speech-audio
+        run: |
+          cat << 'EOF' > run_audio.py
+          from select_to_speech.system_check import list_audio_devices
+          if __name__ == "__main__":
+              list_audio_devices()
+          EOF
+          python -m nuitka --onefile \
+            --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki \
+            --output-filename=select-to-speech-audio \
+            run_audio.py
+
+      - name: Build select-to-speech-download
+        run: |
+          cat << 'EOF' > run_download.py
+          from select_to_speech.voice_manager import download_kokoro_cli
+          if __name__ == "__main__":
+              download_kokoro_cli()
+          EOF
+          python -m nuitka --onefile \
+            --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki \
+            --output-filename=select-to-speech-download \
+            run_download.py
+
+      - name: Package Backend
+        run: |
+          tar -czf select-to-speech-backend-linux.tar.gz select-to-speech select-to-speech-check select-to-speech-audio select-to-speech-download
+
+      - name: Upload Backend Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-linux
+          path: select-to-speech-backend-linux.tar.gz
+
   build-linux:
     runs-on: ubuntu-latest
     steps:
@@ -46,9 +118,31 @@ jobs:
           # Package the release bundle
           tar -czf select-to-speech-gui-linux.tar.gz -C src/ui/build/linux/x64/release/bundle .
 
+      - name: Upload GUI Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-linux
+          path: select-to-speech-gui-linux.tar.gz
+
+  release:
+    needs: [build-backend, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Backend Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-linux
+          
+      - name: Download GUI Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gui-linux
+          
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
-          files: select-to-speech-gui-linux.tar.gz
+          files: |
+            select-to-speech-backend-linux.tar.gz
+            select-to-speech-gui-linux.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

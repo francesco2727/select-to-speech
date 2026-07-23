@@ -5,12 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.2.3] - 2026-07-26
 
 ### Added
+- **Nuitka Backend Compilation**: Added a new CI job (`build-backend`) in `.github/workflows/release.yml` to compile the Python backend and entry points (`select-to-speech`, `select-to-speech-check`, `select-to-speech-audio`, `select-to-speech-download`) into a standalone binary tarball (`select-to-speech-backend-linux.tar.gz`).
+- **Binary-Only Installation**: Created a new `install.sh` designed for end-users that automatically downloads pre-compiled backend and GUI tarballs from GitHub Releases, completely removing the dependency on `uv`, `pip`, or a local Python toolchain.
 - **Multilingual System Check (`select-to-speech-check`)**: Added full localization (`en`, `it`, `fr`, `es`) and automatic system language detection (`LC_ALL`, `LANG`, or `locale`) for dependency check descriptions and installation instructions, with English (`en`) as the fallback default and an explicit CLI override option (`--lang en|it|fr|es`).
 - **Language-Adaptive Currency Reading**: Added intelligent text normalization (`preprocess_text`) across all Kokoro supported languages (`en`, `it`, `es`, `fr`, `de`, `pt`, `ja`, `zh`, `hi`, `ko`) for currency symbols (`$`, `€`, `£`, `¥`, `₹`, `₽`, `₩`, `¢`, `฿`, `₺`, `₴`), automatically converting prefix notation (`$100`, `$100 milioni`) and suffix/standalone symbols (`50€`) into naturally spoken words (`100 dollari`, `100 milioni dollari`, `50 euro`, etc.) adapted to the detected language.
 - **OCR System Checks**: Added diagnostic verification of OCR dependencies (`tesseract` CLI with language packs `tesseract-data-ita` / `tesseract-data-eng`, plus screen capture tools `spectacle` and `slurp` + `grim`) to `select-to-speech-check` (`system_check.py`), reporting installed OCR capabilities and precise installation instructions (`sudo pacman -S tesseract tesseract-data-ita tesseract-data-eng spectacle slurp grim`) when needed.
+
+### Changed
+- **Local Installation**: Renamed the original source-based installation script from `install.sh` to `install-local.sh`, reserving it strictly for local development where `uv` and Flutter SDK are available.
 
 ### Fixed
 - **Installation Script (`install.sh`)**: Added `$HOME/.cargo/bin` alongside `$HOME/.local/bin` to `$PATH` when automatically installing `uv` to ensure seamless detection across different Linux configurations.
