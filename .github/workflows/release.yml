@@ -29,11 +29,17 @@ jobs:
         run: pip install . nuitka ordered-set
 
       - name: Build select-to-speech
-        run: >
+        run: |
+          cat << 'EOF' > run_main.py
+          from select_to_speech.main import main
+          import sys
+          if __name__ == "__main__":
+              sys.exit(main())
+          EOF
           python -m nuitka --onefile \
-            --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki \
+            --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki --include-package=uvicorn --include-package=fastapi --include-package=pydantic \
             --output-filename=select-to-speech \
-            src/select_to_speech/main.py
+            run_main.py
 
       - name: Build select-to-speech-check
         run: |
@@ -43,7 +49,7 @@ jobs:
               check_system_dependencies()
           EOF
           python -m nuitka --onefile \
-            --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki \
+            --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki --include-package=uvicorn --include-package=fastapi --include-package=pydantic \
             --output-filename=select-to-speech-check \
             run_check.py
 
@@ -55,7 +61,7 @@ jobs:
               list_audio_devices()
           EOF
           python -m nuitka --onefile \
-            --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki \
+            --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki --include-package=uvicorn --include-package=fastapi --include-package=pydantic \
             --output-filename=select-to-speech-audio \
             run_audio.py
 
@@ -67,7 +73,7 @@ jobs:
               download_kokoro_cli()
           EOF
           python -m nuitka --onefile \
-            --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki \
+            --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki --include-package=uvicorn --include-package=fastapi --include-package=pydantic \
             --output-filename=select-to-speech-download \
             run_download.py
 

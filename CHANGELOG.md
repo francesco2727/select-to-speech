@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Local Installation**: Renamed the original source-based installation script from `install.sh` to `install-local.sh`, reserving it strictly for local development where `uv` and Flutter SDK are available.
 
 ### Fixed
+- **Nuitka Backend Compilation**: Fixed a critical `ImportError` on backend startup caused by compiling `main.py` directly instead of treating it as a module (`select_to_speech.main`), which broke relative imports.
+- **FastAPI / Uvicorn Missing Modules**: Added explicit Nuitka `--include-package` flags for `uvicorn`, `fastapi`, and `pydantic` to prevent dynamic import errors when starting the backend server.
 - **Installation Script (`install.sh`)**: Added `$HOME/.cargo/bin` alongside `$HOME/.local/bin` to `$PATH` when automatically installing `uv` to ensure seamless detection across different Linux configurations.
 - **Kokoro ONNX Token Truncation**: Fixed `IndexError: index 510 is out of bounds for axis 0 with size 510` in `kokoro_onnx` when phoneme sequences exceed model capacity by intercepting and truncating tokenized sequences to 509 tokens and chunking long text in `synthesize()`.
 - **Audio Stream Concurrency & Race Conditions**: Added `_play_lock` around `play()` and `play_stream()` in `AudioPlayer` with clean state reset (`_stop_requested = False`) upon lock acquisition, and guarded `stream.write()` with `_stream_lock` to prevent crashes, freezes, or blocked playback when rapid hotkey presses interrupt ongoing audio.

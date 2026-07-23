@@ -45,9 +45,18 @@ if [[ -f "$NOTIFYRC" ]]; then
     sudo rm -f "$NOTIFYRC"
 fi
 
+# ── Application Binaries ───────────────────────────────────────────────────────
+info "Removing application binaries..."
+DATA_DIR="$HOME/.local/share/select-to-speech"
+rm -rf "$DATA_DIR/bin" || true
+rm -rf "$DATA_DIR/src" || true
+rm -rf "$DATA_DIR/.venv" || true
+rm -f "$DATA_DIR/select-to-speech.desktop" || true
+rm -f "$DATA_DIR/select-to-speech.service" || true
+
 echo ""
 info "Uninstall complete. Config and voice files are kept in:"
 echo "  ~/.config/select-to-speech/"
-echo "  ~/.local/share/select-to-speech/"
+echo "  ~/.local/share/select-to-speech/voices/"
 echo "  ~/.local/state/select-to-speech/"
 warn "Remove those directories manually if you want a full clean."
