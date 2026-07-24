@@ -184,4 +184,16 @@ def run_server():
             pass
     
     logger.info(f"Starting API server on UDS: {socket_path}")
-    uvicorn.run(app, uds=socket_path)
+    config = uvicorn.Config(app, uds=socket_path)
+    server = uvicorn.Server(config)
+    
+    import signal as _signal
+    original_sigterm = _signal.getsignal(_signal.SIGTERM)
+    def _handle_sigterm(signum, frame):
+        logger.info("Received SIGTERM, initiating graceful shutdown...")
+        server.should_exit = True
+        if callable(original_sigterm) and original_sigterm not in (_signal.SIG_DFL, _signal.SIG_IGN):
+            original_sigterm(signum, frame)
+    _signal.signal(_signal.SIGTERM, _handle_sigterm)
+    
+    server.run()

@@ -17,6 +17,13 @@ void main() async {
 }
 
 Process? pythonBackend;
+bool _shuttingDown = false;
+String? _backendPath;
+int _restartCount = 0;
+DateTime? _firstRestartTime;
+const int _maxRestartsInWindow = 5;
+const Duration _restartWindow = Duration(seconds: 60);
+const Duration _restartDelay = Duration(seconds: 3);
 
 Future<void> startPythonBackend() async {
   // Check if Python backend is already running on UDS socket
@@ -34,26 +41,56 @@ Future<void> startPythonBackend() async {
     client.close();
   }
 
-  String executablePath = Platform.resolvedExecutable;
-  Directory current = Directory(executablePath).parent;
-  String? venvPath;
-  while (current.path != '/') {
-    if (Directory('${current.path}/.venv').existsSync()) {
-      venvPath = '${current.path}/.venv/bin/select-to-speech';
-      break;
+  if (_backendPath == null) {
+    String executablePath = Platform.resolvedExecutable;
+    Directory current = Directory(executablePath).parent;
+    while (current.path != '/') {
+      if (Directory('${current.path}/.venv').existsSync()) {
+        _backendPath = '${current.path}/.venv/bin/select-to-speech';
+        break;
+      }
+      current = current.parent;
     }
-    current = current.parent;
   }
   
-  if (venvPath != null) {
-    try {
-      pythonBackend = await Process.start(venvPath, []);
-      debugPrint('Python backend started with PID: ${pythonBackend?.pid}');
-    } catch (e) {
-      debugPrint('Error starting python backend: $e');
-    }
+  if (_backendPath != null) {
+    await _launchAndMonitorBackend();
   } else {
     debugPrint('Warning: could not find .venv');
+  }
+}
+
+Future<void> _launchAndMonitorBackend() async {
+  try {
+    pythonBackend = await Process.start(_backendPath!, []);
+    debugPrint('Python backend started with PID: ${pythonBackend?.pid}');
+    
+    // Monitor the process and auto-restart on unexpected exit
+    pythonBackend?.exitCode.then((exitCode) async {
+      debugPrint('Python backend exited with code: $exitCode');
+      if (_shuttingDown) return;
+      
+      // Rate-limit restarts to avoid infinite crash loops
+      final now = DateTime.now();
+      if (_firstRestartTime == null || now.difference(_firstRestartTime!) > _restartWindow) {
+        _restartCount = 0;
+        _firstRestartTime = now;
+      }
+      _restartCount++;
+      
+      if (_restartCount > _maxRestartsInWindow) {
+        debugPrint('Backend crashed $_restartCount times in ${_restartWindow.inSeconds}s. Giving up auto-restart.');
+        return;
+      }
+      
+      debugPrint('Restarting backend in ${_restartDelay.inSeconds}s (attempt $_restartCount/$_maxRestartsInWindow)...');
+      await Future.delayed(_restartDelay);
+      if (!_shuttingDown) {
+        await _launchAndMonitorBackend();
+      }
+    });
+  } catch (e) {
+    debugPrint('Error starting python backend: $e');
   }
 }
 
@@ -431,10 +468,13 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   }
 
   Future<void> _quit() async {
+    _shuttingDown = true;
     try {
-      await apiClient.post(Uri.parse('http://localhost/stop'));
+      await apiClient.post(Uri.parse('http://localhost/stop')).timeout(const Duration(seconds: 2));
     } catch (_) {}
     pythonBackend?.kill();
+    // Give the backend a moment to shut down gracefully
+    await Future.delayed(const Duration(milliseconds: 500));
     exit(0);
   }
 

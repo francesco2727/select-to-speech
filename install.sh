@@ -36,6 +36,13 @@ info "Extracting to $INSTALL_DIR..."
 tar -xzf "/tmp/select-to-speech.tar.gz" -C "$INSTALL_DIR" --strip-components=1
 rm -f "/tmp/select-to-speech.tar.gz"
 
+# ── Stop running service before replacing binaries ─────────────────────────────
+if systemctl --user is-active --quiet select-to-speech 2>/dev/null; then
+    info "Stopping running select-to-speech service before update..."
+    systemctl --user stop select-to-speech || true
+    sleep 1
+fi
+
 # ── Download Backend ──────────────────────────────────────────────────────────
 BACKEND_URL="https://github.com/${REPO_NAME}/releases/latest/download/select-to-speech-backend-linux.tar.gz"
 info "Downloading pre-compiled Backend from: $BACKEND_URL"
