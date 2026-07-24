@@ -38,6 +38,7 @@ jobs:
           EOF
           python -m nuitka --onefile \
             --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki --include-package=uvicorn --include-package=fastapi --include-package=pydantic \
+            --include-package-data=kokoro_onnx --include-package-data=misaki \
             --output-filename=select-to-speech \
             run_main.py
 
@@ -50,6 +51,7 @@ jobs:
           EOF
           python -m nuitka --onefile \
             --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki --include-package=uvicorn --include-package=fastapi --include-package=pydantic \
+            --include-package-data=kokoro_onnx --include-package-data=misaki \
             --output-filename=select-to-speech-check \
             run_check.py
 
@@ -62,6 +64,7 @@ jobs:
           EOF
           python -m nuitka --onefile \
             --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki --include-package=uvicorn --include-package=fastapi --include-package=pydantic \
+            --include-package-data=kokoro_onnx --include-package-data=misaki \
             --output-filename=select-to-speech-audio \
             run_audio.py
 
@@ -74,6 +77,7 @@ jobs:
           EOF
           python -m nuitka --onefile \
             --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki --include-package=uvicorn --include-package=fastapi --include-package=pydantic \
+            --include-package-data=kokoro_onnx --include-package-data=misaki \
             --output-filename=select-to-speech-download \
             run_download.py
 
