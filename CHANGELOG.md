@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **OCR System Checks**: Added diagnostic verification of OCR dependencies (`tesseract` CLI with language packs `tesseract-data-ita` / `tesseract-data-eng`, plus screen capture tools `spectacle` and `slurp` + `grim`) to `select-to-speech-check` (`system_check.py`), reporting installed OCR capabilities and precise installation instructions (`sudo pacman -S tesseract tesseract-data-ita tesseract-data-eng spectacle slurp grim`) when needed.
 
 ### Changed
-- **Local Installation**: Renamed the original source-based installation script from `install.sh` to `install-local.sh`, reserving it strictly for local development where `uv` and Flutter SDK are available.
+- **Local Installation**: Refactored `install-local.sh` to strictly handle local installations from source code (requiring local `uv` and `flutter`), completely removing fallback remote download logic.
 
 ### Fixed
 - **Nuitka Backend Compilation**: Fixed a critical `ImportError` on backend startup caused by compiling `main.py` directly instead of treating it as a module (`select_to_speech.main`), which broke relative imports.
