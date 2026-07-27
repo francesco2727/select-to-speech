@@ -41,6 +41,7 @@ jobs:
             --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki --include-package=uvicorn --include-package=fastapi --include-package=pydantic \
             --include-package-data=kokoro_onnx --include-package-data=misaki \
             --include-data-dir="$KOKORO_DIR=kokoro_onnx" \
+            --include-data-files="$KOKORO_DIR/config.json=kokoro_onnx/config.json" \
             --output-filename=select-to-speech \
             run_main.py
 
@@ -56,6 +57,7 @@ jobs:
             --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki --include-package=uvicorn --include-package=fastapi --include-package=pydantic \
             --include-package-data=kokoro_onnx --include-package-data=misaki \
             --include-data-dir="$KOKORO_DIR=kokoro_onnx" \
+            --include-data-files="$KOKORO_DIR/config.json=kokoro_onnx/config.json" \
             --output-filename=select-to-speech-check \
             run_check.py
 
@@ -71,6 +73,7 @@ jobs:
             --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki --include-package=uvicorn --include-package=fastapi --include-package=pydantic \
             --include-package-data=kokoro_onnx --include-package-data=misaki \
             --include-data-dir="$KOKORO_DIR=kokoro_onnx" \
+            --include-data-files="$KOKORO_DIR/config.json=kokoro_onnx/config.json" \
             --output-filename=select-to-speech-audio \
             run_audio.py
 
@@ -86,6 +89,7 @@ jobs:
             --include-package=select_to_speech --include-package=kokoro_onnx --include-package=onnxruntime --include-package=misaki --include-package=uvicorn --include-package=fastapi --include-package=pydantic \
             --include-package-data=kokoro_onnx --include-package-data=misaki \
             --include-data-dir="$KOKORO_DIR=kokoro_onnx" \
+            --include-data-files="$KOKORO_DIR/config.json=kokoro_onnx/config.json" \
             --output-filename=select-to-speech-download \
             run_download.py
 
