@@ -631,8 +631,13 @@ class KokoroEngine(BaseTTSEngine):
 
                     self.kokoro.tokenizer.tokenize = patched_tokenize
             return True
-        except ImportError:
-            logger.error("kokoro-onnx is not installed. KokoroEngine cannot be used.")
+        except ImportError as e:
+            logger.error(
+                "Failed to import kokoro-onnx (or one of its dependencies: "
+                "misaki, phonemizer, dlinfo, onnxruntime). "
+                "KokoroEngine cannot be used.",
+                exc_info=True,
+            )
             return False
         except Exception as e:
             logger.error(f"Failed to initialize Kokoro: {e}", exc_info=True)
