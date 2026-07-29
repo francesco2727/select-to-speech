@@ -591,11 +591,40 @@ class KokoroEngine(BaseTTSEngine):
             # required at import time (config.py → get_vocab() → opens config.json).
             # We detect this and restore the file before importing.
             self._ensure_kokoro_config_json()
-            from kokoro_onnx import Kokoro
+            try:
+                from kokoro_onnx import Kokoro
+            except ImportError as e:
+                logger.error(
+                    "Failed to import kokoro-onnx (or one of its dependencies: "
+                    "misaki, phonemizer, dlinfo, onnxruntime). "
+                    "KokoroEngine cannot be used.",
+                    exc_info=True,
+                )
+                return False
+
             with self._lock:
                 if self.kokoro is None:
                     logger.info("Initializing Kokoro ONNX model...")
-                    self.kokoro = Kokoro(str(self.model_path), str(self.voices_bin_path))
+                    try:
+                        self.kokoro = Kokoro(str(self.model_path), str(self.voices_bin_path))
+                    except Exception as exc:
+                        # In Nuitka standalone/onefile binaries, importlib.metadata distribution info for packages like kokoro-onnx may not be packaged.
+                        # If kokoro_onnx internally calls importlib.metadata.version('kokoro-onnx'), it raises PackageNotFoundError.
+                        if "PackageNotFoundError" in type(exc).__name__ or "No package metadata was found" in str(exc):
+                            logger.warning("kokoro_onnx metadata missing in compiled binary, instantiating Kokoro with dummy version patch...")
+                            import importlib.metadata
+                            orig_version = importlib.metadata.version
+                            def patched_version(distribution_name: str) -> str:
+                                try:
+                                    return orig_version(distribution_name)
+                                except importlib.metadata.PackageNotFoundError:
+                                    if distribution_name == "kokoro-onnx":
+                                        return "0.3.1"
+                                    raise
+                            importlib.metadata.version = patched_version
+                            self.kokoro = Kokoro(str(self.model_path), str(self.voices_bin_path))
+                        else:
+                            raise exc
                     
                     # Intercept tokenizer.phonemize to strip espeak-ng language tags.
                     # espeak-ng outputs language switch tags (e.g., '(en)', '(it)') when it
