@@ -70,9 +70,6 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ## Installation
 
-> [!NOTE]
-> **Migration from Poetry to `uv`**: The project has transitioned from Poetry to `uv` for faster installation, simpler dependency management, and lighter runtime footprints. If you are upgrading from an older Poetry-based version, simply run `git pull` followed by `./install.sh`. The install script will recreate the virtual environment using `uv` and update all services automatically. You can then safely remove old Poetry files or environments if desired.
-
 ### Quick Install (Recommended)
 
 The easiest way to install Select-to-Speech is via the automated installation script, which downloads the latest pre-compiled release and configures your system automatically:
@@ -88,7 +85,7 @@ If you want to modify the source code or compile the application locally:
 ```bash
 git clone https://github.com/francesco2727/select-to-speech.git
 cd select-to-speech
-./install.sh
+./install-local.sh
 ```
 
 The script:
