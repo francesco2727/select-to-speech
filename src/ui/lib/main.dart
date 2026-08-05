@@ -200,6 +200,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'retry': 'Retry',
       'tab_voice': 'Voice',
       'tab_audio': 'Audio',
+      'tab_ocr': 'OCR',
       'tab_shortcuts': 'Shortcuts',
       'tab_general': 'General',
       'save_settings': 'Save Settings',
@@ -217,6 +218,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'pitch': 'Pitch',
       'volume': 'Volume',
       'keyboard_shortcuts': 'Keyboard Shortcuts',
+      'ocr_settings': 'OCR Settings',
       'modifier_key': 'Modifier Key',
       'trigger_key': 'Trigger Key (e.g. esc)',
       'pause_key': 'Pause/Resume Key (e.g. w)',
@@ -253,6 +255,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'retry': 'Riprova',
       'tab_voice': 'Voce',
       'tab_audio': 'Audio',
+      'tab_ocr': 'OCR',
       'tab_shortcuts': 'Scorciatoie',
       'tab_general': 'Generale',
       'save_settings': 'Salva Impostazioni',
@@ -270,6 +273,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'pitch': 'Tonalità',
       'volume': 'Volume',
       'keyboard_shortcuts': 'Scorciatoie da Tastiera',
+      'ocr_settings': 'Impostazioni OCR',
       'modifier_key': 'Tasto Modificatore',
       'trigger_key': 'Tasto di Attivazione (es. esc)',
       'pause_key': 'Tasto Pausa/Riprendi (es. w)',
@@ -306,6 +310,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'retry': 'Reintentar',
       'tab_voice': 'Voz',
       'tab_audio': 'Audio',
+      'tab_ocr': 'OCR',
       'tab_shortcuts': 'Atajos',
       'tab_general': 'General',
       'save_settings': 'Guardar Ajustes',
@@ -323,6 +328,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'pitch': 'Tono',
       'volume': 'Volumen',
       'keyboard_shortcuts': 'Atajos de Teclado',
+      'ocr_settings': 'Ajustes de OCR',
       'modifier_key': 'Tecla Modificadora',
       'trigger_key': 'Tecla de Activación (ej. esc)',
       'pause_key': 'Tecla Pausa/Reanudar (ej. w)',
@@ -359,6 +365,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'retry': 'Réessayer',
       'tab_voice': 'Voix',
       'tab_audio': 'Audio',
+      'tab_ocr': 'OCR',
       'tab_shortcuts': 'Raccourcis',
       'tab_general': 'Général',
       'save_settings': 'Enregistrer les paramètres',
@@ -376,6 +383,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'pitch': 'Hauteur',
       'volume': 'Volume',
       'keyboard_shortcuts': 'Raccourcis Clavier',
+      'ocr_settings': 'Paramètres OCR',
       'modifier_key': 'Touche Modificatrice',
       'trigger_key': 'Touche de Déclenchement (ex. esc)',
       'pause_key': 'Touche Pause/Reprise (ex. w)',
@@ -622,8 +630,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       case 1:
         return _buildAudioTab();
       case 2:
-        return _buildKeyboardTab();
+        return _buildOcrTab();
       case 3:
+        return _buildKeyboardTab();
+      case 4:
         return _buildGeneralTab();
       default:
         return _buildVoiceTab();
@@ -789,9 +799,11 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
                 const SizedBox(height: 8),
                 _buildSidebarItem(1, Icons.volume_up_rounded, t('tab_audio')),
                 const SizedBox(height: 8),
-                _buildSidebarItem(2, Icons.keyboard_rounded, t('tab_shortcuts')),
+                _buildSidebarItem(2, Icons.document_scanner_rounded, t('tab_ocr')),
                 const SizedBox(height: 8),
-                _buildSidebarItem(3, Icons.settings_rounded, t('tab_general')),
+                _buildSidebarItem(3, Icons.keyboard_rounded, t('tab_shortcuts')),
+                const SizedBox(height: 8),
+                _buildSidebarItem(4, Icons.settings_rounded, t('tab_general')),
               ],
             ),
           ),
@@ -1076,6 +1088,18 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
           _buildSlider(t('speed'), 'audio', 'speed', 0.5, 2.0),
           _buildSlider(t('pitch'), 'audio', 'pitch', 0.5, 2.0),
           _buildSlider(t('volume'), 'audio', 'volume', 0.0, 2.0),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOcrTab() {
+    return _buildGlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(t('ocr_settings'), style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
+          const SizedBox(height: 24),
         ],
       ),
     );
