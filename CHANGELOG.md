@@ -5,10 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.2.4] - 2026-08-05
 
 ### Added
 - **Interactive Shortcut Recording**: Replaced standard text inputs for shortcut configuration with an interactive widget that listens to physical keystrokes, eliminating the need to manually type key names (e.g., "esc", "ctrl").
+- **OCR Language Selection**: Added a dropdown menu in the OCR tab to select the Tesseract OCR language, with dynamic fetching of installed language packs. The backend now respects this setting during OCR extraction.
 
 ### Changed
 - **UI Settings Sidebar**: Renamed the existing "Shortcuts" tab to "OCR" and created a new dedicated "Shortcuts" tab to manage all keyboard shortcuts, updating the sidebar layout to support 5 tabs instead of 4.

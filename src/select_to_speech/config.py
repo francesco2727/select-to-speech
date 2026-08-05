@@ -56,6 +56,11 @@ class KeyboardConfig(BaseModel):
     ocr_key: str = Field("r", description="OCR Screen Capture key when combined with modifier")
 
 
+class OcrConfig(BaseModel):
+    """OCR configuration"""
+
+    language: str = Field("ita+eng", description="Language code(s) for Tesseract OCR (e.g., 'ita+eng', 'eng')")
+
 
 class AppConfig(BaseModel):
     """Main application configuration"""
@@ -63,6 +68,7 @@ class AppConfig(BaseModel):
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
     keyboard: KeyboardConfig = Field(default_factory=KeyboardConfig)
+    ocr: OcrConfig = Field(default_factory=OcrConfig)
     debug: bool = Field(False, description="Enable debug logging")
     gui_language: str = Field("auto", description="GUI language: 'auto', 'en', 'it', 'es', 'fr'")
     theme_mode: str = Field("system", description="Theme mode: 'dark', 'light', 'system'")

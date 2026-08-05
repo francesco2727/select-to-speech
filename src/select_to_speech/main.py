@@ -301,7 +301,9 @@ class SelectToSpeechApp:
                 out_path = Path("/tmp/select_to_speech_ocr.png")
                 success = ScreenCapture.capture_region(out_path)
                 if success:
-                    text = self.ocr_engine.extract_text(out_path)
+                    text = self.ocr_engine.extract_text(
+                        out_path, languages=getattr(self.config, "ocr", None) and self.config.ocr.language
+                    )
                     if text and text.strip():
                         logger.info(f"OCR extracted text ({len(text)} chars), starting playback...")
                         if getattr(self.config.audio, "sound_feedback", True):

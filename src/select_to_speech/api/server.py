@@ -173,6 +173,14 @@ def get_voices():
             
     return dynamic_voices if dynamic_voices else fallback_voices
 
+@app.get("/ocr_languages")
+def get_ocr_languages():
+    if sts_app:
+        langs = list(sts_app.ocr_engine.get_available_languages())
+        langs.sort()
+        return langs
+    return []
+
 
 def run_server():
     socket_path = os.path.expanduser("~/.local/state/select-to-speech/ipc.sock")

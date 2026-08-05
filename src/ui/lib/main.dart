@@ -175,6 +175,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   Map<String, dynamic>? config;
   List<dynamic> audioDevices = [];
   Map<String, List<String>> availableVoices = {};
+  List<String> ocrLanguages = [];
 
   // Download state variables
   bool isDownloading = false;
@@ -220,6 +221,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'volume': 'Volume',
       'keyboard_shortcuts': 'Keyboard Shortcuts',
       'ocr_settings': 'OCR Settings',
+      'ocr_language': 'Tesseract Language',
       'modifier_key': 'Modifier Key',
       'trigger_key': 'Trigger Key (e.g. esc)',
       'pause_key': 'Pause/Resume Key (e.g. w)',
@@ -248,6 +250,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme_light': 'Light',
       'theme_system': 'System Default',
       'press_a_key': 'Press a key...',
+      'no_ocr_langs': 'No Tesseract languages found. Please install tesseract language packs.',
     },
     'it': {
       'app_title': 'Select to Speech',
@@ -276,6 +279,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'volume': 'Volume',
       'keyboard_shortcuts': 'Scorciatoie da Tastiera',
       'ocr_settings': 'Impostazioni OCR',
+      'ocr_language': 'Lingua Tesseract',
       'modifier_key': 'Tasto Modificatore',
       'trigger_key': 'Tasto di Attivazione (es. esc)',
       'pause_key': 'Tasto Pausa/Riprendi (es. w)',
@@ -304,6 +308,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme_light': 'Chiaro',
       'theme_system': 'Predefinito di Sistema',
       'press_a_key': 'Premi un tasto...',
+      'no_ocr_langs': 'Nessuna lingua trovata per Tesseract. Installa i pacchetti lingua.',
     },
     'es': {
       'app_title': 'Select to Speech',
@@ -332,6 +337,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'volume': 'Volumen',
       'keyboard_shortcuts': 'Atajos de Teclado',
       'ocr_settings': 'Ajustes de OCR',
+      'ocr_language': 'Idioma de Tesseract',
       'modifier_key': 'Tecla Modificadora',
       'trigger_key': 'Tecla de Activación (ej. esc)',
       'pause_key': 'Tecla Pausa/Reanudar (ej. w)',
@@ -360,6 +366,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme_light': 'Claro',
       'theme_system': 'Predeterminato del Sistema',
       'press_a_key': 'Presiona una tecla...',
+      'no_ocr_langs': 'No se encontraron idiomas de Tesseract. Por favor instala los paquetes de idioma.',
     },
     'fr': {
       'app_title': 'Select to Speech',
@@ -388,6 +395,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'volume': 'Volume',
       'keyboard_shortcuts': 'Raccourcis Clavier',
       'ocr_settings': 'Paramètres OCR',
+      'ocr_language': 'Langue Tesseract',
       'modifier_key': 'Touche Modificatrice',
       'trigger_key': 'Touche de Déclenchement (ex. esc)',
       'pause_key': 'Touche Pause/Reprise (ex. w)',
@@ -416,6 +424,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme_light': 'Clair',
       'theme_system': 'Par Défaut du Système',
       'press_a_key': 'Appuyez sur une touche...',
+      'no_ocr_langs': 'Aucune langue Tesseract trouvée. Veuillez installer les paquets de langue.',
     }
   };
 
@@ -558,11 +567,13 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         final configRes = await apiClient.get(Uri.parse('http://localhost/config'));
         final devicesRes = await apiClient.get(Uri.parse('http://localhost/audio_devices'));
         final voicesRes = await apiClient.get(Uri.parse('http://localhost/voices'));
+        final ocrLangsRes = await apiClient.get(Uri.parse('http://localhost/ocr_languages'));
         
         if (configRes.statusCode == 200) {
           setState(() {
             config = jsonDecode(configRes.body);
             config!['theme_mode'] ??= 'dark';
+            config!['ocr'] ??= {'language': 'ita+eng'};
             final themeStr = config!['theme_mode'];
             if (themeStr == 'light') {
               themeModeNotifier.value = ThemeMode.light;
@@ -577,6 +588,9 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             if (voicesRes.statusCode == 200) {
               Map<String, dynamic> voicesMap = jsonDecode(voicesRes.body);
               availableVoices = voicesMap.map((key, val) => MapEntry(key, List<String>.from(val)));
+            }
+            if (ocrLangsRes.statusCode == 200) {
+              ocrLanguages = List<String>.from(jsonDecode(ocrLangsRes.body));
             }
             isLoading = false;
           });
@@ -654,10 +668,14 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             constraints: BoxConstraints(
               minHeight: constraints.maxHeight,
             ),
-            child: Center(
+            child: Align(
+              alignment: Alignment.topCenter,
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 550),
-                child: tabContent,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 32.0),
+                  child: tabContent,
+                ),
               ),
             ),
           ),
@@ -1105,8 +1123,57 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         children: [
           Text(t('ocr_settings'), style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
           const SizedBox(height: 24),
+          if (ocrLanguages.isEmpty)
+            Text(
+              t('no_ocr_langs'),
+              style: const TextStyle(color: Colors.redAccent, fontStyle: FontStyle.italic),
+            )
+          else
+            _buildOcrLanguageMultiSelect(),
         ],
       ),
+    );
+  }
+
+  Widget _buildOcrLanguageMultiSelect() {
+    String currentVal = config!['ocr']['language'] ?? '';
+    List<String> selectedLangs = currentVal.split('+').where((s) => s.isNotEmpty).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(t('ocr_language'), style: TextStyle(color: textColor70)),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8.0,
+          runSpacing: 8.0,
+          children: ocrLanguages.map((lang) {
+            final isSelected = selectedLangs.contains(lang);
+            return FilterChip(
+              label: Text(lang, style: TextStyle(color: isSelected ? Colors.white : textColor)),
+              selected: isSelected,
+              selectedColor: const Color(0xFF7B61FF),
+              checkmarkColor: Colors.white,
+              backgroundColor: inputBgColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: BorderSide(color: isSelected ? Colors.transparent : inputBorderColor),
+              ),
+              onSelected: (bool selected) {
+                setState(() {
+                  if (selected) {
+                    if (!selectedLangs.contains(lang)) selectedLangs.add(lang);
+                  } else {
+                    selectedLangs.remove(lang);
+                  }
+                  config!['ocr']['language'] = selectedLangs.join('+');
+                });
+                _scheduleSave();
+              },
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 

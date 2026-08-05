@@ -23,9 +23,6 @@ class OcrEngine:
 
     def get_available_languages(self) -> set[str]:
         """Check available tesseract language data packs."""
-        if self._available_langs is not None:
-            return self._available_langs
-
         if not self.is_available():
             self._available_langs = set()
             return self._available_langs
