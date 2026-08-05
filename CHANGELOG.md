@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Interactive Shortcut Recording**: Replaced standard text inputs for shortcut configuration with an interactive widget that listens to physical keystrokes, eliminating the need to manually type key names (e.g., "esc", "ctrl").
+
 ### Changed
 - **UI Settings Sidebar**: Renamed the existing "Shortcuts" tab to "OCR" and created a new dedicated "Shortcuts" tab to manage all keyboard shortcuts, updating the sidebar layout to support 5 tabs instead of 4.
 

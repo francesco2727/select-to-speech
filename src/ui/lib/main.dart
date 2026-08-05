@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
@@ -246,6 +247,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme_dark': 'Dark',
       'theme_light': 'Light',
       'theme_system': 'System Default',
+      'press_a_key': 'Press a key...',
     },
     'it': {
       'app_title': 'Select to Speech',
@@ -301,6 +303,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme_dark': 'Scuro',
       'theme_light': 'Chiaro',
       'theme_system': 'Predefinito di Sistema',
+      'press_a_key': 'Premi un tasto...',
     },
     'es': {
       'app_title': 'Select to Speech',
@@ -356,6 +359,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme_dark': 'Oscuro',
       'theme_light': 'Claro',
       'theme_system': 'Predeterminato del Sistema',
+      'press_a_key': 'Presiona una tecla...',
     },
     'fr': {
       'app_title': 'Select to Speech',
@@ -411,6 +415,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme_dark': 'Sombre',
       'theme_light': 'Clair',
       'theme_system': 'Par Défaut du Système',
+      'press_a_key': 'Appuyez sur une touche...',
     }
   };
 
@@ -1227,36 +1232,15 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   }
 
   Widget _buildTextField(String label, String section, String key) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: TextStyle(color: textColor70)),
-        const SizedBox(height: 8),
-        Semantics(
-          label: label,
-          child: TextFormField(
-            initialValue: (config![section][key] ?? (key == 'ocr_key' ? 'r' : '')).toString(),
-            style: TextStyle(color: textColor),
-            decoration: InputDecoration(
-              filled: true,
-              fillColor: inputBgColor,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide(color: inputBorderColor),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide(color: inputBorderColor),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Color(0xFF00E5FF)),
-              ),
-            ),
-            onChanged: (val) => _updateNestedConfig(section, key, val),
-          ),
-        ),
-      ],
+    return ShortcutRecorderWidget(
+      label: label,
+      initialValue: (config![section][key] ?? (key == 'ocr_key' ? 'r' : '')).toString(),
+      onChanged: (val) => _updateNestedConfig(section, key, val),
+      textColor: textColor,
+      textColor70: textColor70,
+      inputBgColor: inputBgColor,
+      inputBorderColor: inputBorderColor,
+      promptText: t('press_a_key'),
     );
   }
 
@@ -1284,6 +1268,110 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
           ),
         ),
         const SizedBox(height: 16),
+      ],
+    );
+  }
+}
+
+class ShortcutRecorderWidget extends StatefulWidget {
+  final String label;
+  final String initialValue;
+  final ValueChanged<String> onChanged;
+  final Color textColor;
+  final Color textColor70;
+  final Color inputBgColor;
+  final Color inputBorderColor;
+  final String promptText;
+
+  const ShortcutRecorderWidget({
+    super.key,
+    required this.label,
+    required this.initialValue,
+    required this.onChanged,
+    required this.textColor,
+    required this.textColor70,
+    required this.inputBgColor,
+    required this.inputBorderColor,
+    required this.promptText,
+  });
+
+  @override
+  State<ShortcutRecorderWidget> createState() => _ShortcutRecorderWidgetState();
+}
+
+class _ShortcutRecorderWidgetState extends State<ShortcutRecorderWidget> {
+  late FocusNode _focusNode;
+  late String _currentValue;
+  bool _isListening = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentValue = widget.initialValue;
+    _focusNode = FocusNode();
+    _focusNode.addListener(() {
+      setState(() {
+        _isListening = _focusNode.hasFocus;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(widget.label, style: TextStyle(color: widget.textColor70)),
+        const SizedBox(height: 8),
+        Focus(
+          focusNode: _focusNode,
+          onKeyEvent: (node, event) {
+            if (event is KeyDownEvent) {
+              String keyStr = event.logicalKey.keyLabel.toLowerCase();
+              if (keyStr == 'escape') keyStr = 'esc';
+              if (keyStr == 'control') keyStr = 'ctrl';
+              if (keyStr == ' ') keyStr = 'space';
+
+              setState(() {
+                _currentValue = keyStr;
+              });
+              widget.onChanged(keyStr);
+              _focusNode.unfocus();
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: GestureDetector(
+            onTap: () {
+              _focusNode.requestFocus();
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              decoration: BoxDecoration(
+                color: widget.inputBgColor,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: _isListening ? const Color(0xFF00E5FF) : widget.inputBorderColor,
+                  width: _isListening ? 2 : 1,
+                ),
+              ),
+              child: Text(
+                _isListening ? widget.promptText : (_currentValue.isEmpty ? '...' : _currentValue),
+                style: TextStyle(
+                  color: _isListening ? const Color(0xFF00E5FF) : widget.textColor,
+                  fontStyle: _isListening ? FontStyle.italic : FontStyle.normal,
+                ),
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }
