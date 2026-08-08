@@ -315,11 +315,26 @@ class BaseTTSEngine(ABC):
         if not text:
             return text
 
-        # Normalize language code (e.g. "en-us" -> "en", "it_IT" -> "it")
         lang_key = (language or "").split("-")[0].split("_")[0].lower()
         if lang_key not in _SYMBOL_WORDS:
             lang_key = "en"
         words = _SYMBOL_WORDS[lang_key]
+
+        # 0. Mask dates to prevent their separators from being replaced by math operations
+        date_patterns = [
+            r'\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b', # DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, MM-DD-YYYY
+            r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2}\b', # DD/MM/YY, MM/DD/YY, DD-MM-YY, MM-DD-YY
+            r'\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b', # YYYY/MM/DD, YYYY-MM-DD
+            r'\b\d{1,2}[/-]\d{4}\b',             # MM/YYYY, MM-YYYY
+        ]
+        
+        date_placeholders = {}
+        for pattern in date_patterns:
+            def repl(match):
+                placeholder = f"__DATE_{len(date_placeholders)}__"
+                date_placeholders[placeholder] = match.group(0)
+                return placeholder
+            text = re.sub(pattern, repl, text)
 
         # 1. Replace dots in domains/filenames
         # Matches dots preceded by a letter/hyphen/underscore and followed by alphanumeric/hyphen/underscore,
@@ -382,6 +397,12 @@ class BaseTTSEngine(ABC):
         text = text.replace('<', f" {words['less']} ")
         text = text.replace('>', f" {words['greater']} ")
 
+        # Restore masked dates, replacing separators with spaces
+        # so TTS reads "24 11 2025" instead of "24 barra 11 barra 2025"
+        for placeholder, original_date in date_placeholders.items():
+            spaced_date = re.sub(r'[/-]', ' ', original_date)
+            text = text.replace(placeholder, spaced_date)
+
         return text
 
     def _sanitize_text(self, text: str, language: Optional[str] = None) -> str:
@@ -390,7 +411,7 @@ class BaseTTSEngine(ABC):
         text = text.replace('"""', '"')
         text = text.replace("'''", "'")
         text = re.sub(r'\s+', ' ', text)
-        text = re.sub(r'[^\w\s.,!?;:\'\"-]', '', text)
+        text = re.sub(r'[^\w\s.,!?;:\'\"/-]', '', text)
         text = text.strip()
         logger.debug(f"Sanitized: '{text[:100]}{'...' if len(text) > 100 else ''}'")
         return text

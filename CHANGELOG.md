@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Date Reading Validation**: Fixed an issue where slashes (`/`) and hyphens (`-`) in dates were incorrectly read as mathematical operations ("divided by", "minus") by the TTS engine. Added recognition for major Anglo-Saxon and European date formats (e.g., DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, MM/YYYY) to preserve their native formatting and allow the TTS to read them naturally as dates.
+
 ## [v0.2.4] - 2026-08-05
 
 ### Added
