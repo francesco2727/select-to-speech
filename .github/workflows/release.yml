@@ -80,10 +80,8 @@ jobs:
           # Resolve data directories once
           KOKORO_DIR=$(python -c "import kokoro_onnx; from pathlib import Path; print(Path(kokoro_onnx.__file__).parent)")
           ESPEAK_DIR=$(python -c "import espeakng_loader; from pathlib import Path; print(Path(espeakng_loader.__file__).parent)")
-          export CC="ccache gcc"
-          export CXX="ccache g++"
-
           # Common Nuitka flags
+          # Note: ccache is already in PATH via hendrikmuhs/ccache-action symlinks
           NUITKA_FLAGS=(
             --onefile
             --include-package=select_to_speech
@@ -96,14 +94,12 @@ jobs:
             --include-package=uvicorn
             --include-package=fastapi
             --include-package=pydantic
-            --include-package-data=kokoro_onnx
-            --include-package-data=espeakng_loader
             --include-package-data=misaki
             --include-package-data=language_tags
             --include-package-data=csvw
             --include-package-data=segments
             --include-package-data=phonemizer
-            --include-distribution-metadata=kokoro_onnx
+            --include-distribution-metadata=kokoro-onnx
             --include-data-dir="$KOKORO_DIR=kokoro_onnx"
             --include-data-dir="$ESPEAK_DIR=espeakng_loader"
             --include-data-files="$KOKORO_DIR/config.json=kokoro_onnx/config.json"
