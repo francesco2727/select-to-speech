@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write # Required to upload assets to GitHub Releases
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-backend:
     runs-on: ubuntu-latest
@@ -18,96 +22,126 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y portaudio19-dev libayatana-appindicator3-dev patchelf ccache
+          sudo apt-get install -y portaudio19-dev libayatana-appindicator3-dev patchelf
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.14'
+          allow-prereleases: true
+          cache: 'pip'
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: nuitka-backend-${{ github.ref_name }}
+          restore-keys: |
+            nuitka-backend-
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
 
       - name: Install dependencies
-        run: pip install . nuitka ordered-set
+        run: uv pip install --system . nuitka ordered-set
 
-      - name: Build select-to-speech
+      - name: Create entry points
         run: |
-          cat << 'EOF' > run_main.py
+          cat > run_main.py << 'ENTRY'
           from select_to_speech.main import main
           import sys
           if __name__ == "__main__":
               sys.exit(main())
-          EOF
-          KOKORO_DIR=$(python -c "import kokoro_onnx; from pathlib import Path; print(Path(kokoro_onnx.__file__).parent)")
-          ESPEAK_DIR=$(python -c "import espeakng_loader; from pathlib import Path; print(Path(espeakng_loader.__file__).parent)")
-          python -m nuitka --onefile \
-            --include-package=select_to_speech --include-package=kokoro_onnx --include-package=espeakng_loader --include-package=onnxruntime --include-package=misaki --include-package=dlinfo --include-package=phonemizer --include-package=uvicorn --include-package=fastapi --include-package=pydantic \
-            --include-package-data=kokoro_onnx --include-package-data=espeakng_loader --include-package-data=misaki --include-package-data=language_tags --include-package-data=csvw --include-package-data=segments --include-package-data=phonemizer \
-            --include-distribution-metadata=kokoro_onnx \
-            --include-data-dir="$KOKORO_DIR=kokoro_onnx" \
-            --include-data-dir="$ESPEAK_DIR=espeakng_loader" \
-            --include-data-files="$KOKORO_DIR/config.json=kokoro_onnx/config.json" \
-            --output-filename=select-to-speech \
-            run_main.py
+          ENTRY
+          sed -i 's/^          //' run_main.py
 
-      - name: Build select-to-speech-check
-        run: |
-          cat << 'EOF' > run_check.py
+          cat > run_check.py << 'ENTRY'
           from select_to_speech.system_check import check_system_dependencies
           if __name__ == "__main__":
               check_system_dependencies()
-          EOF
-          KOKORO_DIR=$(python -c "import kokoro_onnx; from pathlib import Path; print(Path(kokoro_onnx.__file__).parent)")
-          ESPEAK_DIR=$(python -c "import espeakng_loader; from pathlib import Path; print(Path(espeakng_loader.__file__).parent)")
-          python -m nuitka --onefile \
-            --include-package=select_to_speech --include-package=kokoro_onnx --include-package=espeakng_loader --include-package=onnxruntime --include-package=misaki --include-package=dlinfo --include-package=phonemizer --include-package=uvicorn --include-package=fastapi --include-package=pydantic \
-            --include-package-data=kokoro_onnx --include-package-data=espeakng_loader --include-package-data=misaki --include-package-data=language_tags --include-package-data=csvw --include-package-data=segments --include-package-data=phonemizer \
-            --include-distribution-metadata=kokoro_onnx \
-            --include-data-dir="$KOKORO_DIR=kokoro_onnx" \
-            --include-data-dir="$ESPEAK_DIR=espeakng_loader" \
-            --include-data-files="$KOKORO_DIR/config.json=kokoro_onnx/config.json" \
-            --output-filename=select-to-speech-check \
-            run_check.py
+          ENTRY
+          sed -i 's/^          //' run_check.py
 
-      - name: Build select-to-speech-audio
-        run: |
-          cat << 'EOF' > run_audio.py
+          cat > run_audio.py << 'ENTRY'
           from select_to_speech.system_check import list_audio_devices
           if __name__ == "__main__":
               list_audio_devices()
-          EOF
-          KOKORO_DIR=$(python -c "import kokoro_onnx; from pathlib import Path; print(Path(kokoro_onnx.__file__).parent)")
-          ESPEAK_DIR=$(python -c "import espeakng_loader; from pathlib import Path; print(Path(espeakng_loader.__file__).parent)")
-          python -m nuitka --onefile \
-            --include-package=select_to_speech --include-package=kokoro_onnx --include-package=espeakng_loader --include-package=onnxruntime --include-package=misaki --include-package=dlinfo --include-package=phonemizer --include-package=uvicorn --include-package=fastapi --include-package=pydantic \
-            --include-package-data=kokoro_onnx --include-package-data=espeakng_loader --include-package-data=misaki --include-package-data=language_tags --include-package-data=csvw --include-package-data=segments --include-package-data=phonemizer \
-            --include-distribution-metadata=kokoro_onnx \
-            --include-data-dir="$KOKORO_DIR=kokoro_onnx" \
-            --include-data-dir="$ESPEAK_DIR=espeakng_loader" \
-            --include-data-files="$KOKORO_DIR/config.json=kokoro_onnx/config.json" \
-            --output-filename=select-to-speech-audio \
-            run_audio.py
+          ENTRY
+          sed -i 's/^          //' run_audio.py
 
-      - name: Build select-to-speech-download
-        run: |
-          cat << 'EOF' > run_download.py
+          cat > run_download.py << 'ENTRY'
           from select_to_speech.voice_manager import download_kokoro_cli
           if __name__ == "__main__":
               download_kokoro_cli()
-          EOF
+          ENTRY
+          sed -i 's/^          //' run_download.py
+
+      - name: Build all binaries with Nuitka
+        run: |
+          # Resolve data directories once
           KOKORO_DIR=$(python -c "import kokoro_onnx; from pathlib import Path; print(Path(kokoro_onnx.__file__).parent)")
           ESPEAK_DIR=$(python -c "import espeakng_loader; from pathlib import Path; print(Path(espeakng_loader.__file__).parent)")
-          python -m nuitka --onefile \
-            --include-package=select_to_speech --include-package=kokoro_onnx --include-package=espeakng_loader --include-package=onnxruntime --include-package=misaki --include-package=dlinfo --include-package=phonemizer --include-package=uvicorn --include-package=fastapi --include-package=pydantic \
-            --include-package-data=kokoro_onnx --include-package-data=espeakng_loader --include-package-data=misaki --include-package-data=language_tags --include-package-data=csvw --include-package-data=segments --include-package-data=phonemizer \
-            --include-distribution-metadata=kokoro_onnx \
-            --include-data-dir="$KOKORO_DIR=kokoro_onnx" \
-            --include-data-dir="$ESPEAK_DIR=espeakng_loader" \
-            --include-data-files="$KOKORO_DIR/config.json=kokoro_onnx/config.json" \
-            --output-filename=select-to-speech-download \
-            run_download.py
+          export CC="ccache gcc"
+          export CXX="ccache g++"
+
+          # Common Nuitka flags
+          NUITKA_FLAGS=(
+            --onefile
+            --include-package=select_to_speech
+            --include-package=kokoro_onnx
+            --include-package=espeakng_loader
+            --include-package=onnxruntime
+            --include-package=misaki
+            --include-package=dlinfo
+            --include-package=phonemizer
+            --include-package=uvicorn
+            --include-package=fastapi
+            --include-package=pydantic
+            --include-package-data=kokoro_onnx
+            --include-package-data=espeakng_loader
+            --include-package-data=misaki
+            --include-package-data=language_tags
+            --include-package-data=csvw
+            --include-package-data=segments
+            --include-package-data=phonemizer
+            --include-distribution-metadata=kokoro_onnx
+            --include-data-dir="$KOKORO_DIR=kokoro_onnx"
+            --include-data-dir="$ESPEAK_DIR=espeakng_loader"
+            --include-data-files="$KOKORO_DIR/config.json=kokoro_onnx/config.json"
+          )
+
+          build_binary() {
+            local output_name="$1"
+            local entry_file="$2"
+            echo ""
+            echo "=========================================="
+            echo "Building $output_name"
+            echo "=========================================="
+            python -m nuitka "${NUITKA_FLAGS[@]}" \
+              --output-filename="$output_name" \
+              "$entry_file"
+          }
+
+          build_binary "select-to-speech"          "run_main.py"
+          build_binary "select-to-speech-check"    "run_check.py"
+          build_binary "select-to-speech-audio"    "run_audio.py"
+          build_binary "select-to-speech-download" "run_download.py"
+
+      - name: Smoke test binaries
+        run: |
+          echo "--- Testing select-to-speech ---"
+          ./select-to-speech --help || true
+          echo "--- Testing select-to-speech-check ---"
+          ./select-to-speech-check --help || true
+          echo "--- Testing select-to-speech-audio ---"
+          ./select-to-speech-audio --help || true
+          echo "--- Testing select-to-speech-download ---"
+          ./select-to-speech-download --help || true
 
       - name: Package Backend
         run: |
-          tar -czf select-to-speech-backend-linux.tar.gz select-to-speech select-to-speech-check select-to-speech-audio select-to-speech-download
+          mkdir -p dist
+          cp select-to-speech select-to-speech-check select-to-speech-audio select-to-speech-download dist/
+          tar -czf select-to-speech-backend-linux.tar.gz -C dist .
 
       - name: Upload Backend Artifact
         uses: actions/upload-artifact@v4
@@ -129,22 +163,18 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.32.x'
           channel: 'stable'
           cache: true
 
-      - name: Restore tray_manager patched lib
+      - name: Install Flutter dependencies
         run: |
-          # Download and extract the missing lib directory for tray_manager
-          curl -L -o tray_manager.tar.gz https://pub.dev/api/archives/tray_manager-0.5.2.tar.gz
-          mkdir -p temp_tray_manager
-          tar -xzf tray_manager.tar.gz -C temp_tray_manager
-          cp -r temp_tray_manager/lib src/ui/tray_manager_patched/
-          rm -rf tray_manager.tar.gz temp_tray_manager
+          cd src/ui
+          flutter pub get
 
       - name: Build Flutter Linux Release
         run: |
           cd src/ui
-          flutter clean
           flutter build linux --release
 
       - name: Package GUI Bundle
@@ -175,6 +205,8 @@ jobs:
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
+          name: "Select-to-Speech ${{ github.ref_name }}"
+          generate_release_notes: true
           files: |
             select-to-speech-backend-linux.tar.gz
             select-to-speech-gui-linux.tar.gz

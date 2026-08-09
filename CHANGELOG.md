@@ -5,7 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.2.5] - 2026-08-09
+
+### Changed
+- **CI/CD Workflow Overhaul**: Comprehensive improvements to `.github/workflows/release.yml`:
+  - Switched from `pip` to `uv` for dependency installation, consistent with project tooling.
+  - Deduplicated Nuitka build commands into a reusable shell function with shared flags array.
+  - Added `allow-prereleases: true` for Python 3.14 setup to prevent CI failures.
+  - Configured `ccache` properly with `hendrikmuhs/ccache-action` for faster recompilation.
+  - Added `pip` caching via `actions/setup-python` cache option.
+  - Pinned Flutter version to `3.32.x` for reproducible builds.
+  - Added explicit `flutter pub get` step before Flutter build.
+  - Removed harmful `tray_manager_patched/lib` overwrite that replaced patched code with vanilla pub.dev version.
+  - Added `concurrency` group to prevent duplicate release builds.
+  - Added smoke tests for compiled binaries.
+  - Improved tar packaging with dedicated `dist/` directory.
+  - Enhanced GitHub Release with auto-generated release notes and descriptive name.
 
 ### Fixed
 - **Date Reading Validation**: Fixed an issue where slashes (`/`) and hyphens (`-`) in dates were incorrectly read as mathematical operations ("divided by", "minus") by the TTS engine. Added recognition for major Anglo-Saxon and European date formats (e.g., DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, MM/YYYY) to preserve their native formatting and allow the TTS to read them naturally as dates.
