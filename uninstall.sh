@@ -30,13 +30,19 @@ fi
 rm -f "$BIN_DIR/select-to-speech-gui" || true
 rm -f "$BIN_DIR/select-to-speech-settings" || true
 
-# ── Desktop file ───────────────────────────────────────────────────────────────
-info "Removing .desktop file..."
+# ── Desktop file and Icons ───────────────────────────────────────────────────
+info "Removing .desktop file and icons..."
 if [ -d "$APPS_DIR" ] && [ ! -w "$APPS_DIR" ]; then
     warn "Directory $APPS_DIR is not writable. Fixing ownership..."
     sudo chown -R "$(id -u):$(id -g)" "$APPS_DIR"
 fi
 rm -f "$APPS_DIR/select-to-speech.desktop" || true
+rm -f "$APPS_DIR/com.example.ui.desktop" || true
+update-desktop-database "$APPS_DIR" || true
+
+ICONS_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
+rm -f "$ICONS_DIR/select-to-speech.svg" || true
+gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" || true
 
 # ── KDE notification config ────────────────────────────────────────────────────
 NOTIFYRC="/usr/share/knotifications6/select-to-speech.notifyrc"

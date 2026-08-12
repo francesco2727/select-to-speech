@@ -84,7 +84,13 @@ chmod +x "$INSTALL_DIR/bin/select-to-speech-settings.sh"
 ln -sf "$INSTALL_DIR/bin/select-to-speech-gui.sh"      "$BIN_DIR/select-to-speech-gui"
 ln -sf "$INSTALL_DIR/bin/select-to-speech-settings.sh" "$BIN_DIR/select-to-speech-settings"
 
-# ── Desktop file ───────────────────────────────────────────────────────────────
+# ── Desktop file and Icons ─────────────────────────────────────────────────────
+info "Installing icon to ~/.local/share/icons..."
+ICONS_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
+mkdir -p "$ICONS_DIR"
+cp "$INSTALL_DIR/src/ui/images/select_to_speech_tray_icon.svg" "$ICONS_DIR/select-to-speech.svg"
+gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" || true
+
 info "Installing .desktop file to $APPS_DIR..."
 if [ -d "$APPS_DIR" ] && [ ! -w "$APPS_DIR" ]; then
     warn "Directory $APPS_DIR is not writable. Fixing ownership..."
@@ -92,6 +98,9 @@ if [ -d "$APPS_DIR" ] && [ ! -w "$APPS_DIR" ]; then
 fi
 mkdir -p "$APPS_DIR"
 sed "s|%h|$HOME|g" "$INSTALL_DIR/select-to-speech.desktop" > "$APPS_DIR/select-to-speech.desktop"
+# Create a symlink for Wayland to match the default Flutter app_id
+ln -sf "$APPS_DIR/select-to-speech.desktop" "$APPS_DIR/com.example.ui.desktop"
+update-desktop-database "$APPS_DIR" || true
 
 # ── Systemd user service ───────────────────────────────────────────────────────
 info "Installing systemd user service..."

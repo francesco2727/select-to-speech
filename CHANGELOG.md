@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.3.0] - 2026-08-12
+
+### Changed
+- **Unified Application Icon**: Configured the `.desktop` file to use the custom SVG logo (`select-to-speech.svg`) instead of the generic system `audio-headphones` icon.
+- **Window Icon Fix**: Added `StartupWMClass=com.example.ui` to the `.desktop` file to ensure Wayland and X11 correctly associate the running settings window with the application's `.desktop` file and icon.
+- **Installer Updates**: Updated `install.sh` and `uninstall.sh` to correctly install and remove the SVG icon into the user's `~/.local/share/icons/hicolor/scalable/apps/` directory.
+
 ## [v0.2.5] - 2026-08-09
 
 ### Changed

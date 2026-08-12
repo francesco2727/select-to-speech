@@ -4,11 +4,12 @@ Name=Select to Speech
 GenericName=Text to Speech
 Comment=Read selected text aloud with a keyboard shortcut
 Exec=%h/.local/bin/select-to-speech-gui
-Icon=audio-headphones
+Icon=%h/.local/share/icons/hicolor/scalable/apps/select-to-speech.svg
 Categories=Accessibility;Audio;Utility;
 Keywords=tts;speech;text;read;voice;
 StartupNotify=false
 NoDisplay=false
+StartupWMClass=com.example.ui
 
 [Desktop Action Settings]
 Name=Open Settings
