@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.3.0] - 2026-08-12
+
+### Added
+- **Emoji Text-to-Speech**: Added the ability for the TTS engine to naturally read emojis. Emojis are now automatically translated into text in the user's selected language (e.g., "😊" -> "faccina sorridente" in Italian) before synthesis, using the `emoji` package.
+- **Audio Ducking**: Added an audio ducking feature (with UI toggle) that automatically lowers the volume of other playing applications (like browsers or music players) while the text-to-speech voice is active, restoring their original volume when synthesis finishes.
 
 ### Changed
 - **Unified Application Icon**: Configured the `.desktop` file to use the custom SVG logo (`select-to-speech.svg`) instead of the generic system `audio-headphones` icon.
@@ -14,16 +18,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Missing OCR Translation**: Fixed a UI issue where the OCR shortcut label would incorrectly display the internal variable name (`ocr_key`) by adding proper translations for all supported languages.
-
-## [v0.3.0] - 2026-08-12
-
-### Added
-- **Emoji Text-to-Speech**: Added the ability for the TTS engine to naturally read emojis. Emojis are now automatically translated into text in the user's selected language (e.g., "😊" -> "faccina sorridente" in Italian) before synthesis, using the `emoji` package.
-
-### Changed
-- **Unified Application Icon**: Configured the `.desktop` file to use the custom SVG logo (`select-to-speech.svg`) instead of the generic system `audio-headphones` icon.
-- **Window Icon Fix**: Added `StartupWMClass=com.example.ui` to the `.desktop` file to ensure Wayland and X11 correctly associate the running settings window with the application's `.desktop` file and icon.
-- **Installer Updates**: Updated `install.sh` and `uninstall.sh` to correctly install and remove the SVG icon into the user's `~/.local/share/icons/hicolor/scalable/apps/` directory.
 
 ## [v0.2.5] - 2026-08-09
 

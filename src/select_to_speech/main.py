@@ -57,6 +57,7 @@ class SelectToSpeechApp:
         # Initialize components
         self.tts_engine = get_tts_engine(self.config.voice)
         self.audio_player = AudioPlayer(self.config.audio.device_id)
+        self.audio_player.ducker.enabled = self.config.audio.ducking
         self.ocr_engine = OcrEngine()
         self._lingua_detector = self._build_lingua_detector()
         self.selection_listener = WaylandSelectionListener(
@@ -119,6 +120,7 @@ class SelectToSpeechApp:
             logger.info(f"Updating audio device ID to {config.audio.device_id}")
             self.audio_player.stop()
             self.audio_player = AudioPlayer(config.audio.device_id)
+            self.audio_player.ducker.enabled = config.audio.ducking
 
         # 3. Update keyboard shortcuts (restart listener with new keys)
         logger.info("Recreating keyboard handler with new shortcuts...")

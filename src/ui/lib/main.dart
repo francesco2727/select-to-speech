@@ -252,6 +252,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme_system': 'System Default',
       'press_a_key': 'Press a key...',
       'no_ocr_langs': 'No Tesseract languages found. Please install tesseract language packs.',
+      'ducking': 'Audio Ducking',
+      'ducking_desc': 'Lower background volume while reading',
     },
     'it': {
       'app_title': 'Select to Speech',
@@ -311,6 +313,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme_system': 'Predefinito di Sistema',
       'press_a_key': 'Premi un tasto...',
       'no_ocr_langs': 'Nessuna lingua trovata per Tesseract. Installa i pacchetti lingua.',
+      'ducking': 'Ducking Audio',
+      'ducking_desc': 'Abbassa il volume di sottofondo durante la lettura',
     },
     'es': {
       'app_title': 'Select to Speech',
@@ -370,6 +374,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme_system': 'Predeterminato del Sistema',
       'press_a_key': 'Presiona una tecla...',
       'no_ocr_langs': 'No se encontraron idiomas de Tesseract. Por favor instala los paquetes de idioma.',
+      'ducking': 'Atenuación de Audio',
+      'ducking_desc': 'Bajar el volumen de fondo durante la lectura',
     },
     'fr': {
       'app_title': 'Select to Speech',
@@ -429,6 +435,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme_system': 'Par Défaut du Système',
       'press_a_key': 'Appuyez sur une touche...',
       'no_ocr_langs': 'Aucune langue Tesseract trouvée. Veuillez installer les paquets de langue.',
+      'ducking': 'Atténuation Audio',
+      'ducking_desc': 'Baisser le volume d\'arrière-plan pendant la lecture',
     }
   };
 
@@ -1115,6 +1123,15 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
           _buildSlider(t('speed'), 'audio', 'speed', 0.5, 2.0),
           _buildSlider(t('pitch'), 'audio', 'pitch', 0.5, 2.0),
           _buildSlider(t('volume'), 'audio', 'volume', 0.0, 2.0),
+          
+          SwitchListTile(
+            title: Text(t('ducking'), style: TextStyle(color: textColor)),
+            subtitle: Text(t('ducking_desc'), style: TextStyle(color: textColor54)),
+            value: config!['audio']['ducking'] ?? true,
+            activeThumbColor: const Color(0xFF7B61FF),
+            onChanged: (val) => _updateNestedConfig('audio', 'ducking', val),
+            contentPadding: EdgeInsets.zero,
+          ),
         ],
       ),
     );

@@ -16,6 +16,7 @@ class AudioConfig(BaseModel):
     pitch: float = Field(1.0, ge=0.5, le=2.0, description="Speech pitch multiplier")
     volume: float = Field(1.0, ge=0.0, le=2.0, description="Audio volume multiplier")
     sound_feedback: bool = Field(True, description="Enable audio earcon feedback tones")
+    ducking: bool = Field(True, description="Lower background audio while playing")
 
 
 class VoiceConfig(BaseModel):

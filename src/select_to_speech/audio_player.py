@@ -11,9 +11,87 @@ import pyaudio
 import wave
 import numpy as np
 from pedalboard import Pedalboard, PitchShift
+import os
 
+try:
+    import pulsectl
+except ImportError:
+    pulsectl = None
 
 logger = logging.getLogger(__name__)
+
+class AudioDucker:
+    """Manages lowering background audio volumes."""
+    def __init__(self, duck_volume: float = 0.2):
+        self.duck_volume = duck_volume
+        self.original_volumes = {}
+        self.pulse = None
+        self.enabled = True
+
+    def start_ducking(self):
+        if not self.enabled or not pulsectl:
+            return
+        try:
+            self.pulse = pulsectl.Pulse('select-to-speech-ducker')
+            my_pid = os.getpid()
+            for sink_input in self.pulse.sink_input_list():
+                # Get properties to identify the stream
+                pid_str = sink_input.proplist.get('application.process.id')
+                app_name = sink_input.proplist.get('application.name', '').lower()
+                
+                # Check if it's our process by PID
+                if pid_str and str(pid_str) == str(my_pid):
+                    continue
+                    
+                # PyAudio via ALSA might not report PID in PipeWire, so check name
+                if 'python' in app_name or 'select-to-speech' in app_name:
+                    continue
+
+                self.original_volumes[sink_input.index] = self.pulse.volume_get_all_chans(sink_input)
+                self.pulse.volume_set_all_chans(sink_input, self.duck_volume)
+        except Exception as e:
+            logger.warning(f"Failed to duck audio: {e}")
+            if self.pulse:
+                self.pulse.close()
+                self.pulse = None
+
+    def ensure_own_volume_max(self):
+        """Finds our own audio stream and ensures its volume is set to 100%."""
+        if not self.enabled or not pulsectl:
+            return
+        
+        try:
+            pulse = pulsectl.Pulse('select-to-speech-vol-fix')
+            my_pid = os.getpid()
+            for sink_input in pulse.sink_input_list():
+                pid_str = sink_input.proplist.get('application.process.id')
+                app_name = sink_input.proplist.get('application.name', '').lower()
+                
+                is_ours = False
+                if pid_str and str(pid_str) == str(my_pid):
+                    is_ours = True
+                if 'python' in app_name or 'select-to-speech' in app_name:
+                    is_ours = True
+                    
+                if is_ours:
+                    pulse.volume_set_all_chans(sink_input, 1.0)
+            pulse.close()
+        except Exception as e:
+            logger.warning(f"Failed to restore own audio volume: {e}")
+
+    def stop_ducking(self):
+        if not self.pulse:
+            return
+        try:
+            for sink_input in self.pulse.sink_input_list():
+                if sink_input.index in self.original_volumes:
+                    self.pulse.volume_set_all_chans(sink_input, self.original_volumes[sink_input.index])
+        except Exception as e:
+            logger.warning(f"Failed to restore audio volume: {e}")
+        finally:
+            self.original_volumes.clear()
+            self.pulse.close()
+            self.pulse = None
 
 
 class AudioPlayer:
@@ -25,8 +103,11 @@ class AudioPlayer:
 
         Args:
             device_id: Audio device ID (None for default)
+            ducking: Whether to enable audio ducking
         """
         self.device_id = device_id
+        self.ducker = AudioDucker()
+        self.ducker.enabled = False
         self.pyaudio = pyaudio.PyAudio()
         self.stream = None
         self.is_playing = False
@@ -130,6 +211,7 @@ class AudioPlayer:
             with self._play_lock:
                 self.is_playing = True
                 self._stop_requested = False
+                self.ducker.start_ducking()
 
                 # Parse WAV header
                 audio_buffer = io.BytesIO(audio_data)
@@ -192,6 +274,7 @@ class AudioPlayer:
                         
                         logger.info(f"✓ Successfully opened audio device {device_id} ({device_name})")
                         stream_opened = True
+                        self.ducker.ensure_own_volume_max()
                         break
                         
                     except Exception as device_error:
@@ -245,6 +328,7 @@ class AudioPlayer:
                                 pass
                             self.stream = None
                     self.is_playing = False
+                    self.ducker.stop_ducking()
                     
                     if self._stop_requested:
                         return False
@@ -263,6 +347,7 @@ class AudioPlayer:
                         except Exception:
                             self.stream = None
                     self.is_playing = False
+                    self.ducker.stop_ducking()
                     return False
 
         except wave.Error as wave_error:
@@ -272,6 +357,7 @@ class AudioPlayer:
             
         except Exception as e:
             logger.error(f"Fatal playback error: {e}", exc_info=True)
+            self.ducker.stop_ducking()
             return False
 
     def _get_device_name(self, device_id: Optional[int]) -> str:
@@ -301,6 +387,7 @@ class AudioPlayer:
                 self._stop_requested = False
                 stream_opened = False
                 first_chunk = True
+                self.ducker.start_ducking()
 
                 while not self._stop_requested:
                     chunk_data = audio_generator_queue.get()
@@ -353,6 +440,7 @@ class AudioPlayer:
                                     )
                                 stream_opened = True
                                 first_chunk = False
+                                self.ducker.ensure_own_volume_max()
                                 break
                             except Exception as device_error:
                                 continue
@@ -389,6 +477,7 @@ class AudioPlayer:
                             pass
                         self.stream = None
                 self.is_playing = False
+                self.ducker.stop_ducking()
                 return not self._stop_requested
             
         except Exception as e:
@@ -402,6 +491,7 @@ class AudioPlayer:
                         pass
                     self.stream = None
             self.is_playing = False
+            self.ducker.stop_ducking()
             return False
 
     def stop(self) -> None:
