@@ -12,6 +12,7 @@ import threading
 
 import soundfile as sf
 import numpy as np
+import emoji
 
 from .config import get_data_dir, VoiceConfig
 
@@ -319,6 +320,11 @@ class BaseTTSEngine(ABC):
         if lang_key not in _SYMBOL_WORDS:
             lang_key = "en"
         words = _SYMBOL_WORDS[lang_key]
+
+        # -1. Convert emojis to text in the requested language
+        demojized = emoji.demojize(text, language=lang_key)
+        # Remove colons and convert underscores to spaces (e.g., ":smiling_face:" -> " smiling face ")
+        text = re.sub(r':([^:]+):', lambda m: " " + m.group(1).replace('_', ' ') + " ", demojized)
 
         # 0. Mask dates to prevent their separators from being replaced by math operations
         date_patterns = [

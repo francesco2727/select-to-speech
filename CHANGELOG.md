@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.3.0] - 2026-08-12
 
+### Added
+- **Emoji Text-to-Speech**: Added the ability for the TTS engine to naturally read emojis. Emojis are now automatically translated into text in the user's selected language (e.g., "😊" -> "faccina sorridente" in Italian) before synthesis, using the `emoji` package.
+
 ### Changed
 - **Unified Application Icon**: Configured the `.desktop` file to use the custom SVG logo (`select-to-speech.svg`) instead of the generic system `audio-headphones` icon.
 - **Window Icon Fix**: Added `StartupWMClass=com.example.ui` to the `.desktop` file to ensure Wayland and X11 correctly associate the running settings window with the application's `.desktop` file and icon.
