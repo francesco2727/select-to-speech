@@ -93,6 +93,7 @@ jobs:
             --include-package=uvicorn
             --include-package=fastapi
             --include-package=pydantic
+            --include-package=pulsectl
             --include-package-data=misaki
             --include-package-data=language_tags
             --include-package-data=csvw

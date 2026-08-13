@@ -573,7 +573,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   
   Future<void> _fetchData() async {
     setState(() => isLoading = true);
-    int retries = 5;
+    int retries = 20;
     while (retries > 0) {
       try {
         final configRes = await apiClient.get(Uri.parse('http://localhost/config'));

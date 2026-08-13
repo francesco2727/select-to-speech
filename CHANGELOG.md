@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.3.1] - 2026-08-13
+
+### Fixed
+- **Precompiled Release Audio Ducking**: Included `pulsectl` package in the Nuitka build process to fix audio ducking silently failing in the precompiled standalone backend.
+- **Settings UI Startup Timeout**: Increased the UI's retry count and timeout logic when fetching configuration on the very first launch. This prevents an empty settings page error caused by the longer startup extraction time of the precompiled Nuitka backend.
+
 ## [v0.3.0] - 2026-08-12
 
 ### Added
