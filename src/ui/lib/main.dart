@@ -1016,7 +1016,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
                   items: const [
                     DropdownMenuItem(
                       value: 'kokoro-v1.0',
-                      child: Text('Kokoro v1.0 (82M)'),
+                      child: Text('Kokoro v1.0 (~350MB)'),
                     ),
                   ],
                   onChanged: (val) {

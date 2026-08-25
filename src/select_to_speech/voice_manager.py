@@ -68,29 +68,35 @@ def download_kokoro(
             continue
 
         logger.info("Downloading Kokoro file %s → %s", url, dest)
-        try:
-            with requests.get(url, stream=True, timeout=60) as resp:
-                resp.raise_for_status()
-                file_total = int(resp.headers.get("Content-Length", -1))
-                if file_total > 0 and total_size == -1:
-                    # Rough estimate: assume similar size for both files
-                    total_size = file_total * len(KOKORO_FILES)
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                with requests.get(url, stream=True, timeout=(10, 120)) as resp:
+                    resp.raise_for_status()
+                    file_total = int(resp.headers.get("Content-Length", -1))
+                    if file_total > 0 and total_size == -1:
+                        # Rough estimate: assume similar size for both files
+                        total_size = file_total * len(KOKORO_FILES)
 
-                with open(dest, "wb") as fh:
-                    for chunk in resp.iter_content(chunk_size=65536):
-                        if not chunk:
-                            continue
-                        fh.write(chunk)
-                        downloaded_total += len(chunk)
-                        if progress_cb is not None:
-                            progress_cb(downloaded_total, total_size)
+                    with open(dest, "wb") as fh:
+                        for chunk in resp.iter_content(chunk_size=65536):
+                            if not chunk:
+                                continue
+                            fh.write(chunk)
+                            downloaded_total += len(chunk)
+                            if progress_cb is not None:
+                                progress_cb(downloaded_total, total_size)
 
-            logger.info("Downloaded %s (%d bytes)", local_name, dest.stat().st_size)
-        except Exception as exc:
-            logger.error("Failed to download %s: %s", url, exc)
-            if dest.exists():
-                dest.unlink()
-            return False
+                logger.info("Downloaded %s (%d bytes)", local_name, dest.stat().st_size)
+                break  # Success, exit retry loop
+            except Exception as exc:
+                logger.error("Failed to download %s (attempt %d/%d): %s", url, attempt + 1, max_retries, exc)
+                if dest.exists():
+                    dest.unlink()
+                if attempt == max_retries - 1:
+                    return False
+                import time
+                time.sleep(2)
 
     return True
 
