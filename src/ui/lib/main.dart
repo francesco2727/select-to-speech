@@ -179,6 +179,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
 
   // Download state variables
   bool isDownloading = false;
+  bool isModelInstalled = true;
   double downloadProgress = 0.0;
   String downloadStatus = 'idle';
   String? downloadError;
@@ -208,7 +209,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'save_settings': 'Save Settings',
       'voice_config': 'Voice Configuration',
       'voice_model': 'Voice Model',
-      'redownload': 'Re-download',
+      'download': 'Download',
       'downloading': 'Downloading...',
       'preparing_download': 'Preparing download...',
       'error': 'Error',
@@ -251,7 +252,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme_light': 'Light',
       'theme_system': 'System Default',
       'press_a_key': 'Press a key...',
-      'no_ocr_langs': 'No Tesseract languages found. Please install tesseract language packs.',
+      'no_ocr_langs': 'No Tesseract languages found. Please install language packages.',
       'ducking': 'Audio Ducking',
       'ducking_desc': 'Lower background volume while reading',
     },
@@ -269,7 +270,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'save_settings': 'Salva Impostazioni',
       'voice_config': 'Configurazione Voce',
       'voice_model': 'Modello Vocale',
-      'redownload': 'Riscarica',
+      'download': 'Scarica',
       'downloading': 'Download in corso...',
       'preparing_download': 'Preparazione download...',
       'error': 'Errore',
@@ -330,7 +331,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'save_settings': 'Guardar Ajustes',
       'voice_config': 'Configuración de Voz',
       'voice_model': 'Modelo de Voz',
-      'redownload': 'Volver a descargar',
+      'download': 'Descargar',
       'downloading': 'Descargando...',
       'preparing_download': 'Preparando descarga...',
       'error': 'Error',
@@ -391,7 +392,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'save_settings': 'Enregistrer les paramètres',
       'voice_config': 'Configuration de la Voix',
       'voice_model': 'Modèle de Voix',
-      'redownload': 'Re-télécharger',
+      'download': 'Télécharger',
       'downloading': 'Téléchargement...',
       'preparing_download': 'Préparation du téléchargement...',
       'error': 'Erreur',
@@ -553,6 +554,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             downloadProgress = (data['progress'] as num).toDouble() / 100.0;
             if (downloadStatus == 'success') {
               isDownloading = false;
+              isModelInstalled = true;
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text(t('download_success')), backgroundColor: Colors.green),
               );
@@ -580,6 +582,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         final devicesRes = await apiClient.get(Uri.parse('http://localhost/audio_devices'));
         final voicesRes = await apiClient.get(Uri.parse('http://localhost/voices'));
         final ocrLangsRes = await apiClient.get(Uri.parse('http://localhost/ocr_languages'));
+        final modelInstRes = await apiClient.get(Uri.parse('http://localhost/model_installed'));
         
         if (configRes.statusCode == 200) {
           setState(() {
@@ -603,6 +606,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             }
             if (ocrLangsRes.statusCode == 200) {
               ocrLanguages = List<String>.from(jsonDecode(ocrLangsRes.body));
+            }
+            if (modelInstRes.statusCode == 200) {
+              final modelData = jsonDecode(modelInstRes.body);
+              isModelInstalled = modelData['installed'] ?? true;
             }
             isLoading = false;
           });
@@ -793,25 +800,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
                   padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 12.0),
                   child: Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF7B61FF).withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: const Color(0xFF7B61FF).withValues(alpha: 0.4),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: SvgPicture.asset(
-                          'images/select_to_speech_tray_icon.svg',
-                          width: 24,
-                          height: 24,
-                          colorFilter: const ColorFilter.mode(
-                            Color(0xFF7B61FF),
-                            BlendMode.srcIn,
-                          ),
-                        ),
+                      SvgPicture.asset(
+                        'images/select_to_speech_tray_icon.svg',
+                        width: 26,
+                        height: 26,
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -1001,8 +993,9 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
           Row(
             children: [
               Expanded(
-                child: TextFormField(
-                  initialValue: config!['voice']['model'],
+                child: DropdownButtonFormField<String>(
+                  initialValue: ['kokoro-v1.0'].contains(config!['voice']['model']) ? config!['voice']['model'] : 'kokoro-v1.0',
+                  dropdownColor: dropdownBgColor,
                   style: TextStyle(color: textColor),
                   decoration: InputDecoration(
                     filled: true,
@@ -1020,29 +1013,41 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
                       borderSide: const BorderSide(color: Color(0xFF00E5FF)),
                     ),
                   ),
-                  onChanged: (val) => _updateNestedConfig('voice', 'model', val),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'kokoro-v1.0',
+                      child: Text('Kokoro v1.0 (82M)'),
+                    ),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) {
+                      _updateNestedConfig('voice', 'model', val);
+                    }
+                  },
                 ),
               ),
-              const SizedBox(width: 12),
-              ElevatedButton.icon(
-                onPressed: isDownloading ? null : _startDownload,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF7B61FF),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+              if (!isModelInstalled || isDownloading) ...[
+                const SizedBox(width: 12),
+                ElevatedButton.icon(
+                  onPressed: isDownloading ? null : _startDownload,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF7B61FF),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
+                  icon: isDownloading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download, size: 18),
+                  label: Text(isDownloading ? t('downloading') : t('download')),
                 ),
-                icon: isDownloading
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                      )
-                    : const Icon(Icons.download, size: 18),
-                label: Text(isDownloading ? t('downloading') : t('redownload')),
-              ),
+              ],
             ],
           ),
           

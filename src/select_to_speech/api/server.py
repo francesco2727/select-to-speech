@@ -181,6 +181,11 @@ def get_ocr_languages():
         return langs
     return []
 
+@app.get("/model_installed")
+def get_model_installed():
+    from select_to_speech.voice_manager import is_kokoro_installed
+    return {"installed": is_kokoro_installed()}
+
 
 def run_server():
     socket_path = os.path.expanduser("~/.local/state/select-to-speech/ipc.sock")

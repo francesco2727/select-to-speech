@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Voice Model Dropdown & Dynamic Download**: Replaced the free-form text input for **Voice Model** in the settings UI with a dropdown selector (currently featuring `Kokoro v1.0 (82M)`). Renamed the download button from "Re-download" to "Download" across all languages, and configured it to be visible only when the model files are not installed locally or while a download is actively in progress.
+- **Backend Model Status API**: Added `/model_installed` endpoint to query whether model files are present on the system.
+- **SVG Icon & Desktop Launcher Integration**: Adjusted the `viewBox` in `select_to_speech_tray_icon.svg` to tightly frame the graphic (removing large transparent margins) and ensured proper icon path resolution in the `.desktop` file and system icon directories, preventing fallback placeholder icons in the launcher and taskbar.
+
 ## [v0.3.1] - 2026-08-13
 
 ### Fixed
