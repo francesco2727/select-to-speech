@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Quantized Kokoro Models**: Integrated support for FP16 (~170MB) and INT8 (~89MB) quantized Kokoro models, offering significant disk space and RAM savings with nearly indistinguishable audio quality.
+- **Dynamic Model Selection**: The UI now fetches available models dynamically from the backend and allows seamless switching between them.
+- **Dynamic Language Filtering**: The language selection dropdown now dynamically filters to display only the languages supported by the currently selected voice model.
+
+
 ### Changed
 - **Voice Model Dropdown & Dynamic Download**: Replaced the free-form text input for **Voice Model** in the settings UI with a dropdown selector (currently featuring `Kokoro v1.0 (82M)`). Renamed the download button from "Re-download" to "Download" across all languages, and configured it to be visible only when the model files are not installed locally or while a download is actively in progress.
 - **Backend Model Status API**: Added `/model_installed` endpoint to query whether model files are present on the system.

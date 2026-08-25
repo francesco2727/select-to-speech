@@ -522,8 +522,16 @@ class KokoroEngine(BaseTTSEngine):
 
     def __init__(self, voice_config: VoiceConfig):
         super().__init__(voice_config)
-        self.model_path = self.voices_dir / "kokoro-v1.0.onnx"
-        self.voices_bin_path = self.voices_dir / "voices-v1.0.bin"
+        from .voice_manager import KOKORO_MODELS
+        self.model_id = getattr(self.voice_config, "model", "kokoro-v1.0")
+        if self.model_id not in KOKORO_MODELS:
+            self.model_id = "kokoro-v1.0"
+            
+        onnx_filename = KOKORO_MODELS[self.model_id]["files"][0][1]
+        bin_filename = KOKORO_MODELS[self.model_id]["files"][1][1]
+        
+        self.model_path = self.voices_dir / onnx_filename
+        self.voices_bin_path = self.voices_dir / bin_filename
         
         self.kokoro = None
         self._lock = threading.Lock()
@@ -531,10 +539,10 @@ class KokoroEngine(BaseTTSEngine):
     def ensure_model_downloaded(self) -> bool:
         """Download kokoro model and voices.bin if they don't exist."""
         from . import voice_manager
-        if voice_manager.is_kokoro_installed():
+        if voice_manager.is_kokoro_installed(self.model_id):
             return True
-        logger.info("Kokoro models missing — downloading (~350 MB)…")
-        return voice_manager.download_kokoro()
+        logger.info(f"Kokoro models missing — downloading {self.model_id}...")
+        return voice_manager.download_kokoro(self.model_id)
 
     @staticmethod
     def _ensure_kokoro_config_json() -> None:
@@ -631,7 +639,7 @@ class KokoroEngine(BaseTTSEngine):
 
             with self._lock:
                 if self.kokoro is None:
-                    logger.info("Initializing Kokoro ONNX model...")
+                    logger.info(f"Initializing Kokoro ONNX model from {self.model_path.name}...")
                     try:
                         self.kokoro = Kokoro(str(self.model_path), str(self.voices_bin_path))
                     except Exception as exc:

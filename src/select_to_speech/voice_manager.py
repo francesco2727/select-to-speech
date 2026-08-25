@@ -25,26 +25,51 @@ KOKORO_BASE_URL = (
     "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
 )
 
-# (remote filename, local filename) — kept identical for clarity
-KOKORO_FILES: list[tuple[str, str]] = [
-    ("kokoro-v1.0.onnx", "kokoro-v1.0.onnx"),
-    ("voices-v1.0.bin", "voices-v1.0.bin"),
-]
+KOKORO_MODELS = {
+    "kokoro-v1.0": {
+        "name": "Kokoro v1.0",
+        "size_mb": 340,
+        "files": [
+            ("kokoro-v1.0.onnx", "kokoro-v1.0.onnx"),
+            ("voices-v1.0.bin", "voices-v1.0.bin"),
+        ]
+    },
+    "kokoro-v1.0-fp16": {
+        "name": "Kokoro v1.0 (FP16)",
+        "size_mb": 175,
+        "files": [
+            ("kokoro-v1.0.fp16.onnx", "kokoro-v1.0.fp16.onnx"),
+            ("voices-v1.0.bin", "voices-v1.0.bin"),
+        ]
+    },
+    "kokoro-v1.0-int8": {
+        "name": "Kokoro v1.0 (INT8, ~114MB)",
+        "size_mb": 114,
+        "files": [
+            ("kokoro-v1.0.int8.onnx", "kokoro-v1.0.int8.onnx"),
+            ("voices-v1.0.bin", "voices-v1.0.bin"),
+        ]
+    }
+}
 
 
-def is_kokoro_installed() -> bool:
+def is_kokoro_installed(model_id: str = "kokoro-v1.0") -> bool:
     """Return True if all Kokoro model files are present locally."""
+    if model_id not in KOKORO_MODELS:
+        return False
     d = _voices_dir()
-    return all((d / local).exists() for _, local in KOKORO_FILES)
+    return all((d / local).exists() for _, local in KOKORO_MODELS[model_id]["files"])
 
 
 def download_kokoro(
+    model_id: str = "kokoro-v1.0",
     force: bool = False,
     progress_cb: Optional[Callable[[int, int], None]] = None,
 ) -> bool:
     """Download Kokoro model files from GitHub releases.
 
     Args:
+        model_id: The ID of the model to download.
         force: Re-download even when files are already present.
         progress_cb: Optional callback ``(downloaded_bytes, total_bytes)``
             called after each network chunk. *total_bytes* may be -1 if the
@@ -53,7 +78,11 @@ def download_kokoro(
     Returns:
         True on success, False on any failure.
     """
-    if not force and is_kokoro_installed():
+    if model_id not in KOKORO_MODELS:
+        logger.error("Unknown model_id: %s", model_id)
+        return False
+
+    if not force and is_kokoro_installed(model_id):
         logger.info("Kokoro models already installed. Use force=True to re-download.")
         return True
 
@@ -61,7 +90,9 @@ def download_kokoro(
     downloaded_total = 0
     total_size = -1  # unknown until we have Content-Length headers
 
-    for remote_name, local_name in KOKORO_FILES:
+    files = KOKORO_MODELS[model_id]["files"]
+
+    for remote_name, local_name in files:
         url = KOKORO_BASE_URL + remote_name
         dest = dest_dir / local_name
         if dest.exists() and not force:
@@ -76,7 +107,7 @@ def download_kokoro(
                     file_total = int(resp.headers.get("Content-Length", -1))
                     if file_total > 0 and total_size == -1:
                         # Rough estimate: assume similar size for both files
-                        total_size = file_total * len(KOKORO_FILES)
+                        total_size = file_total * len(files)
 
                     with open(dest, "wb") as fh:
                         for chunk in resp.iter_content(chunk_size=65536):
@@ -101,15 +132,18 @@ def download_kokoro(
     return True
 
 
-def delete_kokoro() -> bool:
+def delete_kokoro(model_id: str = "kokoro-v1.0") -> bool:
     """Delete local Kokoro model files.
 
     Returns:
         True if at least one file was deleted, False if nothing was found.
     """
+    if model_id not in KOKORO_MODELS:
+        return False
+        
     d = _voices_dir()
     deleted = False
-    for _, local_name in KOKORO_FILES:
+    for _, local_name in KOKORO_MODELS[model_id]["files"]:
         path = d / local_name
         if path.exists():
             path.unlink()
@@ -122,15 +156,21 @@ def delete_kokoro() -> bool:
 def download_kokoro_cli() -> None:
     """CLI wrapper to download Kokoro models with terminal progress feedback."""
     import sys
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Download Kokoro TTS model files")
+    parser.add_argument("--model", type=str, default="kokoro-v1.0", choices=list(KOKORO_MODELS.keys()), help="Model to download")
+    args = parser.parse_args()
+    model_id = args.model
 
     # Configure logging level for the CLI session
     logging.getLogger().setLevel(logging.WARNING)
 
-    if is_kokoro_installed():
-        print("Kokoro model files are already installed.")
+    if is_kokoro_installed(model_id):
+        print(f"Kokoro model {model_id} files are already installed.")
         return
 
-    print("Downloading Kokoro TTS model files (~350 MB)...")
+    print(f"Downloading Kokoro TTS model {model_id} files (~{KOKORO_MODELS[model_id]['size_mb']} MB)...")
 
     last_pct = -1
     def progress_cb(downloaded: int, total: int) -> None:
@@ -149,7 +189,7 @@ def download_kokoro_cli() -> None:
             sys.stdout.flush()
 
     try:
-        success = download_kokoro(progress_cb=progress_cb)
+        success = download_kokoro(model_id=model_id, progress_cb=progress_cb)
         print()  # Newline after progress bar
         if success:
             print("✓ Kokoro model files downloaded successfully!")

@@ -176,6 +176,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   List<dynamic> audioDevices = [];
   Map<String, List<String>> availableVoices = {};
   List<String> ocrLanguages = [];
+  List<Map<String, dynamic>> availableModels = [];
 
   // Download state variables
   bool isDownloading = false;
@@ -522,7 +523,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
     });
 
     try {
-      final res = await apiClient.post(Uri.parse('http://localhost/download_model?force=true'));
+      final selectedModel = config?['voice']?['model'] ?? 'kokoro-v1.0';
+      final res = await apiClient.post(Uri.parse('http://localhost/download_model?model_id=$selectedModel&force=true'));
       if (res.statusCode == 200) {
         _pollDownloadStatus();
       } else {
@@ -582,13 +584,21 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         final devicesRes = await apiClient.get(Uri.parse('http://localhost/audio_devices'));
         final voicesRes = await apiClient.get(Uri.parse('http://localhost/voices'));
         final ocrLangsRes = await apiClient.get(Uri.parse('http://localhost/ocr_languages'));
-        final modelInstRes = await apiClient.get(Uri.parse('http://localhost/model_installed'));
+        final availableModelsRes = await apiClient.get(Uri.parse('http://localhost/available_models'));
         
         if (configRes.statusCode == 200) {
+          final decodedConfig = jsonDecode(configRes.body);
+          final selectedModel = decodedConfig['voice']?['model'] ?? 'kokoro-v1.0';
+          final modelInstRes = await apiClient.get(Uri.parse('http://localhost/model_installed?model_id=$selectedModel'));
+
           setState(() {
-            config = jsonDecode(configRes.body);
+            config = decodedConfig;
             config!['theme_mode'] ??= 'dark';
             config!['ocr'] ??= {'language': 'ita+eng'};
+            config!['voice'] ??= {};
+            config!['voice']['model'] ??= 'kokoro-v1.0';
+            config!['voice']['language'] ??= 'en';
+            
             final themeStr = config!['theme_mode'];
             if (themeStr == 'light') {
               themeModeNotifier.value = ThemeMode.light;
@@ -606,6 +616,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             }
             if (ocrLangsRes.statusCode == 200) {
               ocrLanguages = List<String>.from(jsonDecode(ocrLangsRes.body));
+            }
+            if (availableModelsRes.statusCode == 200) {
+              List<dynamic> modelsList = jsonDecode(availableModelsRes.body);
+              availableModels = modelsList.map((m) => m as Map<String, dynamic>).toList();
             }
             if (modelInstRes.statusCode == 200) {
               final modelData = jsonDecode(modelInstRes.body);
@@ -970,7 +984,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   }
 
   Widget _buildVoiceTab() {
-    final List<Map<String, String>> supportedLanguagesList = const [
+    final List<Map<String, String>> allSupportedLanguagesList = const [
       {'code': 'en', 'name': 'English'},
       {'code': 'it', 'name': 'Italian'},
       {'code': 'es', 'name': 'Spanish'},
@@ -980,6 +994,23 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       {'code': 'ja', 'name': 'Japanese'},
       {'code': 'zh', 'name': 'Chinese'},
     ];
+
+    final selectedModelId = config!['voice']['model'] ?? 'kokoro-v1.0';
+    List<String>? supportedCodes;
+    
+    for (var m in availableModels) {
+      if (m['id'] == selectedModelId) {
+        if (m['supported_languages'] != null) {
+          supportedCodes = List<String>.from(m['supported_languages']);
+        }
+        break;
+      }
+    }
+
+    List<Map<String, String>> currentLangs = allSupportedLanguagesList;
+    if (supportedCodes != null) {
+      currentLangs = allSupportedLanguagesList.where((l) => supportedCodes!.contains(l['code'])).toList();
+    }
 
     return _buildGlassCard(
       child: Column(
@@ -994,7 +1025,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  initialValue: ['kokoro-v1.0'].contains(config!['voice']['model']) ? config!['voice']['model'] : 'kokoro-v1.0',
+                  initialValue: availableModels.any((m) => m['id'] == selectedModelId) ? selectedModelId : (availableModels.isNotEmpty ? availableModels.first['id'] : 'kokoro-v1.0'),
                   dropdownColor: dropdownBgColor,
                   style: TextStyle(color: textColor),
                   decoration: InputDecoration(
@@ -1013,15 +1044,48 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
                       borderSide: const BorderSide(color: Color(0xFF00E5FF)),
                     ),
                   ),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'kokoro-v1.0',
-                      child: Text('Kokoro v1.0 (~350MB)'),
-                    ),
-                  ],
-                  onChanged: (val) {
-                    if (val != null) {
-                      _updateNestedConfig('voice', 'model', val);
+                  items: availableModels.isNotEmpty
+                      ? availableModels.map((m) {
+                          return DropdownMenuItem<String>(
+                            value: m['id'],
+                            child: Text(m['name'] ?? m['id']),
+                          );
+                        }).toList()
+                      : const [
+                          DropdownMenuItem(
+                            value: 'kokoro-v1.0',
+                            child: Text('Kokoro v1.0 (~350MB)'),
+                          ),
+                        ],
+                  onChanged: (val) async {
+                    if (val != null && val != config!['voice']['model']) {
+                      setState(() {
+                        config!['voice']['model'] = val;
+                        List<String>? newSupportedCodes;
+                        for (var m in availableModels) {
+                          if (m['id'] == val) {
+                            if (m['supported_languages'] != null) {
+                              newSupportedCodes = List<String>.from(m['supported_languages']);
+                            }
+                            isModelInstalled = m['installed'] ?? false;
+                            break;
+                          }
+                        }
+                        if (newSupportedCodes != null && !newSupportedCodes.contains(config!['voice']['language'])) {
+                          if (newSupportedCodes.isNotEmpty) {
+                            config!['voice']['language'] = newSupportedCodes.first;
+                          }
+                        }
+                      });
+                      _scheduleSave();
+                      try {
+                        final res = await apiClient.get(Uri.parse('http://localhost/model_installed?model_id=$val'));
+                        if (res.statusCode == 200) {
+                          setState(() {
+                            isModelInstalled = jsonDecode(res.body)['installed'] ?? false;
+                          });
+                        }
+                      } catch (_) {}
                     }
                   },
                 ),
@@ -1079,10 +1143,40 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             ),
           ],
           
+          const SizedBox(height: 24),
+          Text(t('default_language') == 'default_language' ? 'Default Language' : t('default_language'), style: TextStyle(color: textColor70)),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: inputBgColor,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: inputBorderColor),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                isExpanded: true,
+                value: currentLangs.any((l) => l['code'] == config!['voice']['language']) 
+                       ? config!['voice']['language'] 
+                       : (currentLangs.isNotEmpty ? currentLangs.first['code'] : 'en'),
+                style: TextStyle(color: textColor, fontFamily: 'Inter'),
+                items: currentLangs.map((lang) {
+                  return DropdownMenuItem(value: lang['code'], child: Text(t('lang_${lang['code']}'), style: TextStyle(color: textColor)));
+                }).toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    _updateNestedConfig('voice', 'language', val);
+                  }
+                },
+                dropdownColor: dropdownBgColor,
+              ),
+            ),
+          ),
+          
           const SizedBox(height: 32),
           Text(t('language_voices'), style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor)),
           const SizedBox(height: 16),
-          ...supportedLanguagesList.map((lang) => _buildLanguageVoiceDropdown(lang['code']!, lang['name']!)),
+          ...currentLangs.map((lang) => _buildLanguageVoiceDropdown(lang['code']!, lang['name']!)),
         ],
       ),
     );

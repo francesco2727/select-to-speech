@@ -93,7 +93,7 @@ download_total_bytes = -1
 download_downloaded_bytes = 0
 download_error = None
 
-def run_download_thread(force: bool):
+def run_download_thread(model_id: str, force: bool):
     global download_status, download_progress, download_total_bytes, download_downloaded_bytes, download_error
     download_status = "downloading"
     download_progress = 0
@@ -111,7 +111,7 @@ def run_download_thread(force: bool):
             download_progress = 0
             
     try:
-        success = download_kokoro(force=force, progress_cb=progress_cb)
+        success = download_kokoro(model_id=model_id, force=force, progress_cb=progress_cb)
         if success:
             download_status = "success"
             download_progress = 100
@@ -123,13 +123,13 @@ def run_download_thread(force: bool):
         download_error = str(e)
 
 @app.post("/download_model")
-def start_download(force: bool = True):
+def start_download(model_id: str = "kokoro-v1.0", force: bool = True):
     global download_status
     if download_status == "downloading":
         return {"status": "already_downloading"}
     
     import threading
-    thread = threading.Thread(target=run_download_thread, args=(force,), daemon=True)
+    thread = threading.Thread(target=run_download_thread, args=(model_id, force), daemon=True)
     thread.start()
     return {"status": "started"}
 
@@ -182,9 +182,28 @@ def get_ocr_languages():
     return []
 
 @app.get("/model_installed")
-def get_model_installed():
+def get_model_installed(model_id: str = "kokoro-v1.0"):
     from select_to_speech.voice_manager import is_kokoro_installed
-    return {"installed": is_kokoro_installed()}
+    return {"installed": is_kokoro_installed(model_id)}
+
+@app.get("/available_models")
+def get_available_models():
+    from select_to_speech.voice_manager import KOKORO_MODELS, is_kokoro_installed
+    from select_to_speech.tts_engine import _KOKORO_LANG_PREFIXES
+    
+    models = []
+    supported_langs = list(_KOKORO_LANG_PREFIXES.keys())
+    
+    for mid, info in KOKORO_MODELS.items():
+        models.append({
+            "id": mid,
+            "name": info["name"],
+            "size_mb": info["size_mb"],
+            "installed": is_kokoro_installed(mid),
+            "supported_languages": supported_langs
+        })
+        
+    return models
 
 
 def run_server():
