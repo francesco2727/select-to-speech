@@ -80,6 +80,9 @@ class SelectToSpeechApp:
         self._ocr_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
+        # Pre-warm TTS engine in background daemon thread
+        threading.Thread(target=self.tts_engine.warmup, daemon=True, name="TTS-Warmup").start()
+
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -243,8 +246,11 @@ class SelectToSpeechApp:
 
     def _on_shortcut_pressed(self) -> None:
         """Callback when keyboard shortcut is pressed"""
-        logger.info("Shortcut pressed, processing selection...")
+        logger.info("Shortcut pressed, delegating to background thread...")
+        threading.Thread(target=self._process_shortcut, daemon=True).start()
 
+    def _process_shortcut(self) -> None:
+        """Process the shortcut press in a background thread"""
         is_playing = self.audio_player.is_playing or (self._process_thread and self._process_thread.is_alive())
 
         current_selection = self.selection_listener.get_primary_selection()

@@ -8,13 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Kokoro Model Pre-warming (Warmup)**: Added background model pre-warming on daemon startup that pre-allocates ONNX runtime execution buffers, reducing cold-start first-byte synthesis latency from ~1.5s down to sub-100ms.
 - **Quantized Kokoro Models**: Integrated support for FP16 (~170MB) and INT8 (~89MB) quantized Kokoro models, offering significant disk space and RAM savings with nearly indistinguishable audio quality.
 - **Dynamic Model Selection**: The UI now fetches available models dynamically from the backend and allows seamless switching between them.
 - **Dynamic Language Filtering**: The language selection dropdown now dynamically filters to display only the languages supported by the currently selected voice model.
 
-
 ### Changed
+- **Asynchronous Audio Ducking**: Refactored `AudioDucker` to lower and restore background volumes in dedicated non-blocking threads, eliminating a 20–40ms latency stall on audio playback start.
+- **PortAudio Device Caching**: Cached output audio devices to avoid repeated PortAudio descriptor scans on every playback request.
+- **Persistent Selection Listener Executor**: Replaced per-call ThreadPoolExecutor lifecycle with a reusable thread pool for Wayland and X11 clipboard queries.
+- **Deduplicated Text Sanitization**: Optimized TTS text chunking to avoid redundant preprocessing passes.
 - **Voice Model Dropdown & Dynamic Download**: Replaced the free-form text input for **Voice Model** in the settings UI with a dropdown selector (currently featuring `Kokoro v1.0 (82M)`). Renamed the download button from "Re-download" to "Download" across all languages, and configured it to be visible only when the model files are not installed locally or while a download is actively in progress.
+- **Model Display Labels**: Standardized the formatting of model display names in the UI dropdown to consistently include precision and approximate download size (`Kokoro v1.0 (FP32, ~340 MB)`, `Kokoro v1.0 (FP16, ~175 MB)`, `Kokoro v1.0 (INT8, ~114 MB)`).
 - **Backend Model Status API**: Added `/model_installed` endpoint to query whether model files are present on the system.
 - **SVG Icon & Desktop Launcher Integration**: Adjusted the `viewBox` in `select_to_speech_tray_icon.svg` to tightly frame the graphic (removing large transparent margins) and ensured proper icon path resolution in the `.desktop` file and system icon directories, preventing fallback placeholder icons in the launcher and taskbar.
 

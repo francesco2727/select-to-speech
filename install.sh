@@ -61,11 +61,11 @@ mkdir -p "$INSTALL_DIR/.venv/bin"
 ln -sf "$INSTALL_DIR/bin/select-to-speech" "$INSTALL_DIR/.venv/bin/select-to-speech"
 
 # ── Download Kokoro models ─────────────────────────────────────────────────────
-info "Downloading Kokoro TTS model files (~350 MB)..."
-if ! "$INSTALL_DIR/bin/select-to-speech-download"; then
+info "Downloading Kokoro TTS model files (~340 MB)..."
+if ! "$INSTALL_DIR/bin/select-to-speech-download" --model kokoro-v1.0; then
     warn "Failed to download Kokoro model files during installation."
     warn "You can download them manually later via the settings GUI or by running:"
-    warn "  $INSTALL_DIR/bin/select-to-speech-download"
+    warn "  $INSTALL_DIR/bin/select-to-speech-download --model kokoro-v1.0"
 fi
 
 # ── Download Flutter UI ────────────────────────────────────────────────────────

@@ -27,7 +27,7 @@ KOKORO_BASE_URL = (
 
 KOKORO_MODELS = {
     "kokoro-v1.0": {
-        "name": "Kokoro v1.0",
+        "name": "Kokoro v1.0 (FP32, ~340 MB)",
         "size_mb": 340,
         "files": [
             ("kokoro-v1.0.onnx", "kokoro-v1.0.onnx"),
@@ -35,7 +35,7 @@ KOKORO_MODELS = {
         ]
     },
     "kokoro-v1.0-fp16": {
-        "name": "Kokoro v1.0 (FP16)",
+        "name": "Kokoro v1.0 (FP16, ~175 MB)",
         "size_mb": 175,
         "files": [
             ("kokoro-v1.0.fp16.onnx", "kokoro-v1.0.fp16.onnx"),
@@ -43,7 +43,7 @@ KOKORO_MODELS = {
         ]
     },
     "kokoro-v1.0-int8": {
-        "name": "Kokoro v1.0 (INT8, ~114MB)",
+        "name": "Kokoro v1.0 (INT8, ~114 MB)",
         "size_mb": 114,
         "files": [
             ("kokoro-v1.0.int8.onnx", "kokoro-v1.0.int8.onnx"),

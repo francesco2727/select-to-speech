@@ -4,6 +4,7 @@ import logging
 import shutil
 import subprocess
 import threading
+import concurrent.futures
 from typing import Optional, Callable
 
 
@@ -38,6 +39,17 @@ class WaylandSelectionListener:
         self.is_running = False
         self._xclip_available: Optional[bool] = None  # lazy-checked once
         self._last_clipboard = ""  # track clipboard to detect changes
+        self._lock = threading.Lock()
+        self._executor: Optional[concurrent.futures.ThreadPoolExecutor] = (
+            concurrent.futures.ThreadPoolExecutor(max_workers=2)
+        )
+
+    def _ensure_executor(self) -> concurrent.futures.ThreadPoolExecutor:
+        """Ensure the thread pool executor is initialized and running."""
+        with self._lock:
+            if self._executor is None:
+                self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+            return self._executor
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -136,7 +148,7 @@ class WaylandSelectionListener:
 
     def get_primary_selection(self) -> Optional[str]:
         """
-        Get the current primary selection, checking Wayland and X11 sources.
+        Get the current primary selection, checking Wayland and X11 sources concurrently.
 
         Priority order:
         1. Wayland PRIMARY (``wl-paste --primary``) – native Wayland apps.
@@ -151,11 +163,32 @@ class WaylandSelectionListener:
         Returns:
             Selected text or None if unavailable
         """
-        wayland_text = self._get_wayland_primary()
-        x11_text = self._get_x11_primary()
+        try:
+            executor = self._ensure_executor()
+            future_wayland = executor.submit(self._get_wayland_primary)
+            future_x11 = executor.submit(self._get_x11_primary)
+        except RuntimeError as e:
+            logger.debug(f"Selection listener executor shut down or unavailable: {e}")
+            return None
 
-        wayland_new = bool(wayland_text and wayland_text.strip() != self.last_selection)
-        x11_new = bool(x11_text and x11_text.strip() != self.last_selection)
+        try:
+            wayland_text = future_wayland.result(timeout=1.5)
+        except (concurrent.futures.TimeoutError, Exception) as e:
+            logger.debug(f"Error/timeout awaiting Wayland primary selection: {e}")
+            wayland_text = None
+
+        try:
+            x11_text = future_x11.result(timeout=1.5)
+        except (concurrent.futures.TimeoutError, Exception) as e:
+            logger.debug(f"Error/timeout awaiting X11 primary selection: {e}")
+            x11_text = None
+
+        with self._lock:
+            last_sel = self.last_selection
+            last_clip = self._last_clipboard
+
+        wayland_new = bool(wayland_text and wayland_text.strip() != last_sel)
+        x11_new = bool(x11_text and x11_text.strip() != last_sel)
 
         if wayland_new:
             logger.debug("Using Wayland primary selection")
@@ -169,25 +202,29 @@ class WaylandSelectionListener:
         wayland_clip = self._get_wayland_clipboard()
         if wayland_clip:
             clip_stripped = wayland_clip.strip()
-            if clip_stripped and clip_stripped != self._last_clipboard and clip_stripped != self.last_selection:
+            if clip_stripped and clip_stripped != last_clip and clip_stripped != last_sel:
                 logger.debug("Using Wayland clipboard selection (Wayland clipboard fallback)")
-                self._last_clipboard = clip_stripped
+                with self._lock:
+                    self._last_clipboard = clip_stripped
                 return wayland_clip
             if clip_stripped:
-                self._last_clipboard = clip_stripped
+                with self._lock:
+                    self._last_clipboard = clip_stripped
 
         # Fallback 2: X11 CLIPBOARD — only if its content changed since our
         # last check (avoids returning stale Ctrl+C data).
         x11_clip = self._get_x11_clipboard()
         if x11_clip:
             clip_stripped = x11_clip.strip()
-            if clip_stripped and clip_stripped != self._last_clipboard and clip_stripped != self.last_selection:
+            if clip_stripped and clip_stripped != last_clip and clip_stripped != last_sel:
                 logger.debug("Using X11 clipboard selection (XWayland clipboard fallback)")
-                self._last_clipboard = clip_stripped
+                with self._lock:
+                    self._last_clipboard = clip_stripped
                 return x11_clip
             # Always track the latest clipboard so we detect future changes.
             if clip_stripped:
-                self._last_clipboard = clip_stripped
+                with self._lock:
+                    self._last_clipboard = clip_stripped
 
         # All stale – return whatever is available so force-triggered
         # playback still works.
@@ -215,11 +252,16 @@ class WaylandSelectionListener:
         if selection:
             # Only process if selection is not empty
             text = selection.strip()
-            if text and (text != self.last_selection or force):
+            with self._lock:
+                last_sel = self.last_selection
+                should_dispatch = bool(text and (text != last_sel or force))
+                if should_dispatch:
+                    self.last_selection = text
+
+            if should_dispatch:
                 logger.debug(f"Selection captured: {len(text)} chars (force={force})")
                 self.on_selection_change(text)
-                self.last_selection = text
-            elif text == self.last_selection:
+            elif text == last_sel:
                 logger.debug("Selection unchanged, skipping")
             else:
                 logger.warning("No text selected or clipboard is empty.")
@@ -228,10 +270,25 @@ class WaylandSelectionListener:
 
     def start(self) -> None:
         """Start the selection listener"""
+        self._ensure_executor()
         self.is_running = True
         logger.info("Selection listener started")
 
     def stop(self) -> None:
-        """Stop the selection listener"""
+        """Stop the selection listener and release executor resources."""
         self.is_running = False
+        with self._lock:
+            if self._executor is not None:
+                try:
+                    self._executor.shutdown(wait=False, cancel_futures=True)
+                except TypeError:
+                    self._executor.shutdown(wait=False)
+                self._executor = None
         logger.info("Selection listener stopped")
+
+    def __del__(self) -> None:
+        """Clean up executor resources on disposal."""
+        try:
+            self.stop()
+        except Exception:
+            pass

@@ -322,7 +322,10 @@ class BaseTTSEngine(ABC):
         words = _SYMBOL_WORDS[lang_key]
 
         # -1. Convert emojis to text in the requested language
-        demojized = emoji.demojize(text, language=lang_key)
+        try:
+            demojized = emoji.demojize(text, language=lang_key)
+        except (KeyError, ValueError, TypeError):
+            demojized = emoji.demojize(text, language="en")
         # Remove colons and convert underscores to spaces (e.g., ":smiling_face:" -> " smiling face ")
         text = re.sub(r':([^:]+):', lambda m: " " + m.group(1).replace('_', ' ') + " ", demojized)
 
@@ -411,9 +414,10 @@ class BaseTTSEngine(ABC):
 
         return text
 
-    def _sanitize_text(self, text: str, language: Optional[str] = None) -> str:
+    def _sanitize_text(self, text: str, language: Optional[str] = None, already_preprocessed: bool = False) -> str:
         """Sanitize text for TTS processing."""
-        text = self.preprocess_text(text, language)
+        if not already_preprocessed:
+            text = self.preprocess_text(text, language)
         text = text.replace('"""', '"')
         text = text.replace("'''", "'")
         text = re.sub(r'\s+', ' ', text)
@@ -422,7 +426,7 @@ class BaseTTSEngine(ABC):
         logger.debug(f"Sanitized: '{text[:100]}{'...' if len(text) > 100 else ''}'")
         return text
 
-    def _chunk_text(self, text: str, max_chars: int = 180, language: Optional[str] = None) -> list[str]:
+    def _chunk_text(self, text: str, max_chars: int = 80, language: Optional[str] = None, already_preprocessed: bool = False) -> list[str]:
         """Split text into logical, speakable chunks for streaming TTS."""
         # Normalize newlines to sentence boundaries before sanitization so that
         # paragraph/line breaks produce natural TTS pauses.
@@ -430,55 +434,61 @@ class BaseTTSEngine(ABC):
         text = re.sub(r'([^.!?])\n+', r'\1. ', text)
         text = re.sub(r'([.!?])\n+', r'\1 ', text)
 
-        text = self._sanitize_text(text, language=language)
+        text = self._sanitize_text(text, language=language, already_preprocessed=already_preprocessed)
 
         # 1. Split by strong sentence boundaries (. ! ?) keeping the punctuation attached
         raw_sentences = re.split(r'(?<=[.!?])\s+', text)
 
         chunks = []
-        current_chunk = ""
 
-        def _add_piece(piece: str):
-            nonlocal current_chunk
-            piece = piece.strip()
-            if not piece:
+        def _split_and_add_weak(sentence: str):
+            """Split by weak boundaries if still too long, or by words as a last resort."""
+            if len(sentence) <= max_chars:
+                if sentence:
+                    chunks.append(sentence)
                 return
-            if len(piece) <= max_chars:
-                if len(current_chunk) + len(piece) + 1 <= max_chars:
-                    current_chunk = f"{current_chunk} {piece}".strip()
-                else:
-                    if current_chunk:
-                        chunks.append(current_chunk)
-                    current_chunk = piece
-            else:
-                # 3. Fallback: split by words if a segment has no punctuation and exceeds max_chars
-                words = piece.split()
-                for w in words:
-                    if len(current_chunk) + len(w) + 1 <= max_chars:
-                        current_chunk = f"{current_chunk} {w}".strip()
+
+            # Break by weak boundaries (, ; : —)
+            weak_parts = re.split(r'(?<=[,;:—])\s+', sentence)
+            current_chunk = ""
+
+            def _add_piece(piece: str):
+                nonlocal current_chunk
+                piece = piece.strip()
+                if not piece:
+                    return
+                if len(piece) <= max_chars:
+                    if len(current_chunk) + len(piece) + 1 <= max_chars:
+                        current_chunk = f"{current_chunk} {piece}".strip()
                     else:
                         if current_chunk:
                             chunks.append(current_chunk)
-                        while len(w) > max_chars:
-                            chunks.append(w[:max_chars])
-                            w = w[max_chars:]
-                        current_chunk = w
+                        current_chunk = piece
+                else:
+                    # Fallback: split by words
+                    words = piece.split()
+                    for w in words:
+                        if len(current_chunk) + len(w) + 1 <= max_chars:
+                            current_chunk = f"{current_chunk} {w}".strip()
+                        else:
+                            if current_chunk:
+                                chunks.append(current_chunk)
+                            while len(w) > max_chars:
+                                chunks.append(w[:max_chars])
+                                w = w[max_chars:]
+                            current_chunk = w
+
+            for part in weak_parts:
+                _add_piece(part)
+
+            if current_chunk:
+                chunks.append(current_chunk)
 
         for sentence in raw_sentences:
             sentence = sentence.strip()
             if not sentence:
                 continue
-
-            # 2. If a sentence is still too long, break it by weak boundaries (, ; : —)
-            if len(sentence) > max_chars:
-                weak_parts = re.split(r'(?<=[,;:—])\s+', sentence)
-                for part in weak_parts:
-                    _add_piece(part)
-            else:
-                _add_piece(sentence)
-
-        if current_chunk:
-            chunks.append(current_chunk)
+            _split_and_add_weak(sentence)
 
         return chunks
 
@@ -489,6 +499,10 @@ class BaseTTSEngine(ABC):
             return model
         logger.warning(f"No voice model configured for language '{language}', using default: {self.voice_config.model}")
         return self.voice_config.model
+
+    def warmup(self) -> bool:
+        """Pre-warm TTS model/buffers in background if supported."""
+        return True
 
     @abstractmethod
     def synthesize(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0, phoneme_lang: Optional[str] = None) -> Optional[Tuple[bytes, int]]:
@@ -641,7 +655,7 @@ class KokoroEngine(BaseTTSEngine):
                 if self.kokoro is None:
                     logger.info(f"Initializing Kokoro ONNX model from {self.model_path.name}...")
                     try:
-                        self.kokoro = Kokoro(str(self.model_path), str(self.voices_bin_path))
+                        kokoro_inst = Kokoro(str(self.model_path), str(self.voices_bin_path))
                     except Exception as exc:
                         # In Nuitka standalone/onefile binaries, importlib.metadata distribution info for packages like kokoro-onnx may not be packaged.
                         # If kokoro_onnx internally calls importlib.metadata.version('kokoro-onnx'), it raises PackageNotFoundError.
@@ -657,7 +671,7 @@ class KokoroEngine(BaseTTSEngine):
                                         return "0.3.1"
                                     raise
                             importlib.metadata.version = patched_version
-                            self.kokoro = Kokoro(str(self.model_path), str(self.voices_bin_path))
+                            kokoro_inst = Kokoro(str(self.model_path), str(self.voices_bin_path))
                         else:
                             raise exc
                     
@@ -667,21 +681,21 @@ class KokoroEngine(BaseTTSEngine):
                     # Because these tags' characters are in Kokoro's vocabulary, Kokoro
                     # otherwise literally tokenizes and pronounces them (e.g., saying 'it'
                     # at the end of 'team' when processing in Italian).
-                    original_phonemize = self.kokoro.tokenizer.phonemize
+                    original_phonemize = kokoro_inst.tokenizer.phonemize
                     
                     def patched_phonemize(text: str, lang: str = "en-us", norm: bool = True) -> str:
                         phonemes = original_phonemize(text, lang=lang, norm=norm)
                         # Remove language switch tags like (en), (it), (fr), (es), etc.
                         return re.sub(r'\([a-z]{2}\)', '', phonemes)
                         
-                    self.kokoro.tokenizer.phonemize = patched_phonemize
+                    kokoro_inst.tokenizer.phonemize = patched_phonemize
 
                     # Intercept tokenizer.tokenize to ensure tokens never exceed 509.
                     # Kokoro ONNX voice style matrices have shape (510, 1, 256). When
                     # kokoro_onnx truncates tokens to MAX_PHONEME_LENGTH (510), accessing
                     # voice[len(tokens)] causes index 510 out of bounds. Truncating to 509
                     # guarantees voice[len(tokens)] is always in bounds [0..509].
-                    original_tokenize = self.kokoro.tokenizer.tokenize
+                    original_tokenize = kokoro_inst.tokenizer.tokenize
 
                     def patched_tokenize(phonemes: str) -> list[int]:
                         tokens = original_tokenize(phonemes)
@@ -693,7 +707,8 @@ class KokoroEngine(BaseTTSEngine):
                             tokens = tokens[:509]
                         return tokens
 
-                    self.kokoro.tokenizer.tokenize = patched_tokenize
+                    kokoro_inst.tokenizer.tokenize = patched_tokenize
+                    self.kokoro = kokoro_inst
             return True
         except ImportError as e:
             logger.error(
@@ -735,7 +750,7 @@ class KokoroEngine(BaseTTSEngine):
 
             all_samples = []
             sample_rate = 22050
-            for chunk in self._chunk_text(text, language=language):
+            for chunk in self._chunk_text(text, language=language, already_preprocessed=True):
                 if not chunk.strip():
                     continue
                 with self._lock:
@@ -786,7 +801,7 @@ class KokoroEngine(BaseTTSEngine):
         effective_lang = phoneme_lang or language
         lang_code = _KOKORO_LANG_CODES.get(effective_lang, "en-us") if effective_lang else "en-us"
 
-        for chunk in self._chunk_text(text, language=language):
+        for chunk in self._chunk_text(text, language=language, already_preprocessed=True):
             if not chunk.strip():
                 continue
             logger.debug(f"Synthesizing stream chunk with voice {target_voice}: '{chunk[:100]}{'...' if len(chunk) > 100 else ''}'")
@@ -818,6 +833,27 @@ class KokoroEngine(BaseTTSEngine):
     def stop(self) -> None:
         self.kokoro = None
         logger.info("Kokoro engine stopped")
+
+    def warmup(self) -> bool:
+        """Pre-warm Kokoro model and ONNX runtime tensor buffers."""
+        try:
+            from . import voice_manager
+            if not voice_manager.is_kokoro_installed(self.model_id):
+                logger.debug("Kokoro model not downloaded yet, skipping warmup")
+                return False
+            if not self._init_kokoro():
+                return False
+            target_voice = self.get_model_for_language(self.voice_config.language) or "af_heart"
+            lang_code = _KOKORO_LANG_CODES.get(self.voice_config.language, "en-us")
+            with self._lock:
+                if self.kokoro is not None:
+                    logger.info("Pre-warming Kokoro TTS engine ONNX buffers...")
+                    self.kokoro.create("a", voice=target_voice, speed=1.0, lang=lang_code)
+                    logger.info("Kokoro TTS engine warmup completed.")
+                    return True
+        except Exception as e:
+            logger.warning(f"Kokoro warmup failed (non-fatal): {e}")
+        return False
 
 
 def get_tts_engine(config: VoiceConfig) -> BaseTTSEngine:

@@ -6,7 +6,7 @@ def test_download_kokoro_cli_already_installed():
     with patch("select_to_speech.voice_manager.is_kokoro_installed", return_value=True), \
          patch("builtins.print") as mock_print:
         voice_manager.download_kokoro_cli()
-        mock_print.assert_called_with("Kokoro model files are already installed.")
+        mock_print.assert_called_with("Kokoro model kokoro-v1.0 files are already installed.")
 
 def test_download_kokoro_cli_success():
     with patch("select_to_speech.voice_manager.is_kokoro_installed", return_value=False), \
