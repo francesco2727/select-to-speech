@@ -116,7 +116,7 @@ class SelectToSpeechApp:
         self.config = config
 
         # 1. Update TTS engine config
-        self.tts_engine.voice_config = config.voice
+        self.tts_engine.update_config(config.voice)
 
         # 2. Update Audio player device_id (recreate if changed)
         if self.audio_player.device_id != config.audio.device_id:

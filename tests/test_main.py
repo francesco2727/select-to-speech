@@ -59,3 +59,18 @@ def test_process_text(mock_app):
         assert result is True
         # Verify the language fallback and playback
         mock_app.audio_player.play_stream.assert_called_once()
+
+
+def test_reload_config(mock_app):
+    new_config = AppConfig(
+        voice=VoiceConfig(model="kokoro-v1.0-fp16"),
+        audio=AudioConfig(device_id=2, ducking=False),
+        keyboard=KeyboardConfig(modifier_key="control", trigger_key="F1")
+    )
+    
+    with patch('select_to_speech.main.KeyboardHandler'), \
+         patch('select_to_speech.main.AudioPlayer') as mock_audio_player_cls:
+        mock_app.reload_config(new_config)
+        
+        mock_app.tts_engine.update_config.assert_called_once_with(new_config.voice)
+        assert mock_app.config == new_config

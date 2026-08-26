@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Dynamic Kokoro Model Reloading**: Added dynamic runtime reloading of Kokoro TTS models when configuration changes without requiring an application restart. Thread-safe updates deallocate previous ONNX sessions and initialize the new model lazily on demand.
 - **Kokoro Model Pre-warming (Warmup)**: Added background model pre-warming on daemon startup that pre-allocates ONNX runtime execution buffers, reducing cold-start first-byte synthesis latency from ~1.5s down to sub-100ms.
 - **Quantized Kokoro Models**: Integrated support for FP16 (~170MB) and INT8 (~89MB) quantized Kokoro models, offering significant disk space and RAM savings with nearly indistinguishable audio quality.
 - **Dynamic Model Selection**: The UI now fetches available models dynamically from the backend and allows seamless switching between them.

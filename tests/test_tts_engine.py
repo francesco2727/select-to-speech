@@ -175,3 +175,41 @@ def test_kokoro_synthesize_chunking():
             audio_bytes, sr = res
             assert sr == 24000
             assert engine.kokoro.create.call_count == 2
+
+
+def test_base_tts_engine_update_config():
+    config1 = VoiceConfig(model="af_heart")
+    engine = DummyEngine(config1)
+    assert engine.voice_config.model == "af_heart"
+    
+    config2 = VoiceConfig(model="am_adam")
+    engine.update_config(config2)
+    assert engine.voice_config.model == "am_adam"
+
+
+def test_kokoro_engine_update_config_same_model():
+    from select_to_speech.tts_engine import KokoroEngine
+    config1 = VoiceConfig(model="kokoro-v1.0", language="it")
+    engine = KokoroEngine(config1)
+    engine.kokoro = MagicMock()
+    
+    config2 = VoiceConfig(model="kokoro-v1.0", language="en")
+    engine.update_config(config2)
+    
+    assert engine.model_id == "kokoro-v1.0"
+    assert engine.voice_config.language == "en"
+    assert engine.kokoro is not None
+
+
+def test_kokoro_engine_update_config_model_change():
+    from select_to_speech.tts_engine import KokoroEngine
+    config1 = VoiceConfig(model="kokoro-v1.0")
+    engine = KokoroEngine(config1)
+    engine.kokoro = MagicMock()
+    
+    config2 = VoiceConfig(model="kokoro-v1.0-fp16")
+    engine.update_config(config2)
+    
+    assert engine.model_id == "kokoro-v1.0-fp16"
+    assert engine.model_path.name == "kokoro-v1.0.fp16.onnx"
+    assert engine.kokoro is None

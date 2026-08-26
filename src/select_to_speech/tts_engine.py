@@ -311,6 +311,10 @@ class BaseTTSEngine(ABC):
         self.voices_dir = get_data_dir() / "voices"
         self.voices_dir.mkdir(parents=True, exist_ok=True)
 
+    def update_config(self, voice_config: VoiceConfig) -> None:
+        """Update voice configuration."""
+        self.voice_config = voice_config
+
     def preprocess_text(self, text: str, language: Optional[str] = None) -> str:
         """Preprocess text to replace mathematical symbols, currency symbols, and dots in domains/filenames with words."""
         if not text:
@@ -549,6 +553,32 @@ class KokoroEngine(BaseTTSEngine):
         
         self.kokoro = None
         self._lock = threading.Lock()
+
+    def update_config(self, voice_config: VoiceConfig) -> None:
+        """Update voice configuration and reload Kokoro ONNX model if changed."""
+        from .voice_manager import KOKORO_MODELS
+
+        new_model_id = getattr(voice_config, "model", "kokoro-v1.0")
+        if new_model_id not in KOKORO_MODELS:
+            new_model_id = "kokoro-v1.0"
+
+        with self._lock:
+            old_model_id = self.model_id
+            self.voice_config = voice_config
+
+            if new_model_id != old_model_id:
+                logger.info(
+                    f"Kokoro model changed from '{old_model_id}' to '{new_model_id}'. "
+                    "Resetting ONNX session for lazy reload."
+                )
+                self.model_id = new_model_id
+                onnx_filename = KOKORO_MODELS[self.model_id]["files"][0][1]
+                bin_filename = KOKORO_MODELS[self.model_id]["files"][1][1]
+                self.model_path = self.voices_dir / onnx_filename
+                self.voices_bin_path = self.voices_dir / bin_filename
+                self.kokoro = None
+            else:
+                logger.debug(f"Kokoro voice config updated (model unchanged: '{self.model_id}').")
         
     def ensure_model_downloaded(self) -> bool:
         """Download kokoro model and voices.bin if they don't exist."""
