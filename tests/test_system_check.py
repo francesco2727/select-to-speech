@@ -1,6 +1,10 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from select_to_speech.system_check import check_system_dependencies
+from select_to_speech.system_check import (
+    check_system_dependencies,
+    get_audio_devices,
+    main_audio_devices,
+)
 
 
 def test_check_system_dependencies_all_present():
@@ -51,3 +55,52 @@ def test_detect_language_and_multilingual_check():
         assert check_system_dependencies(lang="fr") is True
         assert check_system_dependencies(lang="es") is True
 
+
+def test_get_audio_devices_without_default_output_device():
+    """Audio listing should still work when the system has no default output device."""
+    mock_pyaudio = MagicMock()
+    mock_pyaudio.get_default_output_device_info.side_effect = OSError("No Default Output Device Available")
+    mock_pyaudio.get_device_count.return_value = 2
+    mock_pyaudio.get_device_info_by_index.side_effect = [
+        {
+            "name": "Input only",
+            "maxOutputChannels": 0,
+            "defaultSampleRate": 44100,
+        },
+        {
+            "name": "USB speakers",
+            "maxOutputChannels": 2,
+            "defaultSampleRate": 48000,
+        },
+    ]
+
+    with patch("select_to_speech.system_check.pyaudio") as mock_pyaudio_module:
+        mock_pyaudio_module.PyAudio.return_value = mock_pyaudio
+
+        assert get_audio_devices() == [
+            {
+                "id": 1,
+                "name": "USB speakers",
+                "channels": 2,
+                "sample_rate": 48000,
+                "is_default": False,
+            }
+        ]
+
+    mock_pyaudio.terminate.assert_called_once()
+
+
+def test_get_audio_devices_when_pyaudio_cannot_initialize():
+    """Headless CI runners may have no usable ALSA/PulseAudio backend."""
+    with patch("select_to_speech.system_check.pyaudio") as mock_pyaudio_module:
+        mock_pyaudio_module.PyAudio.side_effect = OSError("No audio backend")
+
+        assert get_audio_devices() == []
+
+
+def test_main_audio_devices_help(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        main_audio_devices(["--help"])
+
+    assert exc_info.value.code == 0
+    assert "List Select-to-Speech audio output devices" in capsys.readouterr().out

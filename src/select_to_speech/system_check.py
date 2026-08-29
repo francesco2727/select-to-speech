@@ -335,13 +335,24 @@ def get_audio_devices() -> list[dict]:
     if not pyaudio:
         return devices
 
-    p = pyaudio.PyAudio()
     try:
-        default_info = p.get_default_output_device_info()
-        default_name = default_info["name"] if default_info else None
+        p = pyaudio.PyAudio()
+    except OSError:
+        return devices
+
+    try:
+        try:
+            default_info = p.get_default_output_device_info()
+            default_name = default_info["name"] if default_info else None
+        except OSError:
+            default_name = None
 
         for i in range(p.get_device_count()):
-            info = p.get_device_info_by_index(i)
+            try:
+                info = p.get_device_info_by_index(i)
+            except OSError:
+                continue
+
             if info["maxOutputChannels"] > 0:
                 devices.append({
                     "id": i,
@@ -374,6 +385,16 @@ def list_audio_devices() -> None:
     logger.info("To use a specific device, edit ~/.config/select-to-speech/config.yaml:")
     logger.info("  audio:")
     logger.info("    device_id: <device_number>\n")
+
+
+def main_audio_devices(argv: list[str] | None = None) -> int:
+    """CLI entry point for select-to-speech-audio console script."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="List Select-to-Speech audio output devices")
+    parser.parse_args(argv)
+    list_audio_devices()
+    return 0
 
 
 def main_check(lang: str | None = None) -> int:

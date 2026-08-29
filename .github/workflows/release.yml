@@ -61,9 +61,10 @@ jobs:
           sed -i 's/^          //' run_check.py
 
           cat > run_audio.py << 'ENTRY'
-          from select_to_speech.system_check import list_audio_devices
+          import sys
+          from select_to_speech.system_check import main_audio_devices
           if __name__ == "__main__":
-              list_audio_devices()
+              sys.exit(main_audio_devices())
           ENTRY
           sed -i 's/^          //' run_audio.py
 
