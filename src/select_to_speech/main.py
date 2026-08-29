@@ -512,6 +512,13 @@ class SelectToSpeechApp:
 
 def main() -> int:
     """Main entry point for the application"""
+    if len(sys.argv) > 1 and any(arg in sys.argv for arg in ("-h", "--help")):
+        print("Select-to-Speech daemon & backend server")
+        print("Usage: select-to-speech [options]")
+        print("\nOptions:")
+        print("  -h, --help     Show this help message and exit")
+        return 0
+
     from select_to_speech.api.server import run_server
     try:
         run_server()

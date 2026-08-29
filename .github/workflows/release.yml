@@ -27,8 +27,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
-          allow-prereleases: true
+          python-version: '3.12'
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.23
@@ -140,13 +139,13 @@ jobs:
       - name: Smoke test binaries
         run: |
           echo "--- Testing select-to-speech ---"
-          ./select-to-speech --help || true
+          ./select-to-speech --help
           echo "--- Testing select-to-speech-check ---"
-          ./select-to-speech-check --help || true
+          ./select-to-speech-check --help
           echo "--- Testing select-to-speech-audio ---"
-          ./select-to-speech-audio --help || true
+          ./select-to-speech-audio --help
           echo "--- Testing select-to-speech-download ---"
-          ./select-to-speech-download --help || true
+          ./select-to-speech-download --help
 
       - name: Package Backend
         run: |
