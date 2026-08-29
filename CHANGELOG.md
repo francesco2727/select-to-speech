@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.3.2] - 2026-08-29
 
 ### Added
 - **Dynamic Kokoro Model Reloading**: Added dynamic runtime reloading of Kokoro TTS models when configuration changes without requiring an application restart. Thread-safe updates deallocate previous ONNX sessions and initialize the new model lazily on demand.
@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Model Display Labels**: Standardized the formatting of model display names in the UI dropdown to consistently include precision and approximate download size (`Kokoro v1.0 (FP32, ~340 MB)`, `Kokoro v1.0 (FP16, ~175 MB)`, `Kokoro v1.0 (INT8, ~114 MB)`).
 - **Backend Model Status API**: Added `/model_installed` endpoint to query whether model files are present on the system.
 - **SVG Icon & Desktop Launcher Integration**: Adjusted the `viewBox` in `select_to_speech_tray_icon.svg` to tightly frame the graphic (removing large transparent margins) and ensured proper icon path resolution in the `.desktop` file and system icon directories, preventing fallback placeholder icons in the launcher and taskbar.
+- **Nuitka Packaging & CI System Dependencies**: Updated and completed Nuitka include flags for packages and package data (`lingua`, `pedalboard`, `soundfile`, `pyaudio`, `pynput`, `emoji`, `requests`, `certifi`, `yaml`) and ensured required CI system dependencies are present.
+
+### Fixed
+- **CI Build Configuration & Check Entry Point**: Fixed the Flutter build configuration and resolved the `select-to-speech-check` CLI entry point execution in CI workflows.
 
 ## [v0.3.1] - 2026-08-13
 
