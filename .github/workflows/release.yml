@@ -22,7 +22,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y portaudio19-dev libayatana-appindicator3-dev patchelf libsndfile1-dev libpulse-dev libasound2-dev
+          sudo apt-get install -y portaudio19-dev libayatana-appindicator3-dev patchelf libsndfile1-dev libpulse-dev libasound2-dev xvfb
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -139,13 +139,13 @@ jobs:
       - name: Smoke test binaries
         run: |
           echo "--- Testing select-to-speech ---"
-          ./select-to-speech --help
+          xvfb-run -a ./select-to-speech --help
           echo "--- Testing select-to-speech-check ---"
-          ./select-to-speech-check --help
+          xvfb-run -a ./select-to-speech-check --help
           echo "--- Testing select-to-speech-audio ---"
-          ./select-to-speech-audio --help
+          xvfb-run -a ./select-to-speech-audio --help
           echo "--- Testing select-to-speech-download ---"
-          ./select-to-speech-download --help
+          xvfb-run -a ./select-to-speech-download --help
 
       - name: Package Backend
         run: |

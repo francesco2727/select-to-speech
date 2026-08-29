@@ -1,9 +1,12 @@
 """Keyboard shortcut handler using pynput GlobalHotKeys"""
 
 import logging
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
-from pynput import keyboard
+try:
+    from pynput import keyboard
+except Exception:  # Headless environments without X11/Wayland (e.g. CI runners)
+    keyboard = None
 
 
 logger = logging.getLogger(__name__)
@@ -40,7 +43,7 @@ class KeyboardHandler:
             ocr_key: Trigger key name for OCR screen capture
             extra_hotkeys: Additional pre-formatted hotkey->callback mappings
         """
-        self.listener: Optional[keyboard.GlobalHotKeys] = None
+        self.listener: Any = None
 
         play_hotkey = self.format_hotkey(modifier, trigger_key)
         self.hotkeys = {
@@ -88,6 +91,10 @@ class KeyboardHandler:
         """Start listening for keyboard shortcuts"""
         if self.listener is not None:
             logger.warning("Keyboard listener already running")
+            return
+
+        if keyboard is None:
+            logger.error("Cannot start keyboard listener: pynput keyboard backend is not available (no display server found)")
             return
 
         self.listener = keyboard.GlobalHotKeys(self.hotkeys)
