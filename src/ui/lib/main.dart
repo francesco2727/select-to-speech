@@ -27,37 +27,71 @@ const Duration _restartWindow = Duration(seconds: 60);
 const Duration _restartDelay = Duration(seconds: 3);
 
 Future<void> startPythonBackend() async {
-  // Check if Python backend is already running on UDS socket
+  // Check if Python backend is already running on UDS socket (probe with retries up to 3s)
   final client = createUdsClient();
   try {
-    final res = await client.get(Uri.parse('http://localhost/status')).timeout(const Duration(milliseconds: 250));
-    if (res.statusCode == 200) {
-      debugPrint('Python backend is already running.');
-      client.close();
-      return;
+    for (int i = 0; i < 3; i++) {
+      try {
+        final res = await client
+            .get(Uri.parse('http://localhost/status'))
+            .timeout(const Duration(milliseconds: 1000));
+        if (res.statusCode == 200) {
+          debugPrint('Python backend is already running.');
+          return;
+        }
+      } catch (_) {
+        if (i < 2) {
+          await Future.delayed(const Duration(milliseconds: 500));
+        }
+      }
     }
-  } catch (_) {
-    // Not running or timed out, proceed to start it
   } finally {
     client.close();
   }
 
   if (_backendPath == null) {
-    String executablePath = Platform.resolvedExecutable;
-    Directory current = Directory(executablePath).parent;
-    while (current.path != '/') {
-      if (Directory('${current.path}/.venv').existsSync()) {
-        _backendPath = '${current.path}/.venv/bin/select-to-speech';
+    final String homeDir = Platform.environment['HOME'] ?? '';
+    final String executablePath = Platform.resolvedExecutable;
+    final String exeDir = File(executablePath).parent.path;
+
+    final candidatePaths = [
+      // Alongside executable / bundle dir
+      '$exeDir/select-to-speech',
+      '$exeDir/bin/select-to-speech',
+      // User local share install
+      if (homeDir.isNotEmpty) '$homeDir/.local/share/select-to-speech/bin/select-to-speech',
+      if (homeDir.isNotEmpty) '$homeDir/.local/bin/select-to-speech',
+    ];
+
+    for (final path in candidatePaths) {
+      if (File(path).existsSync()) {
+        _backendPath = path;
         break;
       }
-      current = current.parent;
+    }
+
+    // Traverse upwards to look for .venv or local binary
+    if (_backendPath == null) {
+      Directory current = Directory(executablePath).parent;
+      while (current.path != '/') {
+        final venvBin = '${current.path}/.venv/bin/select-to-speech';
+        if (File(venvBin).existsSync()) {
+          _backendPath = venvBin;
+          break;
+        }
+        if (Directory('${current.path}/.venv').existsSync()) {
+          _backendPath = venvBin;
+          break;
+        }
+        current = current.parent;
+      }
     }
   }
   
   if (_backendPath != null) {
     await _launchAndMonitorBackend();
   } else {
-    debugPrint('Warning: could not find .venv');
+    debugPrint('Warning: could not find select-to-speech backend binary or .venv');
   }
 }
 
@@ -651,12 +685,17 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   Future<void> _saveConfigSilent() async {
     if (config == null) return;
     try {
-      await apiClient.post(
+      final response = await apiClient.post(
         Uri.parse('http://localhost/config'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(config),
       );
-    } catch (_) {}
+      if (response.statusCode != 200) {
+        debugPrint('Error saving config: HTTP ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      debugPrint('Error saving config: $e');
+    }
   }
 
   void _updateNestedConfig(String section, String key, dynamic value) {
@@ -670,7 +709,12 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
 
   @override
   void dispose() {
-    _saveTimer?.cancel();
+    if (_saveTimer?.isActive ?? false) {
+      _saveTimer?.cancel();
+      _saveConfigSilent();
+    } else {
+      _saveTimer?.cancel();
+    }
     trayManager.removeListener(this);
     super.dispose();
   }

@@ -118,12 +118,12 @@ class SelectToSpeechApp:
         # 1. Update TTS engine config
         self.tts_engine.update_config(config.voice)
 
-        # 2. Update Audio player device_id (recreate if changed)
+        # 2. Update Audio player device_id (recreate if changed) and ducking
         if self.audio_player.device_id != config.audio.device_id:
             logger.info(f"Updating audio device ID to {config.audio.device_id}")
             self.audio_player.stop()
             self.audio_player = AudioPlayer(config.audio.device_id)
-            self.audio_player.ducker.enabled = config.audio.ducking
+        self.audio_player.ducker.enabled = config.audio.ducking
 
         # 3. Update keyboard shortcuts (restart listener with new keys)
         logger.info("Recreating keyboard handler with new shortcuts...")
@@ -521,8 +521,8 @@ def main() -> int:
 
     from select_to_speech.api.server import run_server
     try:
-        run_server()
-        return 0
+        res = run_server()
+        return res if isinstance(res, int) else 0
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)
         return 1

@@ -74,3 +74,19 @@ def test_reload_config(mock_app):
         
         mock_app.tts_engine.update_config.assert_called_once_with(new_config.voice)
         assert mock_app.config == new_config
+
+
+def test_reload_config_ducking_without_device_change(mock_app):
+    mock_app.audio_player.device_id = None
+    mock_app.audio_player.ducker.enabled = True
+    
+    new_config = AppConfig(
+        voice=VoiceConfig(model="kokoro-v1.0"),
+        audio=AudioConfig(device_id=None, ducking=False),
+        keyboard=KeyboardConfig()
+    )
+    
+    with patch('select_to_speech.main.KeyboardHandler'):
+        mock_app.reload_config(new_config)
+        assert mock_app.audio_player.ducker.enabled is False
+

@@ -1,4 +1,5 @@
 import os
+import socket
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
@@ -206,9 +207,31 @@ def get_available_models():
     return models
 
 
-def run_server():
+def is_server_running(socket_path: str) -> bool:
+    """Check if a backend server instance is already running and responding."""
+    if not os.path.exists(socket_path):
+        return False
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(1.0)
+        sock.connect(socket_path)
+        sock.sendall(b"GET /status HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        response = sock.recv(1024)
+        return bool(b"200 OK" in response or b"status" in response)
+    except (socket.error, OSError):
+        return False
+    finally:
+        sock.close()
+
+
+def run_server() -> int:
     socket_path = os.path.expanduser("~/.local/state/select-to-speech/ipc.sock")
     os.makedirs(os.path.dirname(socket_path), exist_ok=True)
+
+    if is_server_running(socket_path):
+        logger.info("Select-to-Speech backend server is already running. Exiting cleanly.")
+        return 0
+
     if os.path.exists(socket_path):
         try:
             os.remove(socket_path)
@@ -229,3 +252,4 @@ def run_server():
     _signal.signal(_signal.SIGTERM, _handle_sigterm)
     
     server.run()
+    return 0
