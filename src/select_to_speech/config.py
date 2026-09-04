@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
+import platformdirs
 import yaml
 from pydantic import BaseModel, Field
 
@@ -82,16 +83,30 @@ class AppConfig(BaseModel):
 
 def get_config_dir() -> Path:
     """Get configuration directory path"""
-    config_dir = Path.home() / ".config" / "select-to-speech"
+    config_dir = Path(platformdirs.user_config_dir("select-to-speech"))
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir
 
 
 def get_data_dir() -> Path:
     """Get data/cache directory path"""
-    data_dir = Path.home() / ".local" / "share" / "select-to-speech"
+    data_dir = Path(platformdirs.user_data_dir("select-to-speech"))
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
+
+
+def get_state_dir() -> Path:
+    """Get runtime state directory path (e.g. sockets, runtime flags)"""
+    state_dir = Path(platformdirs.user_state_dir("select-to-speech"))
+    state_dir.mkdir(parents=True, exist_ok=True)
+    return state_dir
+
+
+def get_log_dir() -> Path:
+    """Get log directory path"""
+    log_dir = Path(platformdirs.user_log_dir("select-to-speech"))
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir
 
 
 def load_config(config_path: Optional[Path] = None) -> AppConfig:

@@ -51,3 +51,15 @@ def test_run_server_already_running():
     with patch("select_to_speech.api.server.is_server_running", return_value=True):
         res = run_server()
         assert res == 0
+
+
+def test_is_server_running_win32():
+    with patch("sys.platform", "win32"):
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_resp = MagicMock()
+            mock_resp.status = 200
+            mock_urlopen.return_value.__enter__.return_value = mock_resp
+            assert is_server_running(host="127.0.0.1", port=28374) is True
+
+        with patch("urllib.request.urlopen", side_effect=Exception("Connection refused")):
+            assert is_server_running(host="127.0.0.1", port=28374) is False

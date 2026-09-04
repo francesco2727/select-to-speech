@@ -3,8 +3,6 @@ from unittest.mock import MagicMock, patch
 import subprocess
 import time
 
-import sys
-sys.path.insert(0, '/home/francescov/develop/select-to-speach/src')
 
 from select_to_speech.selection_listener import WaylandSelectionListener
 
@@ -167,3 +165,89 @@ def test_selection_listener_xclip_not_installed(mock_run, mock_which):
     assert selected == "wayland text"
     # Only wl-paste should have been called (xclip skipped)
     mock_run.assert_called_once_with(["wl-paste", "--primary"], capture_output=True, text=True, timeout=1)
+
+
+# ---- Windows Selection Listener -----------------------------------
+
+from select_to_speech.selection_listener import (
+    WindowsSelectionListener,
+    get_selection_listener,
+    BaseSelectionListener,
+)
+
+
+def test_windows_selection_listener_captures_and_restores():
+    callback = MagicMock()
+    listener = WindowsSelectionListener(on_selection_change=callback, copy_delay=0.01)
+
+    mock_kb = MagicMock()
+    listener._keyboard = mock_kb
+
+    clipboard_states = []
+
+    # Mock clipboard operations: initial -> empty -> copied text -> restored
+    # 1. get original ("original clipboard")
+    # 2. set empty ("")
+    # 3. get copied ("selected text")
+    # 4. set restored ("original clipboard")
+    with patch.object(listener, "_get_clipboard_text", side_effect=["original clipboard", "selected text"]), \
+         patch.object(listener, "_set_clipboard_text") as mock_set_clip:
+
+        selected = listener.get_primary_selection()
+
+        assert selected == "selected text"
+        # Verify Ctrl+C was simulated (press ctrl, press c)
+        assert mock_kb.press.call_count == 2
+        # Verify release calls include released modifier keys plus c and ctrl
+        assert mock_kb.release.call_count >= 2
+        # Verify original clipboard was restored
+        mock_set_clip.assert_called_with("original clipboard")
+
+
+def test_windows_selection_listener_on_trigger():
+    callback = MagicMock()
+    listener = WindowsSelectionListener(on_selection_change=callback, copy_delay=0.01)
+
+    with patch.object(listener, "get_primary_selection", return_value="hello from windows"):
+        listener.on_trigger(force=False)
+        time.sleep(0.1)
+
+        callback.assert_called_once_with("hello from windows")
+        assert listener.last_selection == "hello from windows"
+
+
+def test_windows_selection_listener_empty_selection():
+    callback = MagicMock()
+    listener = WindowsSelectionListener(on_selection_change=callback, copy_delay=0.01)
+    mock_kb = MagicMock()
+    listener._keyboard = mock_kb
+
+    with patch.object(listener, "_get_clipboard_text", return_value=None), \
+         patch.object(listener, "_set_clipboard_text") as mock_set_clip:
+
+        selected = listener.get_primary_selection()
+        assert selected is None
+
+
+def test_windows_selection_listener_lifecycle():
+    callback = MagicMock()
+    listener = WindowsSelectionListener(on_selection_change=callback)
+
+    assert not listener.is_running
+    listener.start()
+    assert listener.is_running
+    listener.stop()
+    assert not listener.is_running
+
+
+def test_get_selection_listener_factory():
+    callback = MagicMock()
+
+    with patch("sys.platform", "win32"):
+        win_listener = get_selection_listener(on_selection_change=callback)
+        assert isinstance(win_listener, WindowsSelectionListener)
+
+    with patch("sys.platform", "linux"):
+        linux_listener = get_selection_listener(on_selection_change=callback)
+        assert isinstance(linux_listener, WaylandSelectionListener)
+

@@ -26,14 +26,40 @@ const int _maxRestartsInWindow = 5;
 const Duration _restartWindow = Duration(seconds: 60);
 const Duration _restartDelay = Duration(seconds: 3);
 
+const int _defaultPort = 28374;
+
+String getBackendBaseUrl() {
+  if (Platform.isWindows) {
+    return 'http://127.0.0.1:$_defaultPort';
+  }
+  return 'http://localhost';
+}
+
+http.Client createApiClient() {
+  if (Platform.isWindows) {
+    return http.Client();
+  }
+  String homeDir = Platform.environment['HOME'] ?? '';
+  String socketPath = '$homeDir/.local/state/select-to-speech/ipc.sock';
+  var ioClient = HttpClient()
+    ..connectionFactory = (uri, proxyHost, proxyPort) {
+      return Socket.startConnect(
+          InternetAddress(socketPath, type: InternetAddressType.unix), 0);
+    };
+  return IOClient(ioClient);
+}
+
+http.Client createUdsClient() => createApiClient();
+
 Future<void> startPythonBackend() async {
-  // Check if Python backend is already running on UDS socket (probe with retries up to 3s)
-  final client = createUdsClient();
+  // Check if Python backend is already running (probe with retries up to 3s)
+  final client = createApiClient();
+  final baseUrl = getBackendBaseUrl();
   try {
     for (int i = 0; i < 3; i++) {
       try {
         final res = await client
-            .get(Uri.parse('http://localhost/status'))
+            .get(Uri.parse('$baseUrl/status'))
             .timeout(const Duration(milliseconds: 1000));
         if (res.statusCode == 200) {
           debugPrint('Python backend is already running.');
@@ -51,16 +77,23 @@ Future<void> startPythonBackend() async {
 
   if (_backendPath == null) {
     final String homeDir = Platform.environment['HOME'] ?? '';
+    final String localAppData = Platform.environment['LOCALAPPDATA'] ?? '';
+    final String userProfile = Platform.environment['USERPROFILE'] ?? '';
     final String executablePath = Platform.resolvedExecutable;
     final String exeDir = File(executablePath).parent.path;
 
-    final candidatePaths = [
+    final candidatePaths = <String>[
       // Alongside executable / bundle dir
-      '$exeDir/select-to-speech',
-      '$exeDir/bin/select-to-speech',
-      // User local share install
+      if (Platform.isWindows) '$exeDir/select-to-speech.exe' else '$exeDir/select-to-speech',
+      if (Platform.isWindows) '$exeDir/bin/select-to-speech.exe' else '$exeDir/bin/select-to-speech',
+      // User local share / appdata install
       if (homeDir.isNotEmpty) '$homeDir/.local/share/select-to-speech/bin/select-to-speech',
       if (homeDir.isNotEmpty) '$homeDir/.local/bin/select-to-speech',
+      if (localAppData.isNotEmpty) '$localAppData/select-to-speech/select-to-speech.exe',
+      if (localAppData.isNotEmpty) '$localAppData/select-to-speech/venv/Scripts/select-to-speech.exe',
+      if (localAppData.isNotEmpty) '$localAppData/Programs/select-to-speech/select-to-speech.exe',
+      if (localAppData.isNotEmpty) '$localAppData/Programs/select-to-speech/bin/select-to-speech.exe',
+      if (userProfile.isNotEmpty) '$userProfile/.local/bin/select-to-speech.exe',
     ];
 
     for (final path in candidatePaths) {
@@ -70,19 +103,30 @@ Future<void> startPythonBackend() async {
       }
     }
 
-    // Traverse upwards to look for .venv or local binary
+    // Traverse upwards to look for .venv / venv or local binary
     if (_backendPath == null) {
       Directory current = Directory(executablePath).parent;
-      while (current.path != '/') {
-        final venvBin = '${current.path}/.venv/bin/select-to-speech';
-        if (File(venvBin).existsSync()) {
-          _backendPath = venvBin;
-          break;
+      while (current.path != current.parent.path) {
+        final venvVariants = Platform.isWindows
+            ? [
+                '${current.path}/.venv/Scripts/select-to-speech.exe',
+                '${current.path}/venv/Scripts/select-to-speech.exe',
+                '${current.path}/.venv/Scripts/python.exe',
+                '${current.path}/venv/Scripts/python.exe',
+              ]
+            : [
+                '${current.path}/.venv/bin/select-to-speech',
+                '${current.path}/venv/bin/select-to-speech',
+              ];
+
+        for (final venvBin in venvVariants) {
+          if (File(venvBin).existsSync()) {
+            _backendPath = venvBin;
+            break;
+          }
         }
-        if (Directory('${current.path}/.venv').existsSync()) {
-          _backendPath = venvBin;
-          break;
-        }
+        if (_backendPath != null) break;
+
         current = current.parent;
       }
     }
@@ -127,17 +171,6 @@ Future<void> _launchAndMonitorBackend() async {
   } catch (e) {
     debugPrint('Error starting python backend: $e');
   }
-}
-
-http.Client createUdsClient() {
-  String homeDir = Platform.environment['HOME'] ?? '';
-  String socketPath = '$homeDir/.local/state/select-to-speech/ipc.sock';
-  var ioClient = HttpClient()
-    ..connectionFactory = (uri, proxyHost, proxyPort) {
-      return Socket.startConnect(
-          InternetAddress(socketPath, type: InternetAddressType.unix), 0);
-    };
-  return IOClient(ioClient);
 }
 
 class SelectToSpeechApp extends StatelessWidget {
@@ -266,7 +299,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'general_settings': 'General Settings',
       'gui_language': 'GUI Language',
       'enable_debug': 'Enable Debug Logging',
-      'check_logs': 'Check logs at ~/.local/state/select-to-speech/app.log',
+      'check_logs': 'Check logs at {path}',
       'save_success': 'Settings saved successfully!',
       'save_failed': 'Failed to save settings',
       'download_success': 'Model downloaded successfully!',
@@ -327,7 +360,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'general_settings': 'Impostazioni Generali',
       'gui_language': 'Lingua dell\'Interfaccia',
       'enable_debug': 'Abilita Log di Debug',
-      'check_logs': 'Controlla i log in ~/.local/state/select-to-speech/app.log',
+      'check_logs': 'Controlla i log in {path}',
       'save_success': 'Impostazioni salvate con successo!',
       'save_failed': 'Salvataggio delle impostazioni fallito',
       'download_success': 'Modello scaricato con successo!',
@@ -388,7 +421,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'general_settings': 'Ajustes Generales',
       'gui_language': 'Idioma de la Interfaz',
       'enable_debug': 'Habilitar Registro de Depuración',
-      'check_logs': 'Revisa los registros en ~/.local/state/select-to-speech/app.log',
+      'check_logs': 'Revisa los registros en {path}',
       'save_success': '¡Ajustes guardados con éxito!',
       'save_failed': 'Error al guardar los ajustes',
       'download_success': '¡Modelo descargado con éxito!',
@@ -449,7 +482,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'general_settings': 'Paramètres Généraux',
       'gui_language': 'Langue de l\'Interface',
       'enable_debug': 'Activer le Journal de Débogage',
-      'check_logs': 'Vérifiez les journaux dans ~/.local/state/select-to-speech/app.log',
+      'check_logs': 'Vérifiez les journaux dans {path}',
       'save_success': 'Paramètres enregistrés avec succès !',
       'save_failed': 'Échec de l\'enregistrement des paramètres',
       'download_success': 'Modèle téléchargé avec succès !',
@@ -499,7 +532,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   @override
   void initState() {
     super.initState();
-    apiClient = createUdsClient();
+    apiClient = createApiClient();
     _initTray();
     _fetchData();
   }
@@ -509,6 +542,12 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
     if (Platform.isLinux) {
       final String exeDir = File(Platform.resolvedExecutable).parent.path;
       iconPath = '$exeDir/data/flutter_assets/images/select_to_speech_tray_icon.svg';
+    } else if (Platform.isWindows) {
+      final String exeDir = File(Platform.resolvedExecutable).parent.path;
+      final candidatePath = '$exeDir\\data\\flutter_assets\\images\\tray_icon.ico';
+      if (File(candidatePath).existsSync()) {
+        iconPath = candidatePath;
+      }
     }
     await trayManager.setIcon(iconPath);
     await _updateTrayMenu();
@@ -539,8 +578,9 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
 
   Future<void> _quit() async {
     _shuttingDown = true;
+    final baseUrl = getBackendBaseUrl();
     try {
-      await apiClient.post(Uri.parse('http://localhost/stop')).timeout(const Duration(seconds: 2));
+      await apiClient.post(Uri.parse('$baseUrl/stop')).timeout(const Duration(seconds: 2));
     } catch (_) {}
     pythonBackend?.kill();
     // Give the backend a moment to shut down gracefully
@@ -558,7 +598,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
 
     try {
       final selectedModel = config?['voice']?['model'] ?? 'kokoro-v1.0';
-      final res = await apiClient.post(Uri.parse('http://localhost/download_model?model_id=$selectedModel&force=true'));
+      final baseUrl = getBackendBaseUrl();
+      final res = await apiClient.post(Uri.parse('$baseUrl/download_model?model_id=$selectedModel&force=true'));
       if (res.statusCode == 200) {
         _pollDownloadStatus();
       } else {
@@ -578,11 +619,12 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   }
 
   void _pollDownloadStatus() async {
+    final baseUrl = getBackendBaseUrl();
     while (isDownloading) {
       await Future.delayed(const Duration(milliseconds: 800));
       if (!mounted) return;
       try {
-        final res = await apiClient.get(Uri.parse('http://localhost/download_status'));
+        final res = await apiClient.get(Uri.parse('$baseUrl/download_status'));
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
           setState(() {
@@ -611,19 +653,20 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   
   Future<void> _fetchData() async {
     setState(() => isLoading = true);
+    final baseUrl = getBackendBaseUrl();
     int retries = 20;
     while (retries > 0) {
       try {
-        final configRes = await apiClient.get(Uri.parse('http://localhost/config'));
-        final devicesRes = await apiClient.get(Uri.parse('http://localhost/audio_devices'));
-        final voicesRes = await apiClient.get(Uri.parse('http://localhost/voices'));
-        final ocrLangsRes = await apiClient.get(Uri.parse('http://localhost/ocr_languages'));
-        final availableModelsRes = await apiClient.get(Uri.parse('http://localhost/available_models'));
+        final configRes = await apiClient.get(Uri.parse('$baseUrl/config'));
+        final devicesRes = await apiClient.get(Uri.parse('$baseUrl/audio_devices'));
+        final voicesRes = await apiClient.get(Uri.parse('$baseUrl/voices'));
+        final ocrLangsRes = await apiClient.get(Uri.parse('$baseUrl/ocr_languages'));
+        final availableModelsRes = await apiClient.get(Uri.parse('$baseUrl/available_models'));
         
         if (configRes.statusCode == 200) {
           final decodedConfig = jsonDecode(configRes.body);
           final selectedModel = decodedConfig['voice']?['model'] ?? 'kokoro-v1.0';
-          final modelInstRes = await apiClient.get(Uri.parse('http://localhost/model_installed?model_id=$selectedModel'));
+          final modelInstRes = await apiClient.get(Uri.parse('$baseUrl/model_installed?model_id=$selectedModel'));
 
           setState(() {
             config = decodedConfig;
@@ -685,8 +728,9 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   Future<void> _saveConfigSilent() async {
     if (config == null) return;
     try {
+      final baseUrl = getBackendBaseUrl();
       final response = await apiClient.post(
-        Uri.parse('http://localhost/config'),
+        Uri.parse('$baseUrl/config'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(config),
       );
@@ -1123,7 +1167,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
                       });
                       _scheduleSave();
                       try {
-                        final res = await apiClient.get(Uri.parse('http://localhost/model_installed?model_id=$val'));
+                        final baseUrl = getBackendBaseUrl();
+                        final res = await apiClient.get(Uri.parse('$baseUrl/model_installed?model_id=$val'));
                         if (res.statusCode == 200) {
                           setState(() {
                             isModelInstalled = jsonDecode(res.body)['installed'] ?? false;
@@ -1363,7 +1408,11 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   }
 
   Widget _buildGeneralTab() {
-    return _buildGlassCard(
+              final logPath = Platform.isWindows
+              ? r'%LOCALAPPDATA%\select-to-speech\log\app.log'
+              : '~/.local/state/select-to-speech/app.log';
+          final checkLogsText = t('check_logs').replaceAll('{path}', logPath);
+          return _buildGlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1375,7 +1424,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
           const SizedBox(height: 16),
           SwitchListTile(
             title: Text(t('enable_debug'), style: TextStyle(color: textColor)),
-            subtitle: Text(t('check_logs'), style: TextStyle(color: textColor54)),
+            subtitle: Text(checkLogsText, style: TextStyle(color: textColor54)),
             value: config!['debug'] ?? false,
             activeThumbColor: const Color(0xFF7B61FF),
             onChanged: (val) {

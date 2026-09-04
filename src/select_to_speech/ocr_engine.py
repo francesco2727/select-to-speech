@@ -1,8 +1,10 @@
 """OCR Engine using Tesseract CLI"""
 
 import logging
+import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -10,26 +12,77 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def _find_windows_tesseract() -> Optional[str]:
+    """Look for tesseract executable in standard Windows install directories."""
+    paths_to_check = []
+    
+    # 1. Check PATH first
+    on_path = shutil.which("tesseract")
+    if on_path:
+        return on_path
+
+    # 2. Check standard Program Files and AppData locations
+    for env_var in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA", "ProgramData"):
+        base = os.environ.get(env_var)
+        if base:
+            if env_var == "LOCALAPPDATA":
+                candidate = Path(base) / "Programs" / "Tesseract-OCR" / "tesseract.exe"
+            elif env_var == "ProgramData":
+                candidate = Path(base) / "chocolatey" / "bin" / "tesseract.exe"
+            else:
+                candidate = Path(base) / "Tesseract-OCR" / "tesseract.exe"
+            paths_to_check.append(candidate)
+
+    # 3. Check Scoop install locations in user profile
+    user_profile = os.environ.get("USERPROFILE")
+    if user_profile:
+        paths_to_check.append(Path(user_profile) / "scoop" / "shims" / "tesseract.exe")
+        paths_to_check.append(Path(user_profile) / "scoop" / "apps" / "tesseract" / "current" / "tesseract.exe")
+
+    # 4. Hardcoded standard fallbacks if env vars are missing
+    paths_to_check.extend([
+        Path("C:/Program Files/Tesseract-OCR/tesseract.exe"),
+        Path("C:/Program Files (x86)/Tesseract-OCR/tesseract.exe"),
+        Path("C:/ProgramData/chocolatey/bin/tesseract.exe"),
+    ])
+
+    for candidate in paths_to_check:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+
+    return None
+
+
 class OcrEngine:
     """Extracts text from images using native Tesseract CLI (to keep uv environment lightweight)."""
 
-    def __init__(self, default_languages: str = "ita+eng"):
+    def __init__(self, default_languages: str = "ita+eng", tesseract_cmd: Optional[str] = None):
         self.default_languages = default_languages
+        self._custom_tesseract_cmd = tesseract_cmd
         self._available_langs: Optional[set[str]] = None
 
+    def get_tesseract_cmd(self) -> Optional[str]:
+        """Resolve tesseract executable command path."""
+        if self._custom_tesseract_cmd:
+            return self._custom_tesseract_cmd
+        if sys.platform == "win32":
+            return _find_windows_tesseract()
+        return shutil.which("tesseract")
+
     def is_available(self) -> bool:
-        """Check if tesseract CLI is installed and available on PATH."""
-        return shutil.which("tesseract") is not None
+        """Check if tesseract CLI is installed and available."""
+        return self.get_tesseract_cmd() is not None
 
     def get_available_languages(self) -> set[str]:
         """Check available tesseract language data packs."""
-        if not self.is_available():
+        cmd_path = self.get_tesseract_cmd()
+        if not cmd_path:
             self._available_langs = set()
             return self._available_langs
 
         try:
             res = subprocess.run(
-                ["tesseract", "--list-langs"],
+                [cmd_path, "--list-langs"],
                 capture_output=True,
                 text=True,
                 timeout=3,
@@ -87,11 +140,18 @@ class OcrEngine:
         Returns:
             Extracted text string
         """
-        if not self.is_available():
-            logger.error(
-                "Tesseract CLI not found. Please install tesseract and language packs:\n"
-                "Arch Linux: sudo pacman -S tesseract tesseract-data-ita tesseract-data-eng"
-            )
+        cmd_path = self.get_tesseract_cmd()
+        if not cmd_path:
+            if sys.platform == "win32":
+                logger.error(
+                    "Tesseract CLI not found. Please install Tesseract on Windows:\n"
+                    "winget install UB-Mannheim.TesseractOCR"
+                )
+            else:
+                logger.error(
+                    "Tesseract CLI not found. Please install tesseract and language packs:\n"
+                    "Arch Linux: sudo pacman -S tesseract tesseract-data-ita tesseract-data-eng"
+                )
             return ""
 
         img_path = Path(image_path)
@@ -102,7 +162,7 @@ class OcrEngine:
         lang_req = languages or self.default_languages
         lang_flag = self._resolve_lang_flag(lang_req)
 
-        cmd = ["tesseract", str(img_path), "stdout"]
+        cmd = [cmd_path, str(img_path), "stdout"]
         if lang_flag:
             cmd.extend(["-l", lang_flag])
 

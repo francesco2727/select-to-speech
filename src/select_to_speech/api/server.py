@@ -1,13 +1,16 @@
 import os
 import socket
+import sys
+import urllib.request
 import logging
 from contextlib import asynccontextmanager
+from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import uvicorn
 
 from select_to_speech.main import SelectToSpeechApp
-from select_to_speech.config import load_config, save_config, AppConfig
+from select_to_speech.config import load_config, save_config, AppConfig, get_state_dir
 
 logger = logging.getLogger(__name__)
 
@@ -207,8 +210,24 @@ def get_available_models():
     return models
 
 
-def is_server_running(socket_path: str) -> bool:
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 28374
+
+
+def is_server_running(socket_path: Optional[str] = None, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> bool:
     """Check if a backend server instance is already running and responding."""
+    if sys.platform == "win32":
+        try:
+            req = urllib.request.Request(f"http://{host}:{port}/status")
+            with urllib.request.urlopen(req, timeout=1.0) as response:
+                return response.status == 200
+        except Exception:
+            return False
+
+    # Unix / Linux (UDS)
+    if socket_path is None:
+        socket_path = str(get_state_dir() / "ipc.sock")
+
     if not os.path.exists(socket_path):
         return False
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -225,31 +244,66 @@ def is_server_running(socket_path: str) -> bool:
 
 
 def run_server() -> int:
-    socket_path = os.path.expanduser("~/.local/state/select-to-speech/ipc.sock")
-    os.makedirs(os.path.dirname(socket_path), exist_ok=True)
+    if sys.platform == "win32":
+        if is_server_running():
+            logger.info("Select-to-Speech backend server is already running on TCP. Exiting cleanly.")
+            return 0
 
-    if is_server_running(socket_path):
-        logger.info("Select-to-Speech backend server is already running. Exiting cleanly.")
-        return 0
+        logger.info(f"Starting API server on TCP: {DEFAULT_HOST}:{DEFAULT_PORT}")
+        config = uvicorn.Config(app, host=DEFAULT_HOST, port=DEFAULT_PORT)
+    else:
+        socket_path = str(get_state_dir() / "ipc.sock")
+        os.makedirs(os.path.dirname(socket_path), exist_ok=True)
 
-    if os.path.exists(socket_path):
-        try:
-            os.remove(socket_path)
-        except OSError:
-            pass
-    
-    logger.info(f"Starting API server on UDS: {socket_path}")
-    config = uvicorn.Config(app, uds=socket_path)
+        if is_server_running(socket_path):
+            logger.info("Select-to-Speech backend server is already running on UDS. Exiting cleanly.")
+            return 0
+
+        if os.path.exists(socket_path):
+            try:
+                os.remove(socket_path)
+            except OSError:
+                pass
+
+        logger.info(f"Starting API server on UDS: {socket_path}")
+        config = uvicorn.Config(app, uds=socket_path)
+
     server = uvicorn.Server(config)
     
     import signal as _signal
-    original_sigterm = _signal.getsignal(_signal.SIGTERM)
-    def _handle_sigterm(signum, frame):
-        logger.info("Received SIGTERM, initiating graceful shutdown...")
+    def _handle_shutdown(signum=None, frame=None):
+        logger.info("Shutdown signal received, initiating graceful server shutdown...")
         server.should_exit = True
-        if callable(original_sigterm) and original_sigterm not in (_signal.SIG_DFL, _signal.SIG_IGN):
-            original_sigterm(signum, frame)
-    _signal.signal(_signal.SIGTERM, _handle_sigterm)
+
+    try:
+        if hasattr(_signal, "SIGTERM"):
+            original_sigterm = _signal.getsignal(_signal.SIGTERM)
+            def _sigterm_wrapper(signum, frame):
+                _handle_shutdown(signum, frame)
+                if callable(original_sigterm) and original_sigterm not in (_signal.SIG_DFL, _signal.SIG_IGN):
+                    original_sigterm(signum, frame)
+            _signal.signal(_signal.SIGTERM, _sigterm_wrapper)
+    except Exception as e:
+        logger.debug(f"Could not install SIGTERM handler: {e}")
+
+    try:
+        _signal.signal(_signal.SIGINT, _handle_shutdown)
+    except Exception as e:
+        logger.debug(f"Could not install SIGINT handler: {e}")
+
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            import ctypes.wintypes
+            HandlerRoutine = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.DWORD)
+            def _console_ctrl_handler(ctrl_type: int) -> bool:
+                logger.info(f"Windows console control event {ctrl_type} received, stopping server...")
+                server.should_exit = True
+                return True
+            _global_handler = HandlerRoutine(_console_ctrl_handler)
+            ctypes.windll.kernel32.SetConsoleCtrlHandler(_global_handler, True)
+        except Exception as e:
+            logger.debug(f"Could not install Windows ConsoleCtrlHandler: {e}")
     
     server.run()
     return 0

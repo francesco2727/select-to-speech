@@ -38,6 +38,16 @@ def test_check_system_dependencies_missing_required_fails():
         assert check_system_dependencies() is False
 
 
+def test_check_system_dependencies_windows():
+    """On Windows, core dependencies should pass natively and check tesseract/Snipping Tool."""
+    import sys
+    with patch.object(sys, "platform", "win32"), \
+         patch("select_to_speech.system_check._find_tesseract_cmd", return_value="C:\\Program Files\\Tesseract-OCR\\tesseract.exe"), \
+         patch("select_to_speech.system_check.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="List of available languages (2):\neng\nita\n")
+        assert check_system_dependencies() is True
+
+
 def test_detect_language_and_multilingual_check():
     """Test language detection and explicit overrides (`en`, `it`, `fr`, `es`, default fallback)."""
     from select_to_speech.system_check import _detect_language

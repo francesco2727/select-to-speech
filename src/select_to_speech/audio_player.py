@@ -7,55 +7,64 @@ import os
 import queue
 import threading
 import traceback
-from typing import Optional
+from typing import Optional, Any, Dict
 
 import pyaudio
 import wave
 import numpy as np
+import sys
 from pedalboard import Pedalboard, PitchShift
-import os
 
-try:
-    import pulsectl
-except ImportError:
-    pulsectl = None
+pulsectl = None
+if sys.platform == "linux":
+    try:
+        import pulsectl
+    except Exception:
+        pulsectl = None
+
+pycaw_available = False
+AudioUtilities = None
+ISimpleAudioVolume = None
+if sys.platform == "win32":
+    try:
+        from pycaw.pycaw import AudioUtilities, ISimpleAudioVolume
+        pycaw_available = True
+    except Exception:
+        pycaw_available = False
 
 logger = logging.getLogger(__name__)
 
-class AudioDucker:
-    """Manages lowering background audio volumes asynchronously via a dedicated worker queue."""
+
+class BaseAudioDucker:
+    """Base interface for platform-specific audio duckers."""
 
     def __init__(self, duck_volume: float = 0.2):
         self.duck_volume = duck_volume
-        self.enabled = True
+        self._original_volumes: dict[Any, Any] = {}
+
+    def duck(self, duck_volume: float) -> dict[Any, Any]:
+        """Duck background audio volumes and return map of original volumes."""
+        return {}
+
+    def unduck(self) -> None:
+        """Restore background audio volumes to original values."""
+        self._original_volumes.clear()
+
+    def ensure_own_volume_max(self) -> None:
+        """Ensure current process audio volume is set to 100%."""
+        pass
+
+
+class PulseAudioDucker(BaseAudioDucker):
+    """Audio ducker implementation for Linux using pulsectl."""
+
+    def __init__(self, duck_volume: float = 0.2):
+        super().__init__(duck_volume)
         self._original_volumes: dict[int, list[float]] = {}
-        self._queue: queue.Queue = queue.Queue()
-        self._worker_thread = threading.Thread(
-            target=self._worker_loop,
-            daemon=True,
-            name="AudioDucker-Worker"
-        )
-        self._worker_thread.start()
 
-    def _worker_loop(self) -> None:
-        """Dedicated background loop that serializes all PulseAudio operations safely without leaks."""
-        while True:
-            action = self._queue.get()
-            try:
-                if action == "start":
-                    self._do_duck()
-                elif action == "stop":
-                    self._do_unduck()
-                elif action == "ensure_max":
-                    self._do_ensure_own_volume_max()
-            except Exception as e:
-                logger.warning(f"AudioDucker action '{action}' failed: {e}")
-            finally:
-                self._queue.task_done()
-
-    def _do_duck(self) -> None:
-        if not self.enabled or not pulsectl:
-            return
+    def duck(self, duck_volume: float) -> dict[int, list[float]]:
+        if not pulsectl:
+            return {}
 
         pulse = None
         try:
@@ -75,9 +84,11 @@ class AudioDucker:
                 if sink_input.index not in self._original_volumes:
                     self._original_volumes[sink_input.index] = pulse.volume_get_all_chans(sink_input)
 
-                pulse.volume_set_all_chans(sink_input, self.duck_volume)
+                pulse.volume_set_all_chans(sink_input, duck_volume)
+            return self._original_volumes
         except Exception as e:
-            logger.warning(f"Failed to duck audio: {e}")
+            logger.warning(f"Failed to duck audio via pulsectl: {e}")
+            return self._original_volumes
         finally:
             if pulse:
                 try:
@@ -85,12 +96,9 @@ class AudioDucker:
                 except Exception:
                     pass
 
-    def _do_unduck(self) -> None:
-        if not self.enabled or not pulsectl:
+    def unduck(self) -> None:
+        if not pulsectl or not self._original_volumes:
             self._original_volumes.clear()
-            return
-
-        if not self._original_volumes:
             return
 
         pulse = None
@@ -100,7 +108,7 @@ class AudioDucker:
                 if sink_input.index in self._original_volumes:
                     pulse.volume_set_all_chans(sink_input, self._original_volumes[sink_input.index])
         except Exception as e:
-            logger.warning(f"Failed to restore audio volume: {e}")
+            logger.warning(f"Failed to restore audio volume via pulsectl: {e}")
         finally:
             self._original_volumes.clear()
             if pulse:
@@ -109,8 +117,8 @@ class AudioDucker:
                 except Exception:
                     pass
 
-    def _do_ensure_own_volume_max(self) -> None:
-        if not self.enabled or not pulsectl:
+    def ensure_own_volume_max(self) -> None:
+        if not pulsectl:
             return
         pulse = None
         try:
@@ -129,7 +137,7 @@ class AudioDucker:
                 if is_ours:
                     pulse.volume_set_all_chans(sink_input, 1.0)
         except Exception as e:
-            logger.warning(f"Failed to restore own audio volume: {e}")
+            logger.warning(f"Failed to restore own audio volume via pulsectl: {e}")
         finally:
             if pulse:
                 try:
@@ -137,21 +145,231 @@ class AudioDucker:
                 except Exception:
                     pass
 
+
+class WindowsAudioDucker(BaseAudioDucker):
+    """Audio ducker implementation for Windows using pycaw / Core Audio APIs."""
+
+    def __init__(self, duck_volume: float = 0.2):
+        super().__init__(duck_volume)
+        self._original_volumes: dict[Any, float] = {}
+
+    @staticmethod
+    def _init_com() -> None:
+        """Initialize COM for the current thread using multithreaded apartment (MTA)."""
+        try:
+            import ctypes
+            # COINIT_MULTITHREADED = 0x0
+            COINIT_MULTITHREADED = 0x0
+            hr = ctypes.windll.ole32.CoInitializeEx(None, COINIT_MULTITHREADED)
+            # S_OK = 0, S_FALSE = 1, RPC_E_CHANGED_MODE = 0x80010106
+        except Exception:
+            try:
+                import ctypes
+                ctypes.windll.ole32.CoInitialize(None)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _uninit_com() -> None:
+        """Uninitialize COM for the current thread."""
+        try:
+            import ctypes
+            ctypes.windll.ole32.CoUninitialize()
+        except Exception:
+            pass
+
+    def _get_session_info(self, session: Any) -> tuple[Optional[int], str, Optional[Any]]:
+        """Extract PID, process name, and SimpleAudioVolume control from a pycaw session."""
+        proc_pid: Optional[int] = None
+        proc_name: str = ""
+        try:
+            proc = getattr(session, 'Process', None)
+            if proc is not None:
+                try:
+                    proc_pid = proc.pid
+                    proc_name = (proc.name() or "").lower()
+                except Exception:
+                    pass
+            elif hasattr(session, 'ProcessId') and session.ProcessId:
+                proc_pid = session.ProcessId
+        except Exception:
+            pass
+
+        volume_ctl = None
+        try:
+            volume_ctl = getattr(session, 'SimpleAudioVolume', None)
+            if volume_ctl is None and ISimpleAudioVolume is not None and hasattr(session, '_ctl'):
+                volume_ctl = session._ctl.QueryInterface(ISimpleAudioVolume)
+        except Exception:
+            pass
+
+        return proc_pid, proc_name, volume_ctl
+
+    def _is_our_process(self, proc_pid: Optional[int], proc_name: str) -> bool:
+        my_pid = os.getpid()
+        if proc_pid is not None and proc_pid == my_pid:
+            return True
+        if "python" in proc_name or "select-to-speech" in proc_name or "select_to_speech" in proc_name:
+            return True
+        return False
+
+    def duck(self, duck_volume: float) -> dict[Any, float]:
+        if not pycaw_available or AudioUtilities is None:
+            return {}
+
+        self._init_com()
+        try:
+            sessions = AudioUtilities.GetAllSessions()
+            for idx, session in enumerate(sessions):
+                try:
+                    proc_pid, proc_name, volume_ctl = self._get_session_info(session)
+                    if volume_ctl is None:
+                        continue
+                    if self._is_our_process(proc_pid, proc_name):
+                        continue
+
+                    session_key = proc_pid if proc_pid is not None else f"session_{idx}_{getattr(session, 'DisplayName', '')}"
+                    if session_key not in self._original_volumes:
+                        current_vol = volume_ctl.GetMasterVolume()
+                        self._original_volumes[session_key] = current_vol
+
+                    volume_ctl.SetMasterVolume(duck_volume, None)
+                except Exception as e:
+                    logger.debug(f"Failed to duck individual Windows session: {e}")
+            return self._original_volumes
+        except Exception as e:
+            logger.warning(f"Failed to duck Windows audio sessions: {e}")
+            return self._original_volumes
+        finally:
+            self._uninit_com()
+
+    def unduck(self) -> None:
+        if not pycaw_available or AudioUtilities is None or not self._original_volumes:
+            self._original_volumes.clear()
+            return
+
+        self._init_com()
+        try:
+            sessions = AudioUtilities.GetAllSessions()
+            for idx, session in enumerate(sessions):
+                try:
+                    proc_pid, proc_name, volume_ctl = self._get_session_info(session)
+                    if volume_ctl is None:
+                        continue
+                    session_key = proc_pid if proc_pid is not None else f"session_{idx}_{getattr(session, 'DisplayName', '')}"
+                    if session_key in self._original_volumes:
+                        volume_ctl.SetMasterVolume(self._original_volumes[session_key], None)
+                except Exception as e:
+                    logger.debug(f"Failed to restore individual Windows session volume: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to restore Windows audio sessions: {e}")
+        finally:
+            self._original_volumes.clear()
+            self._uninit_com()
+
+    def ensure_own_volume_max(self) -> None:
+        if not pycaw_available or AudioUtilities is None:
+            return
+
+        self._init_com()
+        try:
+            sessions = AudioUtilities.GetAllSessions()
+            for session in sessions:
+                try:
+                    proc_pid, proc_name, volume_ctl = self._get_session_info(session)
+                    if volume_ctl is None:
+                        continue
+                    if self._is_our_process(proc_pid, proc_name):
+                        volume_ctl.SetMasterVolume(1.0, None)
+                except Exception as e:
+                    logger.debug(f"Failed to maximize own Windows audio session: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to maximize own Windows audio session: {e}")
+        finally:
+            self._uninit_com()
+
+
+class AudioDucker:
+    """Manages lowering background audio volumes asynchronously via a dedicated worker queue."""
+
+    def __init__(self, duck_volume: float = 0.2):
+        self.duck_volume = duck_volume
+        self.enabled = True
+        self._queue: queue.Queue = queue.Queue()
+        self._backend: BaseAudioDucker
+        if sys.platform == "win32":
+            self._backend = WindowsAudioDucker(duck_volume=self.duck_volume)
+        elif sys.platform == "linux":
+            self._backend = PulseAudioDucker(duck_volume=self.duck_volume)
+        else:
+            self._backend = BaseAudioDucker(duck_volume=self.duck_volume)
+
+        self._worker_thread = threading.Thread(
+            target=self._worker_loop,
+            daemon=True,
+            name="AudioDucker-Worker"
+        )
+        self._worker_thread.start()
+
+    @property
+    def _original_volumes(self) -> dict[Any, Any]:
+        return getattr(self._backend, "_original_volumes", {})
+
+    @property
+    def is_available(self) -> bool:
+        if sys.platform == "win32":
+            return pycaw_available
+        elif sys.platform == "linux":
+            return pulsectl is not None
+        return False
+
+    def _worker_loop(self) -> None:
+        """Dedicated background loop that serializes all audio ducking operations safely."""
+        while True:
+            action = self._queue.get()
+            try:
+                if action == "start":
+                    self._do_duck()
+                elif action == "stop":
+                    self._do_unduck()
+                elif action == "ensure_max":
+                    self._do_ensure_own_volume_max()
+            except Exception as e:
+                logger.warning(f"AudioDucker action '{action}' failed: {e}")
+            finally:
+                self._queue.task_done()
+
+    def _do_duck(self) -> None:
+        if not self.enabled or not self.is_available:
+            return
+        self._backend.duck(self.duck_volume)
+
+    def _do_unduck(self) -> None:
+        if not self.is_available:
+            self._backend.unduck()
+            return
+        self._backend.unduck()
+
+    def _do_ensure_own_volume_max(self) -> None:
+        if not self.enabled or not self.is_available:
+            return
+        self._backend.ensure_own_volume_max()
+
     def start_ducking(self) -> None:
         """Enqueue ducking request."""
-        if not self.enabled or not pulsectl:
+        if not self.enabled or not self.is_available:
             return
         self._queue.put("start")
 
     def stop_ducking(self) -> None:
         """Enqueue volume restoration request."""
-        if not self.enabled or not pulsectl:
+        if not self.enabled or not self.is_available:
             return
         self._queue.put("stop")
 
     def ensure_own_volume_max(self) -> None:
         """Enqueue stream volume maximization request."""
-        if not self.enabled or not pulsectl:
+        if not self.enabled or not self.is_available:
             return
         self._queue.put("ensure_max")
 
@@ -219,8 +437,17 @@ class AudioPlayer:
             if self._device_id is not None:
                 devices.append(self._device_id)
 
+            # Try default output device index first
+            try:
+                default_info = self.pyaudio.get_default_output_device_info()
+                if default_info and "index" in default_info:
+                    devices.append(default_info["index"])
+            except Exception:
+                pass
+
             pipewire_ids: list[int] = []
             pulse_ids: list[int] = []
+            other_ids: list[int] = []
 
             try:
                 device_count = self.pyaudio.get_device_count()
@@ -234,6 +461,8 @@ class AudioPlayer:
                             pipewire_ids.append(i)
                         elif "pulse" in name:
                             pulse_ids.append(i)
+                        else:
+                            other_ids.append(i)
                     except Exception:
                         continue
             except Exception as e:
@@ -241,6 +470,7 @@ class AudioPlayer:
 
             devices.extend(pipewire_ids)
             devices.extend(pulse_ids)
+            devices.extend(other_ids)
             devices.append(None)  # Default fallback
 
             seen: set[Optional[int]] = set()

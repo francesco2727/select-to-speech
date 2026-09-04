@@ -153,15 +153,15 @@ def delete_kokoro(model_id: str = "kokoro-v1.0") -> bool:
         logger.warning("No Kokoro model files found to delete.")
     return deleted
 
-def download_kokoro_cli() -> None:
+def download_kokoro_cli(args: Optional[list[str]] = None) -> None:
     """CLI wrapper to download Kokoro models with terminal progress feedback."""
     import sys
     import argparse
     
     parser = argparse.ArgumentParser(description="Download Kokoro TTS model files")
     parser.add_argument("--model", type=str, default="kokoro-v1.0", choices=list(KOKORO_MODELS.keys()), help="Model to download")
-    args = parser.parse_args()
-    model_id = args.model
+    parsed = parser.parse_args(args=args if args is not None else sys.argv[1:])
+    model_id = parsed.model
 
     # Configure logging level for the CLI session
     logging.getLogger().setLevel(logging.WARNING)

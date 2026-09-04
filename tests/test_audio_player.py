@@ -6,13 +6,17 @@ Tests cover initialization, playback, error handling, and cleanup
 import io
 import wave
 import pytest
-from unittest.mock import Mock, MagicMock, patch, mock_open
+from unittest.mock import Mock, MagicMock, patch, mock_open, PropertyMock
+import os
 import sys
 
-# Add src to path for imports
-sys.path.insert(0, '/home/francescov/develop/select-to-speach/src')
-
-from select_to_speech.audio_player import AudioPlayer
+from select_to_speech.audio_player import (
+    AudioPlayer,
+    AudioDucker,
+    WindowsAudioDucker,
+    PulseAudioDucker,
+    BaseAudioDucker,
+)
 
 
 class TestAudioPlayerInitialization:
@@ -425,6 +429,165 @@ class TestAudioPlayerEdgeCases:
         return wav_buffer.getvalue()
 
 
+class TestWindowsAudioDucker:
+    """Tests for WindowsAudioDucker pycaw integration"""
+
+    def test_duck_and_unduck_sessions(self):
+        """Test ducking background sessions and unducking them on Windows"""
+        ducker = WindowsAudioDucker(duck_volume=0.25)
+
+        # Mock other process session
+        mock_other_proc = MagicMock()
+        mock_other_proc.pid = 9999
+        mock_other_proc.name.return_value = "spotify.exe"
+
+        mock_other_volume = MagicMock()
+        mock_other_volume.GetMasterVolume.return_value = 0.8
+
+        mock_other_session = MagicMock()
+        mock_other_session.Process = mock_other_proc
+        mock_other_session.SimpleAudioVolume = mock_other_volume
+
+        # Mock own process session
+        mock_own_proc = MagicMock()
+        mock_own_proc.pid = os.getpid()
+        mock_own_proc.name.return_value = "python.exe"
+
+        mock_own_volume = MagicMock()
+        mock_own_volume.GetMasterVolume.return_value = 1.0
+
+        mock_own_session = MagicMock()
+        mock_own_session.Process = mock_own_proc
+        mock_own_session.SimpleAudioVolume = mock_own_volume
+
+        mock_audio_utils = MagicMock()
+        mock_audio_utils.GetAllSessions.return_value = [mock_other_session, mock_own_session]
+
+        with patch('select_to_speech.audio_player.pycaw_available', True), \
+             patch('select_to_speech.audio_player.AudioUtilities', mock_audio_utils):
+
+            # Duck
+            orig_vols = ducker.duck(0.25)
+            assert 9999 in orig_vols
+            assert orig_vols[9999] == 0.8
+            mock_other_volume.SetMasterVolume.assert_called_with(0.25, None)
+            mock_own_volume.SetMasterVolume.assert_not_called()
+
+            # Unduck
+            ducker.unduck()
+            mock_other_volume.SetMasterVolume.assert_called_with(0.8, None)
+            assert len(ducker._original_volumes) == 0
+
+    def test_ensure_own_volume_max(self):
+        """Test setting own process session to max volume on Windows"""
+        ducker = WindowsAudioDucker()
+
+        mock_own_proc = MagicMock()
+        mock_own_proc.pid = os.getpid()
+        mock_own_proc.name.return_value = "python.exe"
+
+        mock_own_volume = MagicMock()
+        mock_own_session = MagicMock()
+        mock_own_session.Process = mock_own_proc
+        mock_own_session.SimpleAudioVolume = mock_own_volume
+
+        mock_audio_utils = MagicMock()
+        mock_audio_utils.GetAllSessions.return_value = [mock_own_session]
+
+        with patch('select_to_speech.audio_player.pycaw_available', True), \
+             patch('select_to_speech.audio_player.AudioUtilities', mock_audio_utils):
+            ducker.ensure_own_volume_max()
+            mock_own_volume.SetMasterVolume.assert_called_with(1.0, None)
+
+    def test_windows_ducker_pycaw_missing(self):
+        """Test that WindowsAudioDucker gracefully handles missing pycaw"""
+        ducker = WindowsAudioDucker()
+        with patch('select_to_speech.audio_player.pycaw_available', False), \
+             patch('select_to_speech.audio_player.AudioUtilities', None):
+            assert ducker.duck(0.2) == {}
+            ducker.unduck()
+            ducker.ensure_own_volume_max()
+
+
+class TestPulseAudioDucker:
+    """Tests for PulseAudioDucker pulsectl integration"""
+
+    def test_duck_and_unduck_pulsectl(self):
+        """Test ducking and restoring with mock pulsectl"""
+        ducker = PulseAudioDucker(duck_volume=0.2)
+
+        mock_pulse = MagicMock()
+        mock_sink_other = MagicMock()
+        mock_sink_other.index = 1
+        mock_sink_other.proplist = {'application.process.id': '9999', 'application.name': 'vlc'}
+
+        mock_sink_own = MagicMock()
+        mock_sink_own.index = 2
+        mock_sink_own.proplist = {'application.process.id': str(os.getpid()), 'application.name': 'python'}
+
+        mock_pulse.sink_input_list.return_value = [mock_sink_other, mock_sink_own]
+        mock_pulse.volume_get_all_chans.return_value = [0.9, 0.9]
+
+        mock_pulsectl = MagicMock()
+        mock_pulsectl.Pulse.return_value = mock_pulse
+
+        with patch('select_to_speech.audio_player.pulsectl', mock_pulsectl):
+            # Duck
+            orig_vols = ducker.duck(0.2)
+            assert 1 in orig_vols
+            assert orig_vols[1] == [0.9, 0.9]
+            mock_pulse.volume_set_all_chans.assert_called_with(mock_sink_other, 0.2)
+
+            # Unduck
+            ducker.unduck()
+            mock_pulse.volume_set_all_chans.assert_called_with(mock_sink_other, [0.9, 0.9])
+            assert len(ducker._original_volumes) == 0
+
+    def test_pulse_ducker_missing(self):
+        """Test that PulseAudioDucker gracefully handles missing pulsectl"""
+        ducker = PulseAudioDucker()
+        with patch('select_to_speech.audio_player.pulsectl', None):
+            assert ducker.duck(0.2) == {}
+            ducker.unduck()
+            ducker.ensure_own_volume_max()
+
+
+class TestAudioDuckerCrossPlatform:
+    """Tests for unified AudioDucker platform selection and queue operations"""
+
+    def test_platform_backend_selection_windows(self):
+        """Test that Windows platform uses WindowsAudioDucker backend"""
+        with patch('sys.platform', 'win32'):
+            ducker = AudioDucker()
+            assert isinstance(ducker._backend, WindowsAudioDucker)
+
+    def test_platform_backend_selection_linux(self):
+        """Test that Linux platform uses PulseAudioDucker backend"""
+        with patch('sys.platform', 'linux'):
+            ducker = AudioDucker()
+            assert isinstance(ducker._backend, PulseAudioDucker)
+
+    def test_start_and_stop_ducking_queue(self):
+        """Test that start_ducking and stop_ducking enqueue commands properly"""
+        ducker = AudioDucker()
+        mock_backend = MagicMock()
+        ducker._backend = mock_backend
+
+        with patch.object(AudioDucker, 'is_available', new_callable=PropertyMock, return_value=True):
+            ducker.start_ducking()
+            ducker._queue.join()
+            mock_backend.duck.assert_called_with(ducker.duck_volume)
+
+            ducker.stop_ducking()
+            ducker._queue.join()
+            mock_backend.unduck.assert_called_once()
+
+            ducker.ensure_own_volume_max()
+            ducker._queue.join()
+            mock_backend.ensure_own_volume_max.assert_called_once()
+
+
 if __name__ == '__main__':
     # Run tests with pytest
     pytest.main([__file__, '-v', '--tb=short'])
+

@@ -4,6 +4,7 @@ import logging
 import os
 import signal
 import sys
+import tempfile
 import threading
 import queue
 from pathlib import Path
@@ -11,9 +12,14 @@ from typing import Optional
 
 from lingua import Language, LanguageDetectorBuilder
 
-from .config import load_config, AppConfig
+from .config import load_config, AppConfig, get_log_dir
 from .keyboard_handler import KeyboardHandler
-from .selection_listener import WaylandSelectionListener
+from .selection_listener import (
+    get_selection_listener,
+    WaylandSelectionListener,
+    WindowsSelectionListener,
+    BaseSelectionListener,
+)
 from .tts_engine import get_tts_engine
 from .audio_player import AudioPlayer
 from .ocr_engine import OcrEngine
@@ -60,7 +66,7 @@ class SelectToSpeechApp:
         self.audio_player.ducker.enabled = self.config.audio.ducking
         self.ocr_engine = OcrEngine()
         self._lingua_detector = self._build_lingua_detector()
-        self.selection_listener = WaylandSelectionListener(
+        self.selection_listener = get_selection_listener(
             on_selection_change=self._on_text_selected,
         )
         self.keyboard_handler = KeyboardHandler(
@@ -76,6 +82,7 @@ class SelectToSpeechApp:
         )
 
         self.should_exit = False
+        self._exit_event = threading.Event()
         self._process_thread: Optional[threading.Thread] = None
         self._ocr_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -83,17 +90,35 @@ class SelectToSpeechApp:
         # Pre-warm TTS engine in background daemon thread
         threading.Thread(target=self.tts_engine.warmup, daemon=True, name="TTS-Warmup").start()
 
-        # Setup signal handlers
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        # Setup signal handlers safely
+        try:
+            signal.signal(signal.SIGINT, self._signal_handler)
+            if hasattr(signal, "SIGTERM"):
+                signal.signal(signal.SIGTERM, self._signal_handler)
+        except (ValueError, OSError) as e:
+            logger.debug(f"Could not register signal handlers: {e}")
+
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                import ctypes.wintypes
+                HandlerRoutine = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.DWORD)
+                def _win_ctrl_handler(ctrl_type: int) -> bool:
+                    logger.info(f"Windows console control event {ctrl_type}, initiating shutdown...")
+                    self.should_exit = True
+                    self._exit_event.set()
+                    return True
+                self._win_handler_ref = HandlerRoutine(_win_ctrl_handler)
+                ctypes.windll.kernel32.SetConsoleCtrlHandler(self._win_handler_ref, True)
+            except Exception as e:
+                logger.debug(f"Could not register Windows console ctrl handler: {e}")
 
     def _setup_logging(self) -> None:
         """Setup logging configuration"""
         level = logging.DEBUG if self.config.debug else logging.INFO
         
         # Setup file logging
-        log_dir = Path.home() / ".local" / "state" / "select-to-speech"
-        log_dir.mkdir(parents=True, exist_ok=True)
+        log_dir = get_log_dir()
         log_file = log_dir / "app.log"
         
         logging.basicConfig(
@@ -109,6 +134,7 @@ class SelectToSpeechApp:
         """Handle system signals for graceful shutdown"""
         logger.info(f"Received signal {signum}, shutting down...")
         self.should_exit = True
+        self._exit_event.set()
 
     def reload_config(self, config: AppConfig) -> None:
         """Reload configuration and update running handlers/components"""
@@ -306,7 +332,7 @@ class SelectToSpeechApp:
 
         def _capture_and_read():
             try:
-                out_path = Path("/tmp/select_to_speech_ocr.png")
+                out_path = Path(tempfile.gettempdir()) / "select_to_speech_ocr.png"
                 success = ScreenCapture.capture_region(out_path)
                 if success:
                     text = self.ocr_engine.extract_text(
@@ -486,7 +512,7 @@ class SelectToSpeechApp:
 
             # Keep the application running
             while not self.should_exit:
-                signal.pause()
+                self._exit_event.wait(timeout=1.0)
 
         except KeyboardInterrupt:
             logger.info("Interrupted by user")

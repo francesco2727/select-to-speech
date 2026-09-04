@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Windows OCR & Tesseract Auto-detection**: Added automatic discovery of Tesseract executable paths on Windows (PATH, `C:\Program Files\Tesseract-OCR\tesseract.exe`, `C:\Program Files (x86)\Tesseract-OCR\tesseract.exe`, `%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe`) and updated CLI/error guidance for `winget install UB-Mannheim.TesseractOCR`.
+- **Windows Screen Capture Support**: Implemented Windows screen capture using Windows Snipping Tool / `ms-screenclip:` with automatic clipboard retrieval and Tkinter overlay/Pillow fallback, preserving existing Linux Wayland Spectacle and `slurp`+`grim` workflows.
+- **Cross-Platform System Check**: Updated `system_check.py` to recognize Windows platform environments, validating Tesseract OCR, Snipping Tool, and providing appropriate Windows installation recommendations.
+- **Flutter Windows Platform & Runner Scaffolding**: Added complete Win32 C++ Windows runner files (`CMakeLists.txt`, `runner/main.cpp`, `runner/flutter_window.cpp`, `runner/flutter_window.h`, `runner/win32_window.cpp`, `runner/win32_window.h`, `runner/utils.cpp`, `runner/utils.h`, `runner/resource.h`, `runner/runner.exe.manifest`, `runner/Runner.rc`).
+- **Win32 Single-Instance Mutex**: Implemented single-instance enforcement in `windows/runner/main.cpp` using Win32 Named Mutex (`CreateMutexW`). If another instance exists, it brings the existing window to the foreground and exits.
+- **Hide-on-Close Window Management**: Implemented `WM_CLOSE` handling in `flutter_window.cpp` to hide the window to the system tray instead of exiting the application.
+- **Windows Tray & Application Icon**: Generated multi-resolution Windows ICO asset `tray_icon.ico` and `runner/resources/app_icon.ico`.
+- **Dynamic Log Path & Backend Discovery for Windows**: Enhanced Flutter UI in `main.dart` to discover backend executables across Windows locations (`%LOCALAPPDATA%`, `venv/Scripts`, `.venv/Scripts`, `bin`) and dynamically format log path hints in the general settings view (`%LOCALAPPDATA%\select-to-speech\log\app.log` vs `~/.local/state/select-to-speech/app.log`).
+- **Windows Selection Listener**: Implemented `WindowsSelectionListener` using `pynput` keystroke simulation (`Ctrl+C`) with clipboard backup/restore and Win32 ctypes fallback to read selections on Windows. Added `get_selection_listener` factory for transparent platform resolution.
+- **Windows Audio Ducking**: Implemented `WindowsAudioDucker` using `pycaw` (Windows Core Audio APIs) with automatic COM lifecycle management (`ole32.CoInitialize`/`CoUninitialize`) and session-specific volume restoration.
+- **Cross-Platform Audio Device Scanning**: Refactored `AudioPlayer._find_output_devices` to dynamically detect and prioritize default and connected audio endpoints on both Linux and Windows.
+- **Cross-Platform Directory Abstraction**: Integrated `platformdirs` across backend configuration, data, state, and log directory lookups (`get_config_dir`, `get_data_dir`, `get_state_dir`, `get_log_dir`).
+- **Dual IPC Transport**: Added support for dual IPC communication with TCP (`127.0.0.1:28374`) on Windows and Unix Domain Sockets (`ipc.sock`) on Linux/macOS.
+- **Windows Local Installer & Batch Launchers**: Added `install-local.ps1` PowerShell installation script (equivalent to `install-local.sh` on Linux) with automatic `uv` setup, virtual environment sync, Kokoro model downloads, Flutter Windows release compilation, Start Menu shortcut creation, and optional Windows Startup configuration. Added `bin/select-to-speech-gui.bat` and `bin/select-to-speech-daemon.bat` launcher scripts.
+- **Frontend Cross-Platform Client & Discovery**: Abstracted HTTP/IPC client instantiation (`createApiClient()`, `getBackendBaseUrl()`) and expanded backend executable discovery in Flutter for Windows binaries (`.exe`, `%LOCALAPPDATA%`, and Python `.venv/Scripts`).
+
+### Changed
+- **Cross-Platform Event Loop Waiting**: Replaced `signal.pause()` with `threading.Event().wait()` in `SelectToSpeechApp.run()` for cross-platform signal handling and process control.
+- **Cross-Platform OCR Temporary Path**: Replaced hardcoded `/tmp` path with `tempfile.gettempdir()` for OCR image captures.
+- **Conditional Linux Dependencies**: Made `pulsectl` conditional on `sys_platform == 'linux'` in `pyproject.toml` and guarded its import in `audio_player.py` for safe execution on Windows.
+
+### Fixed
+- **Windows Keyboard Hook & Synthetic Keystrokes**: Released physical modifier keys (Alt, Shift, Win) prior to injecting synthetic `Ctrl+C` in `WindowsSelectionListener` to prevent modifier collisions (e.g. `Ctrl+Alt+C`) on global hotkey invocation (`Alt+Esc`).
+- **Windows Clipboard Concurrency & Sequence Detection**: Integrated `user32.GetClipboardSequenceNumber()` polling to safely verify clipboard updates by active applications without wiping non-text clipboard history or causing clipboard sharing race conditions.
+- **Windows COM Multithreaded Apartment in Audio Ducker**: Switched `WindowsAudioDucker` to `CoInitializeEx(COINIT_MULTITHREADED)` to avoid COM apartment mismatch (`RPC_E_CHANGED_MODE`) and removed per-action uninitialization that caused COM proxy invalidation.
+- **Win32 Clipboard Memory Leak**: Fixed handle leak in `_set_clipboard_win32` by invoking `GlobalFree` when `SetClipboardData` returns `NULL`.
+- **Windows Screen Capture DPI Scaling & Multi-Monitor**: Enabled Per-Monitor DPI Awareness (`SetProcessDpiAwareness`) and added `all_screens=True` in PIL `ImageGrab.grab()` for high-DPI and multi-display setups.
+- **Flutter Windows Tray Icon Resolution**: Resolved absolute filesystem path to `tray_icon.ico` within `data/flutter_assets/images/tray_icon.ico` for `trayManager.setIcon()` on Windows.
+- **Console Signal & Control Event Handling on Windows**: Added Windows Console Control Handler (`SetConsoleCtrlHandler`) in both `main.py` and `server.py` for graceful daemon shutdown during console close / logoff events.
+- **Extended Windows Tesseract Discovery**: Added Scoop (`~\scoop\shims\tesseract.exe`) and Chocolatey (`C:\ProgramData\chocolatey\bin\tesseract.exe`) search paths in `ocr_engine.py`.
+- **UTF-8 Console Encoding in Batch Launchers**: Added `chcp 65001 >nul` to `select-to-speech-daemon.bat` and `select-to-speech-gui.bat` to prevent character encoding issues with Unicode terminal output.
+- **Flutter Windows Window Title**: Corrected window title from generic `"ui"` to `"Select to Speech"` in `src/ui/windows/runner/main.cpp`.
+
 ## [v0.3.2] - 2026-08-29
 
 ### Added

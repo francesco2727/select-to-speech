@@ -59,3 +59,21 @@ def test_load_config_with_file(mock_yaml_load, mock_open, mock_exists):
     assert config.audio.speed == 1.2
     assert config.keyboard.modifier_key == "ctrl"
     assert config.keyboard.trigger_key == "esc" # Default value remains
+
+
+def test_directory_helpers():
+    from select_to_speech.config import get_config_dir, get_data_dir, get_state_dir, get_log_dir
+
+    config_dir = get_config_dir()
+    data_dir = get_data_dir()
+    state_dir = get_state_dir()
+    log_dir = get_log_dir()
+
+    assert isinstance(config_dir, Path)
+    assert isinstance(data_dir, Path)
+    assert isinstance(state_dir, Path)
+    assert isinstance(log_dir, Path)
+    assert config_dir.exists()
+    assert data_dir.exists()
+    assert state_dir.exists()
+    assert log_dir.exists()
