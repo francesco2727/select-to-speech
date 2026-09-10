@@ -100,6 +100,25 @@ Future<void> _launchAndMonitorBackend() async {
     pythonBackend = await Process.start(_backendPath!, []);
     debugPrint('Python backend started with PID: ${pythonBackend?.pid}');
     
+    // Drain stdout and stderr so that child writes never block on full pipe buffers
+    pythonBackend?.stdout
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((line) {
+      debugPrint('[Backend] $line');
+    }, onError: (e) {
+      debugPrint('Backend stdout stream error: $e');
+    });
+
+    pythonBackend?.stderr
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((line) {
+      debugPrint('[Backend Error] $line');
+    }, onError: (e) {
+      debugPrint('Backend stderr stream error: $e');
+    });
+    
     // Monitor the process and auto-restart on unexpected exit
     pythonBackend?.exitCode.then((exitCode) async {
       debugPrint('Python backend exited with code: $exitCode');

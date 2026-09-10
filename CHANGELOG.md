@@ -2,8 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [v0.3.3] - 2026-09-10
+
+### Fixed
+- **Pipe Buffer Saturation Deadlock**: Fixed a critical issue where the Python backend would hang indefinitely after reading a few texts due to standard output and error pipes filling the 64 KB Linux kernel buffer when launched by the Flutter UI (`Process.start`). The UI now continuously drains and decodes `stdout` and `stderr` streams.
+- **Log Rotation**: Upgraded the file logger from `FileHandler` to `RotatingFileHandler` (5MB max per file, 2 backups) to prevent unlimited growth of `~/.local/state/select-to-speech/app.log`.
 
 ## [v0.3.2] - 2026-08-29
 

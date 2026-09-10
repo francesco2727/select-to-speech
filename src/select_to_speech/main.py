@@ -1,6 +1,7 @@
 """Main application entry point"""
 
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import signal
 import sys
@@ -91,18 +92,28 @@ class SelectToSpeechApp:
         """Setup logging configuration"""
         level = logging.DEBUG if self.config.debug else logging.INFO
         
-        # Setup file logging
+        # Setup file logging with rotation (5MB max per file, 2 backups)
         log_dir = Path.home() / ".local" / "state" / "select-to-speech"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / "app.log"
         
+        handlers: list[logging.Handler] = [
+            RotatingFileHandler(
+                log_file,
+                maxBytes=5 * 1024 * 1024,
+                backupCount=2,
+                encoding="utf-8",
+            )
+        ]
+
+        # Add stdout logging for terminal sessions or debugging
+        handlers.append(logging.StreamHandler(sys.stdout))
+
         logging.basicConfig(
             level=level,
             format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            handlers=[
-                logging.FileHandler(log_file),
-                logging.StreamHandler(sys.stdout)
-            ]
+            handlers=handlers,
+            force=True,
         )
 
     def _signal_handler(self, signum, frame) -> None:
