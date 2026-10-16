@@ -87,6 +87,15 @@ def get_audio_devices_endpoint():
         logger.error(f"Error getting audio devices: {e}")
         return []
 
+@app.get("/hardware")
+def get_hardware_endpoint():
+    from select_to_speech.system_check import get_hardware_info
+    try:
+        return get_hardware_info()
+    except Exception as e:
+        logger.error(f"Error getting hardware info: {e}")
+        return {"cpu_model": "Unknown CPU", "total_threads": 1, "optimal_threads": 1}
+
 # Download state variables
 download_status = "idle"
 download_progress = 0
@@ -124,7 +133,7 @@ def run_download_thread(model_id: str, force: bool):
         download_error = str(e)
 
 @app.post("/download_model")
-def start_download(model_id: str = "kokoro-v1.0", force: bool = True):
+def start_download(model_id: str = "kokoro-multi-lang-v1_0", force: bool = True):
     global download_status
     if download_status == "downloading":
         return {"status": "already_downloading"}
@@ -149,30 +158,13 @@ def get_download_status():
 def get_voices():
     from select_to_speech.tts_engine import _KOKORO_LANG_PREFIXES, get_kokoro_voices
     
-    fallback_voices = {
-        "en": [
-            "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica", "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah", "af_sky",
-            "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael", "am_onyx", "am_puck", "am_santa",
-            "bf_alice", "bf_emma", "bf_isabella", "bf_lily",
-            "bm_daniel", "bm_fable", "bm_george", "bm_lewis"
-        ],
-        "es": ["ef_dora", "em_alex", "em_santa"],
-        "fr": ["ff_siwis"],
-        "hi": ["hf_alpha", "hf_beta", "hm_omega", "hm_psi"],
-        "it": ["if_sara", "im_nicola"],
-        "ja": ["jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro", "jm_kumo"],
-        "ko": [],
-        "pt": ["pf_dora", "pm_alex", "pm_santa"],
-        "zh": ["zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi", "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang"]
-    }
-    
     dynamic_voices = {}
     for lang in _KOKORO_LANG_PREFIXES.keys():
         voices = get_kokoro_voices(lang)
         if voices:
             dynamic_voices[lang] = voices
             
-    return dynamic_voices if dynamic_voices else fallback_voices
+    return dynamic_voices
 
 @app.get("/ocr_languages")
 def get_ocr_languages():
@@ -183,7 +175,7 @@ def get_ocr_languages():
     return []
 
 @app.get("/model_installed")
-def get_model_installed(model_id: str = "kokoro-v1.0"):
+def get_model_installed(model_id: str = "kokoro-multi-lang-v1_0"):
     from select_to_speech.voice_manager import is_kokoro_installed
     return {"installed": is_kokoro_installed(model_id)}
 
@@ -205,6 +197,67 @@ def get_available_models():
         })
         
     return models
+
+
+# Punctuation download state variables
+punct_download_status = "idle"
+punct_download_progress = 0
+punct_download_error = None
+
+
+def run_punct_download_thread():
+    global punct_download_status, punct_download_progress, punct_download_error
+    punct_download_status = "downloading"
+    punct_download_progress = 0
+    punct_download_error = None
+
+    from select_to_speech.punctuation_engine import download_punct_model
+
+    def progress_cb(downloaded: int, total: int):
+        global punct_download_progress
+        if total > 0:
+            punct_download_progress = int((downloaded / total) * 100)
+        else:
+            punct_download_progress = 0
+
+    try:
+        success = download_punct_model(force=True, progress_cb=progress_cb)
+        if success:
+            punct_download_status = "success"
+            punct_download_progress = 100
+        else:
+            punct_download_status = "failed"
+            punct_download_error = "Failed to download punctuation model."
+    except Exception as e:
+        punct_download_status = "failed"
+        punct_download_error = str(e)
+
+
+@app.get("/punctuation_status")
+def get_punctuation_status():
+    global punct_download_status, punct_download_progress, punct_download_error
+    from select_to_speech.punctuation_engine import is_punct_model_installed, PUNCT_MODEL_INFO
+    return {
+        "installed": is_punct_model_installed(),
+        "model_name": PUNCT_MODEL_INFO["name"],
+        "supported_languages": PUNCT_MODEL_INFO["supported_languages"],
+        "download_status": punct_download_status,
+        "download_progress": punct_download_progress,
+        "download_error": punct_download_error,
+    }
+
+
+@app.post("/download_punctuation")
+def start_punctuation_download():
+    global punct_download_status
+    if punct_download_status == "downloading":
+        return {"status": "already_downloading"}
+
+    import threading
+    thread = threading.Thread(target=run_punct_download_thread, daemon=True)
+    thread.start()
+    return {"status": "started"}
+
 
 
 def is_server_running(socket_path: str) -> bool:

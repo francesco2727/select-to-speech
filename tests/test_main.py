@@ -90,3 +90,36 @@ def test_reload_config_ducking_without_device_change(mock_app):
         mock_app.reload_config(new_config)
         assert mock_app.audio_player.ducker.enabled is False
 
+
+def test_on_stop_pressed(mock_app):
+    mock_app.audio_player.is_playing = True
+    mock_app.selection_listener.last_selection = "Previous text"
+
+    mock_app._on_stop_pressed()
+
+    assert mock_app._stop_event.is_set()
+    mock_app.audio_player.stop.assert_called_once()
+    assert mock_app.selection_listener.last_selection == ""
+
+
+def test_process_shortcut_with_new_selection(mock_app):
+    mock_app.audio_player.is_playing = False
+    mock_app.selection_listener.get_primary_selection.return_value = "New text to read"
+    
+    with patch.object(mock_app, '_on_text_selected') as mock_selected:
+        mock_app._process_shortcut()
+        
+        assert mock_app.selection_listener.last_selection == "New text to read"
+        mock_selected.assert_called_once_with("New text to read", play_feedback=True)
+
+
+def test_process_shortcut_debounced(mock_app):
+    with patch('threading.Thread') as mock_thread:
+        mock_app._on_shortcut_pressed()
+        mock_thread.assert_called_once()
+
+        # Immediate repeated call should be debounced
+        mock_app._on_shortcut_pressed()
+        mock_thread.assert_called_once()
+
+

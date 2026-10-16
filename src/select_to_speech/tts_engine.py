@@ -1,20 +1,26 @@
-"""Text-to-Speech engine implementations"""
+"""Text-to-Speech engine implementations using Sherpa-ONNX."""
 
 import io
 import logging
+import queue
 import re
+import threading
 import time
-import wave
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Iterator
-import threading
+from typing import Iterator, Optional, Tuple
 
-import soundfile as sf
-import numpy as np
 import emoji
+import numpy as np
+import soundfile as sf
 
-from .config import get_data_dir, VoiceConfig
+from .config import VoiceConfig, get_data_dir
+from .voice_manager import (
+    ID_TO_SPEAKER,
+    KOKORO_MODELS,
+    SPEAKER_TO_ID,
+    is_kokoro_installed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,16 +47,16 @@ def _retry_synthesis(func, max_retries: int = 3, base_delay: float = 0.5):
 _KOKORO_LANG_PREFIXES: dict[str, list[str]] = {
     "en": ["af_", "am_", "bf_", "bm_"],
     "es": ["ef_", "em_"],
-    "fr": ["ff_", "fm_"],
+    "fr": ["ff_"],
     "hi": ["hf_", "hm_"],
     "it": ["if_", "im_"],
     "ja": ["jf_", "jm_"],
-    "ko": ["kf_"],
+    "ko": [],
     "pt": ["pf_", "pm_"],
     "zh": ["zf_", "zm_"],
 }
 
-# Kokoro lang_code used by kokoro.create(lang=...)
+# Kokoro lang codes passed to espeak/sherpa GenerationConfig.extra["lang"]
 _KOKORO_LANG_CODES: dict[str, str] = {
     "en": "en-us",
     "es": "es",
@@ -325,22 +331,21 @@ class BaseTTSEngine(ABC):
             lang_key = "en"
         words = _SYMBOL_WORDS[lang_key]
 
-        # -1. Convert emojis to text in the requested language
+        # Convert emojis to text in the requested language
         try:
             demojized = emoji.demojize(text, language=lang_key)
         except (KeyError, ValueError, TypeError):
             demojized = emoji.demojize(text, language="en")
-        # Remove colons and convert underscores to spaces (e.g., ":smiling_face:" -> " smiling face ")
-        text = re.sub(r':([^:]+):', lambda m: " " + m.group(1).replace('_', ' ') + " ", demojized)
+        text = re.sub(r":([^:]+):", lambda m: " " + m.group(1).replace("_", " ") + " ", demojized)
 
-        # 0. Mask dates to prevent their separators from being replaced by math operations
+        # Mask dates to prevent their separators from being replaced by math operations
         date_patterns = [
-            r'\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b', # DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, MM-DD-YYYY
-            r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2}\b', # DD/MM/YY, MM/DD/YY, DD-MM-YY, MM-DD-YY
-            r'\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b', # YYYY/MM/DD, YYYY-MM-DD
-            r'\b\d{1,2}[/-]\d{4}\b',             # MM/YYYY, MM-YYYY
+            r"\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b",
+            r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2}\b",
+            r"\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b",
+            r"\b\d{1,2}[/-]\d{4}\b",
         ]
-        
+
         date_placeholders = {}
         for pattern in date_patterns:
             def repl(match):
@@ -349,18 +354,18 @@ class BaseTTSEngine(ABC):
                 return placeholder
             text = re.sub(pattern, repl, text)
 
-        # 1. Replace dots in domains/filenames
-        # Matches dots preceded by a letter/hyphen/underscore and followed by alphanumeric/hyphen/underscore,
-        # or preceded by alphanumeric/hyphen/underscore and followed by a letter/hyphen/underscore.
-        # This excludes decimal numbers like 3.14 or versions like 1.0.
-        dot_pattern = r'(?<=[a-zA-Z_-])\.(?=[a-zA-Z0-9_-])|(?<=[a-zA-Z0-9_-])\.(?=[a-zA-Z_-])'
+        # Replace dots in domains/filenames
+        dot_pattern = r"(?<=[a-zA-Z_-])\.(?=[a-zA-Z0-9_-])|(?<=[a-zA-Z0-9_-])\.(?=[a-zA-Z_-])"
         text = re.sub(dot_pattern, f" {words['dot']} ", text)
 
-        # 2. Replace currency symbols
-        # Handle prefix currency symbols before numbers (e.g., $100, € 50,25, $100 million),
-        # placing the currency word after the number or after scale words if present.
-        scale_words = r'(?:thousand|thousands|million|millions|billion|billions|trillion|trillions|mila|milione|milioni|miliardo|miliardi|mil|millón|millones|billón|billones|mille|millier|milliers|milliard|milliards|Tausend|Million|Millionen|Milliarde|Milliarden|milhão|milhões|bilhão|bilhões|bilião|biliões)'
-        pattern_prefix = rf'([$€£¥₹₽₩¢฿₺₴])\s*(\d+(?:[.,]\d+)*)(?:\s+({scale_words})\b)?'
+        # Replace currency symbols
+        scale_words = (
+            r"(?:thousand|thousands|million|millions|billion|billions|trillion|trillions|"
+            r"mila|milione|milioni|miliardo|miliardi|mil|millón|millones|billón|billones|"
+            r"mille|millier|milliers|milliard|milliards|Tausend|Million|Millionen|Milliarde|Milliarden|"
+            r"milhão|milhões|bilhão|bilhões|bilião|biliões)"
+        )
+        pattern_prefix = rf"([$€£¥₹₽₩¢฿₺₴])\s*(\d+(?:[.,]\d+)*)(?:\s+({scale_words})\b)?"
 
         def _replace_prefix_currency(match: re.Match) -> str:
             sym = match.group(1)
@@ -376,44 +381,30 @@ class BaseTTSEngine(ABC):
 
         text = re.sub(pattern_prefix, _replace_prefix_currency, text, flags=re.IGNORECASE)
 
-        # Replace any remaining currency symbols (e.g., suffix currencies like 100$ or standalone symbols)
         for sym, key in _CURRENCY_SYMBOLS.items():
             if sym in text:
                 sym_name = words.get(key, "")
                 if sym_name:
                     text = text.replace(sym, f" {sym_name} ")
 
-        # 3. Replace percent symbol (%)
-        text = text.replace('%', f" {words['percent']} ")
+        text = text.replace("%", f" {words['percent']} ")
+        text = text.replace("+", f" {words['plus']} ")
 
-        # 4. Replace plus symbol (+)
-        text = text.replace('+', f" {words['plus']} ")
+        text = re.sub(r"\s+-\s+", f" {words['minus']} ", text)
+        text = re.sub(r"(^|\s)-(?=\d)", rf"\1{words['minus']} ", text)
 
-        # 5. Replace minus symbol (-) when used mathematically
-        # Surrounded by spaces: " - "
-        text = re.sub(r'\s+-\s+', f" {words['minus']} ", text)
-        # Negative sign before a digit: "-5" (must be preceded by whitespace or start of string)
-        text = re.sub(r'(^|\s)-(?=\d)', rf'\1{words["minus"]} ', text)
+        text = re.sub(r"(?<=\d)\s*\*\s*(?=\d)", f" {words['times']} ", text)
+        text = re.sub(r"\s+\*\s+", f" {words['times']} ", text)
 
-        # 6. Replace times symbol (*) when used mathematically (between digits or surrounded by spaces)
-        text = re.sub(r'(?<=\d)\s*\*\s*(?=\d)', f" {words['times']} ", text)
-        text = re.sub(r'\s+\*\s+', f" {words['times']} ", text)
+        text = re.sub(r"(?<=\d)\s*/\s*(?=\d)", f" {words['divide']} ", text)
+        text = re.sub(r"\s+/\s+", f" {words['divide']} ", text)
 
-        # 7. Replace division symbol (/) when used mathematically (between digits or surrounded by spaces)
-        text = re.sub(r'(?<=\d)\s*/\s*(?=\d)', f" {words['divide']} ", text)
-        text = re.sub(r'\s+/\s+', f" {words['divide']} ", text)
+        text = text.replace("=", f" {words['equals']} ")
+        text = text.replace("<", f" {words['less']} ")
+        text = text.replace(">", f" {words['greater']} ")
 
-        # 8. Replace equals symbol (=)
-        text = text.replace('=', f" {words['equals']} ")
-
-        # 9. Replace less than (<) and greater than (>)
-        text = text.replace('<', f" {words['less']} ")
-        text = text.replace('>', f" {words['greater']} ")
-
-        # Restore masked dates, replacing separators with spaces
-        # so TTS reads "24 11 2025" instead of "24 barra 11 barra 2025"
         for placeholder, original_date in date_placeholders.items():
-            spaced_date = re.sub(r'[/-]', ' ', original_date)
+            spaced_date = re.sub(r"[/-]", " ", original_date)
             text = text.replace(placeholder, spaced_date)
 
         return text
@@ -424,36 +415,29 @@ class BaseTTSEngine(ABC):
             text = self.preprocess_text(text, language)
         text = text.replace('"""', '"')
         text = text.replace("'''", "'")
-        text = re.sub(r'\s+', ' ', text)
-        text = re.sub(r'[^\w\s.,!?;:\'\"/-]', '', text)
+        text = re.sub(r"\s+", " ", text)
+        text = re.sub(r"[^\w\s.,!?;:\'\"/-]", "", text)
         text = text.strip()
         logger.debug(f"Sanitized: '{text[:100]}{'...' if len(text) > 100 else ''}'")
         return text
 
     def _chunk_text(self, text: str, max_chars: int = 80, language: Optional[str] = None, already_preprocessed: bool = False) -> list[str]:
         """Split text into logical, speakable chunks for streaming TTS."""
-        # Normalize newlines to sentence boundaries before sanitization so that
-        # paragraph/line breaks produce natural TTS pauses.
-        # Lines not ending with sentence punctuation get a period appended.
-        text = re.sub(r'([^.!?])\n+', r'\1. ', text)
-        text = re.sub(r'([.!?])\n+', r'\1 ', text)
+        text = re.sub(r"([^.!?])\n+", r"\1. ", text)
+        text = re.sub(r"([.!?])\n+", r"\1 ", text)
 
         text = self._sanitize_text(text, language=language, already_preprocessed=already_preprocessed)
 
-        # 1. Split by strong sentence boundaries (. ! ?) keeping the punctuation attached
-        raw_sentences = re.split(r'(?<=[.!?])\s+', text)
-
+        raw_sentences = re.split(r"(?<=[.!?])\s+", text)
         chunks = []
 
         def _split_and_add_weak(sentence: str):
-            """Split by weak boundaries if still too long, or by words as a last resort."""
             if len(sentence) <= max_chars:
                 if sentence:
                     chunks.append(sentence)
                 return
 
-            # Break by weak boundaries (, ; : —)
-            weak_parts = re.split(r'(?<=[,;:—])\s+', sentence)
+            weak_parts = re.split(r"(?<=[,;:—])\s+", sentence)
             current_chunk = ""
 
             def _add_piece(piece: str):
@@ -469,7 +453,6 @@ class BaseTTSEngine(ABC):
                             chunks.append(current_chunk)
                         current_chunk = piece
                 else:
-                    # Fallback: split by words
                     words = piece.split()
                     for w in words:
                         if len(current_chunk) + len(w) + 1 <= max_chars:
@@ -497,7 +480,7 @@ class BaseTTSEngine(ABC):
         return chunks
 
     def get_model_for_language(self, language: str) -> str:
-        """Get model name for a specific language."""
+        """Get voice name for a specific language."""
         model = self.voice_config.language_models.get(language)
         if model:
             return model
@@ -510,379 +493,327 @@ class BaseTTSEngine(ABC):
 
     @abstractmethod
     def synthesize(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0, phoneme_lang: Optional[str] = None) -> Optional[Tuple[bytes, int]]:
-        """Synthesize text to speech.
-
-        Args:
-            phoneme_lang: If set, overrides the phonemization language without
-                changing the voice.
-        """
         pass
 
     @abstractmethod
-    def synthesize_stream(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0, phoneme_lang: Optional[str] = None) -> Iterator[Tuple[bytes, int]]:
-        """Synthesize text to speech as a stream.
-
-        Args:
-            phoneme_lang: If set, overrides the phonemization language without
-                changing the voice.
-        """
+    def synthesize_stream(
+        self,
+        text: str,
+        language: Optional[str] = None,
+        speed: float = 1.0,
+        volume: float = 1.0,
+        phoneme_lang: Optional[str] = None,
+        stop_event: Optional[threading.Event] = None,
+    ) -> Iterator[Tuple[bytes, int]]:
         pass
 
     @abstractmethod
     def stop(self) -> None:
-        """Stop the TTS engine and cleanup"""
         pass
 
 
-
 class KokoroEngine(BaseTTSEngine):
-    """Text-to-Speech engine wrapper for Kokoro ONNX"""
+    """Text-to-Speech engine wrapper for Kokoro using Sherpa-ONNX."""
 
     def __init__(self, voice_config: VoiceConfig):
         super().__init__(voice_config)
-        from .voice_manager import KOKORO_MODELS
-        self.model_id = getattr(self.voice_config, "model", "kokoro-v1.0")
+        self.model_id = getattr(self.voice_config, "model", "kokoro-multi-lang-v1_0")
         if self.model_id not in KOKORO_MODELS:
-            self.model_id = "kokoro-v1.0"
-            
-        onnx_filename = KOKORO_MODELS[self.model_id]["files"][0][1]
-        bin_filename = KOKORO_MODELS[self.model_id]["files"][1][1]
-        
-        self.model_path = self.voices_dir / onnx_filename
-        self.voices_bin_path = self.voices_dir / bin_filename
-        
-        self.kokoro = None
+            self.model_id = "kokoro-multi-lang-v1_0"
+
+        self.model_dir = self.voices_dir / KOKORO_MODELS[self.model_id]["dir_name"]
+        self.tts = None
         self._lock = threading.Lock()
 
-    def update_config(self, voice_config: VoiceConfig) -> None:
-        """Update voice configuration and reload Kokoro ONNX model if changed."""
-        from .voice_manager import KOKORO_MODELS
+    def _get_effective_threads(self) -> int:
+        """Resolve effective number of inference threads (0 = auto-detect)."""
+        cfg_threads = getattr(self.voice_config, "num_threads", 0)
+        if cfg_threads > 0:
+            return cfg_threads
+        from .system_check import get_hardware_info
+        return get_hardware_info().get("optimal_threads", 4)
 
-        new_model_id = getattr(voice_config, "model", "kokoro-v1.0")
+    def update_config(self, voice_config: VoiceConfig) -> None:
+        """Update voice configuration and reload Sherpa-ONNX model if changed."""
+        new_model_id = getattr(voice_config, "model", "kokoro-multi-lang-v1_0")
         if new_model_id not in KOKORO_MODELS:
-            new_model_id = "kokoro-v1.0"
+            new_model_id = "kokoro-multi-lang-v1_0"
 
         with self._lock:
             old_model_id = self.model_id
+            old_threads = getattr(self.voice_config, "num_threads", 0)
+            old_provider = getattr(self.voice_config, "provider", "cpu")
             self.voice_config = voice_config
 
-            if new_model_id != old_model_id:
+            new_threads = getattr(voice_config, "num_threads", 0)
+            new_provider = getattr(voice_config, "provider", "cpu")
+
+            reload_needed = (
+                new_model_id != old_model_id
+                or new_threads != old_threads
+                or new_provider != old_provider
+            )
+
+            if reload_needed:
                 logger.info(
-                    f"Kokoro model changed from '{old_model_id}' to '{new_model_id}'. "
-                    "Resetting ONNX session for lazy reload."
+                    f"TTS configuration changed (model: '{old_model_id}'->'{new_model_id}', "
+                    f"threads: {old_threads}->{new_threads}, provider: '{old_provider}'->'{new_provider}'). "
+                    "Resetting Sherpa-ONNX session for lazy reload."
                 )
                 self.model_id = new_model_id
-                onnx_filename = KOKORO_MODELS[self.model_id]["files"][0][1]
-                bin_filename = KOKORO_MODELS[self.model_id]["files"][1][1]
-                self.model_path = self.voices_dir / onnx_filename
-                self.voices_bin_path = self.voices_dir / bin_filename
-                self.kokoro = None
+                self.model_dir = self.voices_dir / KOKORO_MODELS[self.model_id]["dir_name"]
+                self.tts = None
             else:
-                logger.debug(f"Kokoro voice config updated (model unchanged: '{self.model_id}').")
-        
+                logger.debug(f"Kokoro voice config updated (session retained for '{self.model_id}').")
+
     def ensure_model_downloaded(self) -> bool:
-        """Download kokoro model and voices.bin if they don't exist."""
+        """Download and extract Sherpa Kokoro model archive if missing."""
         from . import voice_manager
         if voice_manager.is_kokoro_installed(self.model_id):
             return True
-        logger.info(f"Kokoro models missing — downloading {self.model_id}...")
+        logger.info(f"Kokoro model missing — downloading {self.model_id}...")
         return voice_manager.download_kokoro(self.model_id)
 
-    @staticmethod
-    def _ensure_kokoro_config_json() -> None:
-        """Ensure kokoro_onnx/config.json exists before importing the module.
-
-        In Nuitka --onefile bundles, the extraction of data files to the temp
-        directory can intermittently skip config.json. Since kokoro_onnx.config
-        reads it at import time (module-level ``DEFAULT_VOCAB = get_vocab()``),
-        a missing file causes a FileNotFoundError that prevents Kokoro from
-        initializing.
-
-        This method locates the kokoro_onnx package directory and, if
-        config.json is absent, writes a minimal copy containing only the
-        ``vocab`` mapping that ``get_vocab()`` actually needs.
-        """
-        import importlib.util
-        import json
-
-        spec = importlib.util.find_spec("kokoro_onnx")
-        if spec is None or spec.origin is None:
-            return  # package not installed — let the normal ImportError path handle it
-
-        config_path = Path(spec.origin).parent / "config.json"
-        if config_path.exists():
-            return  # all good
-
-        logger.warning(
-            "kokoro_onnx/config.json missing from bundle — "
-            "writing embedded fallback to %s",
-            config_path,
-        )
-
-        # Minimal config.json — only the ``vocab`` key is used at import time.
-        # Sourced from kokoro-onnx 0.5.2.
-        fallback_vocab = {
-            ";": 1, ":": 2, ",": 3, ".": 4, "!": 5, "?": 6, "\u2014": 9,
-            "\u2026": 10, "\"": 11, "(": 12, ")": 13, "\u201c": 14, "\u201d": 15,
-            " ": 16, "\u0303": 17, "\u02a3": 18, "\u02a5": 19, "\u02a6": 20,
-            "\u02a8": 21, "\u1d5d": 22, "\uab67": 23, "A": 24, "I": 25,
-            "O": 31, "Q": 33, "S": 35, "T": 36, "W": 39, "Y": 41,
-            "\u1d4a": 42, "a": 43, "b": 44, "c": 45, "d": 46, "e": 47,
-            "f": 48, "h": 50, "i": 51, "j": 52, "k": 53, "l": 54,
-            "m": 55, "n": 56, "o": 57, "p": 58, "q": 59, "r": 60,
-            "s": 61, "t": 62, "u": 63, "v": 64, "w": 65, "x": 66,
-            "y": 67, "z": 68, "\u0251": 69, "\u0250": 70, "\u0252": 71,
-            "\u00e6": 72, "\u03b2": 75, "\u0254": 76, "\u0255": 77,
-            "\u00e7": 78, "\u0256": 80, "\u00f0": 81, "\u02a4": 82,
-            "\u0259": 83, "\u025a": 85, "\u025b": 86, "\u025c": 87,
-            "\u025f": 90, "\u0261": 92, "\u0265": 99, "\u0268": 101,
-            "\u026a": 102, "\u029d": 103, "\u026f": 110, "\u0270": 111,
-            "\u014b": 112, "\u0273": 113, "\u0272": 114, "\u0274": 115,
-            "\u00f8": 116, "\u0278": 118, "\u03b8": 119, "\u0153": 120,
-            "\u0279": 123, "\u027e": 125, "\u027b": 126, "\u0281": 128,
-            "\u027d": 129, "\u0282": 130, "\u0283": 131, "\u0288": 132,
-            "\u02a7": 133, "\u028a": 135, "\u028b": 136, "\u028c": 138,
-            "\u0263": 139, "\u0264": 140, "\u03c7": 142, "\u028e": 143,
-            "\u0292": 147, "\u0294": 148, "\u02c8": 156, "\u02cc": 157,
-            "\u02d0": 158, "\u02b0": 162, "\u02b2": 164, "\u2193": 169,
-            "\u2192": 171, "\u2197": 172, "\u2198": 173, "\u1d7b": 177,
-        }
-        try:
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-            config_path.write_text(
-                json.dumps({"vocab": fallback_vocab}, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            logger.info("Successfully wrote fallback config.json")
-        except OSError as exc:
-            logger.error("Could not write fallback config.json: %s", exc)
-
-    def _init_kokoro(self) -> bool:
-        if self.kokoro is not None:
+    def _init_tts(self) -> bool:
+        if self.tts is not None:
             return True
-            
+
         if not self.ensure_model_downloaded():
             return False
-            
+
         try:
-            # Workaround: In Nuitka --onefile bundles, kokoro_onnx/config.json may
-            # intermittently not be extracted to the temp directory. The file is
-            # required at import time (config.py → get_vocab() → opens config.json).
-            # We detect this and restore the file before importing.
-            self._ensure_kokoro_config_json()
-            try:
-                from kokoro_onnx import Kokoro
-            except ImportError as e:
-                logger.error(
-                    "Failed to import kokoro-onnx (or one of its dependencies: "
-                    "misaki, phonemizer, dlinfo, onnxruntime). "
-                    "KokoroEngine cannot be used.",
-                    exc_info=True,
-                )
-                return False
-
-            with self._lock:
-                if self.kokoro is None:
-                    logger.info(f"Initializing Kokoro ONNX model from {self.model_path.name}...")
-                    try:
-                        kokoro_inst = Kokoro(str(self.model_path), str(self.voices_bin_path))
-                    except Exception as exc:
-                        # In Nuitka standalone/onefile binaries, importlib.metadata distribution info for packages like kokoro-onnx may not be packaged.
-                        # If kokoro_onnx internally calls importlib.metadata.version('kokoro-onnx'), it raises PackageNotFoundError.
-                        if "PackageNotFoundError" in type(exc).__name__ or "No package metadata was found" in str(exc):
-                            logger.warning("kokoro_onnx metadata missing in compiled binary, instantiating Kokoro with dummy version patch...")
-                            import importlib.metadata
-                            orig_version = importlib.metadata.version
-                            def patched_version(distribution_name: str) -> str:
-                                try:
-                                    return orig_version(distribution_name)
-                                except importlib.metadata.PackageNotFoundError:
-                                    if distribution_name == "kokoro-onnx":
-                                        return "0.3.1"
-                                    raise
-                            importlib.metadata.version = patched_version
-                            kokoro_inst = Kokoro(str(self.model_path), str(self.voices_bin_path))
-                        else:
-                            raise exc
-                    
-                    # Intercept tokenizer.phonemize to strip espeak-ng language tags.
-                    # espeak-ng outputs language switch tags (e.g., '(en)', '(it)') when it
-                    # automatically detects foreign words during phonemization.
-                    # Because these tags' characters are in Kokoro's vocabulary, Kokoro
-                    # otherwise literally tokenizes and pronounces them (e.g., saying 'it'
-                    # at the end of 'team' when processing in Italian).
-                    original_phonemize = kokoro_inst.tokenizer.phonemize
-                    
-                    def patched_phonemize(text: str, lang: str = "en-us", norm: bool = True) -> str:
-                        phonemes = original_phonemize(text, lang=lang, norm=norm)
-                        # Remove language switch tags like (en), (it), (fr), (es), etc.
-                        return re.sub(r'\([a-z]{2}\)', '', phonemes)
-                        
-                    kokoro_inst.tokenizer.phonemize = patched_phonemize
-
-                    # Intercept tokenizer.tokenize to ensure tokens never exceed 509.
-                    # Kokoro ONNX voice style matrices have shape (510, 1, 256). When
-                    # kokoro_onnx truncates tokens to MAX_PHONEME_LENGTH (510), accessing
-                    # voice[len(tokens)] causes index 510 out of bounds. Truncating to 509
-                    # guarantees voice[len(tokens)] is always in bounds [0..509].
-                    original_tokenize = kokoro_inst.tokenizer.tokenize
-
-                    def patched_tokenize(phonemes: str) -> list[int]:
-                        tokens = original_tokenize(phonemes)
-                        if len(tokens) > 509:
-                            logger.warning(
-                                f"Phoneme sequence too long ({len(tokens)} tokens), "
-                                "truncating to 509 to avoid Kokoro ONNX IndexError."
-                            )
-                            tokens = tokens[:509]
-                        return tokens
-
-                    kokoro_inst.tokenizer.tokenize = patched_tokenize
-                    self.kokoro = kokoro_inst
-            return True
-        except ImportError as e:
+            import sherpa_onnx
+        except ImportError:
             logger.error(
-                "Failed to import kokoro-onnx (or one of its dependencies: "
-                "misaki, phonemizer, dlinfo, onnxruntime). "
-                "KokoroEngine cannot be used.",
+                "Failed to import sherpa_onnx. Ensure sherpa-onnx and sherpa-onnx-core are installed.",
                 exc_info=True,
             )
             return False
-        except Exception as e:
-            logger.error(f"Failed to initialize Kokoro: {e}", exc_info=True)
-            return False
 
-    def synthesize(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0, phoneme_lang: Optional[str] = None) -> Optional[Tuple[bytes, int]]:
-        if not text:
-            return None
+        with self._lock:
+            if self.tts is None:
+                info = KOKORO_MODELS[self.model_id]
+                model_file = self.model_dir / info["model_file"]
+                voices_bin = self.model_dir / "voices.bin"
+                tokens_txt = self.model_dir / "tokens.txt"
+                espeak_dir = self.model_dir / "espeak-ng-data"
 
-        target_voice = self.voice_config.model
+                lexicons = []
+                for lex_name in ("lexicon-us-en.txt", "lexicon-zh.txt"):
+                    lex_file = self.model_dir / lex_name
+                    if lex_file.exists():
+                        lexicons.append(str(lex_file))
+                lexicon_arg = ",".join(lexicons)
+
+                threads = self._get_effective_threads()
+                provider = getattr(self.voice_config, "provider", "cpu") or "cpu"
+
+                logger.info(
+                    f"Initializing Sherpa-ONNX Kokoro TTS from {model_file.name} "
+                    f"({threads} threads, provider='{provider}')..."
+                )
+                kokoro_config = sherpa_onnx.OfflineTtsKokoroModelConfig(
+                    model=str(model_file),
+                    voices=str(voices_bin),
+                    tokens=str(tokens_txt),
+                    lexicon=lexicon_arg,
+                    data_dir=str(espeak_dir),
+                    dict_dir="",
+                    length_scale=1.0,
+                    lang="",
+                )
+                model_config = sherpa_onnx.OfflineTtsModelConfig(
+                    kokoro=kokoro_config,
+                    num_threads=threads,
+                    debug=False,
+                    provider=provider,
+                )
+                tts_config = sherpa_onnx.OfflineTtsConfig(
+                    model=model_config,
+                    max_num_sentences=1,
+                    silence_scale=0.2,
+                )
+                self.tts = sherpa_onnx.OfflineTts(tts_config)
+                logger.info(f"Sherpa-ONNX Kokoro TTS initialized successfully ({threads} threads).")
+        return True
+
+    def _resolve_speaker_and_lang(
+        self,
+        language: Optional[str] = None,
+        phoneme_lang: Optional[str] = None,
+    ) -> Tuple[int, str]:
+        """Resolve speaker integer ID and language code for sherpa GenerationConfig."""
+        voice_name = self.voice_config.model
         if language:
-            target_voice = self.get_model_for_language(language)
+            voice_name = self.get_model_for_language(language)
 
-        if not self._init_kokoro():
-            return None
+        speaker_id = SPEAKER_TO_ID.get(voice_name, 3)  # Default fallback 3 ('af_heart')
 
-        try:
-            if not text.strip():
-                logger.warning("Empty text provided for synthesis")
-                return None
-
-            text = self._sanitize_text(text, language=language)
-            if not text:
-                return None
-
-            logger.debug(f"Synthesizing text with voice {target_voice}: '{text[:100]}{'...' if len(text) > 100 else ''}'")
-
-            # phoneme_lang overrides the phonemization language while keeping the same voice
-            effective_lang = phoneme_lang or language
-            lang_code = _KOKORO_LANG_CODES.get(effective_lang, "en-us") if effective_lang else "en-us"
-
-            all_samples = []
-            sample_rate = 22050
-            for chunk in self._chunk_text(text, language=language, already_preprocessed=True):
-                if not chunk.strip():
-                    continue
-                with self._lock:
-                    # Kokoro returns samples in [-1, 1] range, and sample_rate
-                    samples, sample_rate = self.kokoro.create(
-                        chunk,
-                        voice=target_voice,
-                        speed=speed,
-                        lang=lang_code
-                    )
-                all_samples.append(samples)
-
-            if not all_samples:
-                return None
-            samples = np.concatenate(all_samples)
-            
-            # Apply volume scaling
-            if volume != 1.0:
-                samples = samples * volume
-                # Clip to prevent overflow
-                samples = np.clip(samples, -1.0, 1.0)
-                
-            # Convert to WAV bytes using soundfile
-            with io.BytesIO() as output:
-                sf.write(output, samples, sample_rate, format='WAV', subtype='PCM_16')
-                audio_bytes = output.getvalue()
-
-            logger.info(f"Synthesized {len(text)} chars to {len(audio_bytes)} bytes at {sample_rate}Hz using {target_voice}")
-            
-            return audio_bytes, sample_rate
-
-        except Exception as e:
-            logger.error(f"Kokoro Engine failed to synthesize text. Error: {e}", exc_info=True)
-            return None
-
-    def synthesize_stream(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0, phoneme_lang: Optional[str] = None) -> Iterator[Tuple[bytes, int]]:
-        if not text:
-            return
-
-        target_voice = self.voice_config.model
-        if language:
-            target_voice = self.get_model_for_language(language)
-
-        if not self._init_kokoro():
-            return
-
-        # phoneme_lang overrides the phonemization language while keeping the same voice
         effective_lang = phoneme_lang or language
         lang_code = _KOKORO_LANG_CODES.get(effective_lang, "en-us") if effective_lang else "en-us"
+
+        return speaker_id, lang_code
+
+    def synthesize(
+        self,
+        text: str,
+        language: Optional[str] = None,
+        speed: float = 1.0,
+        volume: float = 1.0,
+        phoneme_lang: Optional[str] = None,
+    ) -> Optional[Tuple[bytes, int]]:
+        if not text or not text.strip():
+            return None
+
+        if not self._init_tts():
+            return None
+
+        import sherpa_onnx
+
+        text = self._sanitize_text(text, language=language)
+        if not text:
+            return None
+
+        sid, lang_code = self._resolve_speaker_and_lang(language, phoneme_lang)
+        gen_config = sherpa_onnx.GenerationConfig()
+        gen_config.sid = sid
+        gen_config.speed = speed
+        gen_config.extra = {"lang": lang_code}
+
+        all_samples = []
+        sample_rate = 24000
 
         for chunk in self._chunk_text(text, language=language, already_preprocessed=True):
             if not chunk.strip():
                 continue
-            logger.debug(f"Synthesizing stream chunk with voice {target_voice}: '{chunk[:100]}{'...' if len(chunk) > 100 else ''}'")
+            with self._lock:
+                audio = self.tts.generate(chunk, gen_config)
+            if audio and len(audio.samples) > 0:
+                all_samples.append(np.array(audio.samples, dtype=np.float32))
+                sample_rate = audio.sample_rate
+
+        if not all_samples:
+            return None
+
+        samples = np.concatenate(all_samples)
+        if volume != 1.0:
+            samples = np.clip(samples * volume, -1.0, 1.0)
+
+        with io.BytesIO() as output:
+            sf.write(output, samples, sample_rate, format="WAV", subtype="PCM_16")
+            audio_bytes = output.getvalue()
+
+        logger.info(f"Synthesized {len(text)} chars to {len(audio_bytes)} bytes at {sample_rate}Hz (sid={sid}, lang={lang_code})")
+        return audio_bytes, sample_rate
+
+    def synthesize_stream(
+        self,
+        text: str,
+        language: Optional[str] = None,
+        speed: float = 1.0,
+        volume: float = 1.0,
+        phoneme_lang: Optional[str] = None,
+        stop_event: Optional[threading.Event] = None,
+    ) -> Iterator[Tuple[bytes, int]]:
+        if not text or not text.strip():
+            return
+
+        if not self._init_tts():
+            return
+
+        import sherpa_onnx
+
+        sid, lang_code = self._resolve_speaker_and_lang(language, phoneme_lang)
+        gen_config = sherpa_onnx.GenerationConfig()
+        gen_config.sid = sid
+        gen_config.speed = speed
+        gen_config.extra = {"lang": lang_code}
+
+        # Queue to pass audio chunks produced by Sherpa C++ callback to this generator
+        audio_chunk_queue: queue.Queue[Optional[Tuple[bytes, int]]] = queue.Queue(maxsize=16)
+        synthesis_error: list[Optional[Exception]] = [None]
+
+        def _on_samples(samples: np.ndarray, progress: float) -> int:
+            if stop_event is not None and stop_event.is_set():
+                return 0  # Stop C++ generation immediately
+
+            if len(samples) > 0:
+                s = np.array(samples, dtype=np.float32)
+                if volume != 1.0:
+                    s = np.clip(s * volume, -1.0, 1.0)
+                with io.BytesIO() as out:
+                    sf.write(out, s, self.tts.sample_rate, format="WAV", subtype="PCM_16")
+                    audio_chunk_queue.put((out.getvalue(), self.tts.sample_rate))
+
+            return 0 if (stop_event is not None and stop_event.is_set()) else 1
+
+        def _worker():
             try:
-                def _synth(c=chunk):
-                    with self._lock:
-                        # Kokoro returns samples in [-1, 1] range, and sample_rate
-                        samples, sample_rate = self.kokoro.create(
-                            c,
-                            voice=target_voice,
-                            speed=speed,
-                            lang=lang_code
-                        )
-                    # Apply volume scaling
-                    if volume != 1.0:
-                        samples = np.clip(samples * volume, -1.0, 1.0)
-                    # Convert to WAV bytes using soundfile
-                    with io.BytesIO() as output:
-                        sf.write(output, samples, sample_rate, format='WAV', subtype='PCM_16')
-                        return output.getvalue(), sample_rate
+                # Sanitize text without splitting into artificial small chunks
+                clean_text = self._sanitize_text(text, language=language, already_preprocessed=True)
+                if not clean_text:
+                    return
 
-                audio_bytes, sample_rate = _retry_synthesis(_synth)
-                logger.debug(f"Synthesized streaming chunk: {len(chunk)} chars")
-                yield audio_bytes, sample_rate
-
+                with self._lock:
+                    if self.tts is None:
+                        return
+                    self.tts.generate(clean_text, gen_config, callback=_on_samples)
             except Exception as e:
-                logger.error(f"Failed synthesising chunk after retries. Error: {e}", exc_info=True)
+                synthesis_error[0] = e
+                logger.error(f"Error in Sherpa-ONNX streaming generation: {e}", exc_info=True)
+            finally:
+                audio_chunk_queue.put(None)  # Signal EOF to generator
+
+        worker_thread = threading.Thread(target=_worker, daemon=True)
+        worker_thread.start()
+
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                break
+
+            try:
+                item = audio_chunk_queue.get(timeout=0.1)
+            except queue.Empty:
+                if not worker_thread.is_alive():
+                    break
+                continue
+
+            if item is None:
+                break
+
+            yield item
+
+        if synthesis_error[0] is not None:
+            raise synthesis_error[0]
 
     def stop(self) -> None:
-        self.kokoro = None
-        logger.info("Kokoro engine stopped")
+        self.tts = None
+        logger.info("Sherpa Kokoro engine stopped")
 
     def warmup(self) -> bool:
-        """Pre-warm Kokoro model and ONNX runtime tensor buffers."""
+        """Pre-warm Kokoro model in Sherpa-ONNX."""
         try:
-            from . import voice_manager
-            if not voice_manager.is_kokoro_installed(self.model_id):
+            if not is_kokoro_installed(self.model_id):
                 logger.debug("Kokoro model not downloaded yet, skipping warmup")
                 return False
-            if not self._init_kokoro():
+            if not self._init_tts():
                 return False
-            target_voice = self.get_model_for_language(self.voice_config.language) or "af_heart"
-            lang_code = _KOKORO_LANG_CODES.get(self.voice_config.language, "en-us")
+
+            import sherpa_onnx
+            sid, lang_code = self._resolve_speaker_and_lang(self.voice_config.language)
+            gen_config = sherpa_onnx.GenerationConfig()
+            gen_config.sid = sid
+            gen_config.speed = 1.0
+            gen_config.extra = {"lang": lang_code}
+
             with self._lock:
-                if self.kokoro is not None:
-                    logger.info("Pre-warming Kokoro TTS engine ONNX buffers...")
-                    self.kokoro.create("a", voice=target_voice, speed=1.0, lang=lang_code)
-                    logger.info("Kokoro TTS engine warmup completed.")
+                if self.tts is not None:
+                    logger.info("Pre-warming Sherpa-ONNX Kokoro TTS engine...")
+                    self.tts.generate("a", gen_config)
+                    logger.info("Sherpa-ONNX Kokoro TTS engine warmup completed.")
                     return True
         except Exception as e:
-            logger.warning(f"Kokoro warmup failed (non-fatal): {e}")
+            logger.warning(f"Sherpa Kokoro warmup failed (non-fatal): {e}")
         return False
 
 
@@ -897,38 +828,29 @@ def get_available_models(engine: str = "kokoro") -> list[str]:
     if not voices_dir.exists():
         return []
 
-    return sorted(
-        p.stem for p in voices_dir.glob("kokoro*.onnx")
-    )
+    return [
+        m_id
+        for m_id, info in KOKORO_MODELS.items()
+        if (voices_dir / info["dir_name"]).is_dir()
+    ]
 
 
 def get_kokoro_voices(language: str | None = None) -> list[str]:
-    """Return Kokoro voice names from the installed voices-v1.0.bin file.
+    """Return Kokoro voice names from the 54 supported speakers.
 
     If *language* is given, only voices whose prefix matches the language are
     returned (e.g. ``"it"`` → ``if_*``, ``im_*``).
     """
-    voices_bin = get_data_dir() / "voices" / "voices-v1.0.bin"
-    if not voices_bin.exists():
-        return []
-    try:
-        data = np.load(str(voices_bin), allow_pickle=False)
-        all_voices: list[str] = sorted(data.files)
-    except Exception:
-        logger.warning("Failed to read Kokoro voices from %s", voices_bin)
-        return []
-
+    all_voices = sorted(SPEAKER_TO_ID.keys())
     if language is None:
         return all_voices
 
     prefixes = _KOKORO_LANG_PREFIXES.get(language, [])
     if not prefixes:
-        return []  # unsupported language → empty list
+        return []
     return [v for v in all_voices if any(v.startswith(p) for p in prefixes)]
 
 
 def get_voices_for_language(engine: str, language: str) -> list[str]:
     """Return the voice/model names available for *language*."""
     return get_kokoro_voices(language)
-
-

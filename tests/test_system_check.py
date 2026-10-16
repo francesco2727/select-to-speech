@@ -38,6 +38,29 @@ def test_check_system_dependencies_missing_required_fails():
         assert check_system_dependencies() is False
 
 
+def test_check_system_dependencies_missing_portaudio_fails():
+    """Test when required portaudio library is missing (should return False)"""
+    def fake_which(cmd):
+        return f"/usr/bin/{cmd}"
+
+    with patch("select_to_speech.system_check.shutil.which", side_effect=fake_which), \
+         patch("select_to_speech.system_check._check_appindicator", return_value=True), \
+         patch("select_to_speech.system_check._check_portaudio", return_value=False):
+        assert check_system_dependencies() is False
+
+
+def test_check_system_dependencies_missing_kokoro_model_warns():
+    """Test when kokoro model is missing (optional warning, check still returns True if core deps present)"""
+    def fake_which(cmd):
+        return f"/usr/bin/{cmd}"
+
+    with patch("select_to_speech.system_check.shutil.which", side_effect=fake_which), \
+         patch("select_to_speech.system_check._check_appindicator", return_value=True), \
+         patch("select_to_speech.system_check._check_portaudio", return_value=True), \
+         patch("select_to_speech.voice_manager.is_kokoro_installed", return_value=False):
+        assert check_system_dependencies() is True
+
+
 def test_detect_language_and_multilingual_check():
     """Test language detection and explicit overrides (`en`, `it`, `fr`, `es`, default fallback)."""
     from select_to_speech.system_check import _detect_language
@@ -104,3 +127,14 @@ def test_main_audio_devices_help(capsys):
 
     assert exc_info.value.code == 0
     assert "List Select-to-Speech audio output devices" in capsys.readouterr().out
+
+
+def test_get_hardware_info():
+    from select_to_speech.system_check import get_hardware_info
+    info = get_hardware_info()
+    assert "cpu_model" in info
+    assert "total_threads" in info
+    assert "optimal_threads" in info
+    assert info["total_threads"] >= 1
+    assert 1 <= info["optimal_threads"] <= info["total_threads"]
+

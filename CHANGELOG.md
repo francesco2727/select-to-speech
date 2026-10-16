@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Sherpa-ONNX TTS Engine Integration**: Migrated the TTS engine backend from `kokoro-onnx` to `sherpa-onnx` (`OfflineTts`), leveraging native self-contained C++ bindings with built-in ONNX Runtime and espeak-ng.
+- **Native C++ Streaming & Immediate Abort**: Implemented native streaming generation using Sherpa-ONNX's C++ callback (`callback(samples, progress) -> int`). Audio samples are emitted as each sentence batch is computed, and setting `stop_event` aborts ongoing neural inference directly at the C++ level.
+- **Hardware Auto-Detection & Inference Threading**: Added automatic CPU topology detection and thread scaling configuration (`num_threads` / `provider`). Added a `/hardware` endpoint in FastAPI and a thread configuration selector with CPU chip badge in the Flutter settings UI.
+- **Smart Text Formatting & De-Hyphenation**: Implemented `src/select_to_speech/text_normalizer.py` to fix soft line breaks from PDFs and terminal windows, automatically rejoining hyphenated words across line wraps (`de-hyphenation`) and formatting list/bullet items with clear pauses.
+- **Neural Punctuation Restoration**: Added optional AI-based punctuation restoration powered by `sherpa-onnx.OfflinePunctuation` (`CT-Transformer INT8`, supporting English and Chinese) with lazy on-demand download management and toggles in the Flutter GUI.
+- **Automated Legacy Model Cleanup**: Added automatic removal of obsolete `kokoro-onnx` model files (`kokoro-v1.0.onnx`, `voices-v1.0.bin`, etc.) to free disk space upon downloading sherpa-onnx models.
+- **Config Migration**: Automatic migration of legacy model identifiers (`kokoro-v1.0` -> `kokoro-multi-lang-v1_0`, `kokoro-v1.0-int8` -> `kokoro-int8-multi-lang-v1_0`).
+- **Comprehensive System Checks**: Expanded `system_check.py` to verify required C audio backend (`portaudio` / `libportaudio.so`), Kokoro TTS voice model files, and optional audio ducking server library (`libpulse` / PulseAudio / PipeWire) with localized explanations in English, Italian, French, and Spanish.
+
+### Changed
+- **Natural Text Segmentation**: Replaced artificial fixed-character regex chunking (`max_chars=80`) with native sentence-level synthesis, significantly improving speech prosody, naturalness, and intonation for long paragraphs.
+- **Dependencies**: Removed `kokoro-onnx`, `misaki`, and `onnxruntime` Python packages in favor of `sherpa-onnx` and `sherpa-onnx-core`.
+- **Model Distribution Format**: Models are now fetched as bundled `.tar.bz2` packages directly from the official `k2-fsa/sherpa-onnx` releases, containing ONNX weights, float32 voices binary, tokens, and lexicons.
+- **CI & Build Pipeline**: Simplified Nuitka packaging flags by eliminating custom data loaders and metadata workarounds for `kokoro_onnx` and `misaki`.
+- **Settings UI**: Updated model selector and download handlers in the Flutter GUI to use Sherpa Kokoro models.
+
+### Fixed
+- **Shortcut Double-Trigger & Zombie Playback Fix**: Fixed an issue where stopping playback with the stop shortcut and immediately triggering reading caused duplicate executions and re-read the previous stale text.
+  - Added debouncing (`350ms`) to shortcut triggers and serial execution locks (`_shortcut_lock`) preventing race conditions between concurrent triggers.
+  - Reset `last_selection` to empty upon explicit stop so that cleared or newly selected texts are evaluated freshly.
+  - Fixed `AudioPlayer.play_stream` to check for stop requests with a timeout when waiting for chunks from the synthesis queue.
+  - Fixed `KeyboardHandler.stop` on Linux X11/XWayland to explicitly flush the record context and join the background listener thread.
+- **Workaround Cleanup**: Removed monkey-patches for Kokoro tokenizer length truncation, espeak language tag stripping, and Nuitka bundle `config.json` extraction, now handled natively by sherpa-onnx.
+
 ## [v0.3.3] - 2026-09-10
 
 ### Fixed

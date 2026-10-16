@@ -368,7 +368,10 @@ class AudioPlayer:
 
             try:
                 while not self._stop_requested:
-                    chunk_data = audio_generator_queue.get()
+                    try:
+                        chunk_data = audio_generator_queue.get(timeout=0.1)
+                    except queue.Empty:
+                        continue
                     if chunk_data is None:
                         break
 

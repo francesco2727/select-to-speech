@@ -55,7 +55,8 @@ def test_load_config_with_file(mock_yaml_load, mock_open, mock_exists):
     
     assert config.debug is True
     assert config.voice.engine == "kokoro"
-    assert config.voice.model == "kokoro-v1.0"
+    # Legacy kokoro-v1.0 is automatically migrated to kokoro-multi-lang-v1_0
+    assert config.voice.model == "kokoro-multi-lang-v1_0"
     assert config.audio.speed == 1.2
     assert config.keyboard.modifier_key == "ctrl"
     assert config.keyboard.trigger_key == "esc" # Default value remains

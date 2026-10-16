@@ -9,7 +9,7 @@ Designed specifically for people with visual impairments, reading difficulties, 
 - **Screen OCR & read** — draw a screen region (`Alt + r`) with `slurp`/`grim` (or KDE Spectacle) to extract text via Tesseract and read it aloud
 - **Automatic language detection** — switches voice per language segment (e.g. Italian + English in the same paragraph)
 - **Multilingual text normalization** — automatically converts math operators (`+`, `-`, `%`, etc.) and currency symbols (`$`, `€`, `£`, `¥`, etc.) into natural spoken words based on the detected language
-- **TTS engine** — [Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx) (high quality, offline)
+- **TTS engine** — [Sherpa-ONNX](https://github.com/k2-fsa/sherpa-onnx) running Kokoro TTS (high quality, offline, native C++ runtime)
 - **System tray GUI** — native tray icon with settings window
 - **Pause / resume / stop** playback from tray or keyboard
 

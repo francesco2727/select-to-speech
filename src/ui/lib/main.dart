@@ -230,6 +230,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   Map<String, List<String>> availableVoices = {};
   List<String> ocrLanguages = [];
   List<Map<String, dynamic>> availableModels = [];
+  Map<String, dynamic>? hardwareInfo;
 
   // Download state variables
   bool isDownloading = false;
@@ -237,6 +238,12 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   double downloadProgress = 0.0;
   String downloadStatus = 'idle';
   String? downloadError;
+
+  // Neural punctuation state
+  bool isPunctInstalled = false;
+  bool isPunctDownloading = false;
+  double punctDownloadProgress = 0.0;
+  String punctDownloadStatus = 'idle';
 
   Timer? _saveTimer;
 
@@ -309,6 +316,16 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'no_ocr_langs': 'No Tesseract languages found. Please install language packages.',
       'ducking': 'Audio Ducking',
       'ducking_desc': 'Lower background volume while reading',
+      'hardware_threads': 'Inference Threads',
+      'threads_auto': 'Auto ({count} threads)',
+      'hardware_cpu_info': 'Detected CPU: {cpu}',
+      'text_normalization': 'Smart Text Formatting & Line Unwrap',
+      'text_normalization_desc': 'Rejoin hyphenated words, fix soft line wraps, and format list pauses',
+      'neural_punctuation': 'Neural Punctuation Restoration',
+      'neural_punctuation_desc': 'Model: Sherpa-ONNX CT-Transformer INT8. Supported languages: English (en) and Chinese (zh).',
+      'punct_download_btn': 'Download Punctuation Model (~62 MB)',
+      'punct_downloading': 'Downloading Punctuation Model...',
+      'punct_installed_badge': 'Model installed',
     },
     'it': {
       'app_title': 'Select to Speech',
@@ -370,6 +387,16 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'no_ocr_langs': 'Nessuna lingua trovata per Tesseract. Installa i pacchetti lingua.',
       'ducking': 'Ducking Audio',
       'ducking_desc': 'Abbassa il volume di sottofondo durante la lettura',
+      'hardware_threads': 'Thread di Calcolo',
+      'threads_auto': 'Automatico ({count} thread)',
+      'hardware_cpu_info': 'Processore Rilevato: {cpu}',
+      'text_normalization': 'Formattazione Intelligente del Testo',
+      'text_normalization_desc': 'Ricompone parole sillabate (a capo), unisce righe spezzate e imposta pause negli elenchi',
+      'neural_punctuation': 'Ripristino Punteggiatura Neurale',
+      'neural_punctuation_desc': 'Modello: Sherpa-ONNX CT-Transformer INT8. Lingue supportate: Inglese (en) e Cinese (zh).',
+      'punct_download_btn': 'Scarica Modello Punteggiatura (~62 MB)',
+      'punct_downloading': 'Download modello di punteggiatura in corso...',
+      'punct_installed_badge': 'Modello installato',
     },
     'es': {
       'app_title': 'Select to Speech',
@@ -431,6 +458,16 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'no_ocr_langs': 'No se encontraron idiomas de Tesseract. Por favor instala los paquetes de idioma.',
       'ducking': 'Atenuación de Audio',
       'ducking_desc': 'Bajar el volumen de fondo durante la lectura',
+      'hardware_threads': 'Hilos de Inferencia',
+      'threads_auto': 'Automático ({count} hilos)',
+      'hardware_cpu_info': 'CPU Detectada: {cpu}',
+      'text_normalization': 'Formato Inteligente y Ajuste de Líneas',
+      'text_normalization_desc': 'Recompone palabras cortadas por guiones, une saltos suaves y formatea pausas en listas',
+      'neural_punctuation': 'Restauración de Puntuación Neuronal',
+      'neural_punctuation_desc': 'Modelo: Sherpa-ONNX CT-Transformer INT8. Idiomas compatibles: Inglés (en) y Chino (zh).',
+      'punct_download_btn': 'Descargar Modelo de Puntuación (~62 MB)',
+      'punct_downloading': 'Descargando modelo de puntuación...',
+      'punct_installed_badge': 'Modelo instalado',
     },
     'fr': {
       'app_title': 'Select to Speech',
@@ -492,6 +529,16 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'no_ocr_langs': 'Aucune langue Tesseract trouvée. Veuillez installer les paquets de langue.',
       'ducking': 'Atténuation Audio',
       'ducking_desc': 'Baisser le volume d\'arrière-plan pendant la lecture',
+      'hardware_threads': 'Threads d\'Inférence',
+      'threads_auto': 'Automatique ({count} threads)',
+      'hardware_cpu_info': 'Processeur Détecté : {cpu}',
+      'text_normalization': 'Formatage Intelligent et Ajustement de Ligne',
+      'text_normalization_desc': 'Recompose les mots coupés par des traits d\'union et insère des pauses logiques',
+      'neural_punctuation': 'Restauration de la Ponctuation Neuronale',
+      'neural_punctuation_desc': 'Modèle : Sherpa-ONNX CT-Transformer INT8. Langues supportées : Anglais (en) et Chinois (zh).',
+      'punct_download_btn': 'Télécharger le Modèle de Ponctuation (~62 Mo)',
+      'punct_downloading': 'Téléchargement du modèle de ponctuation...',
+      'punct_installed_badge': 'Modèle installé',
     }
   };
 
@@ -576,7 +623,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
     });
 
     try {
-      final selectedModel = config?['voice']?['model'] ?? 'kokoro-v1.0';
+      final selectedModel = config?['voice']?['model'] ?? 'kokoro-multi-lang-v1_0';
       final res = await apiClient.post(Uri.parse('http://localhost/download_model?model_id=$selectedModel&force=true'));
       if (res.statusCode == 200) {
         _pollDownloadStatus();
@@ -627,6 +674,60 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       }
     }
   }
+
+  Future<void> _startPunctDownload() async {
+    setState(() {
+      isPunctDownloading = true;
+      punctDownloadProgress = 0.0;
+      punctDownloadStatus = 'downloading';
+    });
+
+    try {
+      final res = await apiClient.post(Uri.parse('http://localhost/download_punctuation'));
+      if (res.statusCode == 200) {
+        _pollPunctDownloadStatus();
+      } else {
+        setState(() {
+          isPunctDownloading = false;
+          punctDownloadStatus = 'failed';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        isPunctDownloading = false;
+        punctDownloadStatus = 'failed';
+      });
+    }
+  }
+
+  void _pollPunctDownloadStatus() async {
+    while (isPunctDownloading) {
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (!mounted) return;
+      try {
+        final res = await apiClient.get(Uri.parse('http://localhost/punctuation_status'));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          setState(() {
+            punctDownloadStatus = data['download_status'] ?? 'idle';
+            punctDownloadProgress = ((data['download_progress'] ?? 0) as num).toDouble() / 100.0;
+            if (punctDownloadStatus == 'success' || data['installed'] == true) {
+              isPunctDownloading = false;
+              isPunctInstalled = true;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(t('download_success')), backgroundColor: Colors.green),
+              );
+            } else if (punctDownloadStatus == 'failed') {
+              isPunctDownloading = false;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('${t('download_failed')}: ${data['download_error']}'), backgroundColor: Colors.redAccent),
+              );
+            }
+          });
+        }
+      } catch (_) {}
+    }
+  }
   
   Future<void> _fetchData() async {
     setState(() => isLoading = true);
@@ -638,19 +739,25 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         final voicesRes = await apiClient.get(Uri.parse('http://localhost/voices'));
         final ocrLangsRes = await apiClient.get(Uri.parse('http://localhost/ocr_languages'));
         final availableModelsRes = await apiClient.get(Uri.parse('http://localhost/available_models'));
+        final hardwareRes = await apiClient.get(Uri.parse('http://localhost/hardware'));
+        final punctRes = await apiClient.get(Uri.parse('http://localhost/punctuation_status'));
         
         if (configRes.statusCode == 200) {
           final decodedConfig = jsonDecode(configRes.body);
-          final selectedModel = decodedConfig['voice']?['model'] ?? 'kokoro-v1.0';
+          final selectedModel = decodedConfig['voice']?['model'] ?? 'kokoro-multi-lang-v1_0';
           final modelInstRes = await apiClient.get(Uri.parse('http://localhost/model_installed?model_id=$selectedModel'));
 
           setState(() {
             config = decodedConfig;
             config!['theme_mode'] ??= 'dark';
+            config!['text_normalization'] ??= true;
+            config!['neural_punctuation'] ??= false;
             config!['ocr'] ??= {'language': 'ita+eng'};
             config!['voice'] ??= {};
-            config!['voice']['model'] ??= 'kokoro-v1.0';
+            config!['voice']['model'] ??= 'kokoro-multi-lang-v1_0';
             config!['voice']['language'] ??= 'en';
+            config!['voice']['num_threads'] ??= 0;
+            config!['voice']['provider'] ??= 'cpu';
             
             final themeStr = config!['theme_mode'];
             if (themeStr == 'light') {
@@ -673,6 +780,13 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             if (availableModelsRes.statusCode == 200) {
               List<dynamic> modelsList = jsonDecode(availableModelsRes.body);
               availableModels = modelsList.map((m) => m as Map<String, dynamic>).toList();
+            }
+            if (hardwareRes.statusCode == 200) {
+              hardwareInfo = jsonDecode(hardwareRes.body);
+            }
+            if (punctRes.statusCode == 200) {
+              final punctData = jsonDecode(punctRes.body);
+              isPunctInstalled = punctData['installed'] ?? false;
             }
             if (modelInstRes.statusCode == 200) {
               final modelData = jsonDecode(modelInstRes.body);
@@ -1058,7 +1172,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       {'code': 'zh', 'name': 'Chinese'},
     ];
 
-    final selectedModelId = config!['voice']['model'] ?? 'kokoro-v1.0';
+    final selectedModelId = config!['voice']['model'] ?? 'kokoro-multi-lang-v1_0';
     List<String>? supportedCodes;
     
     for (var m in availableModels) {
@@ -1088,7 +1202,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  initialValue: availableModels.any((m) => m['id'] == selectedModelId) ? selectedModelId : (availableModels.isNotEmpty ? availableModels.first['id'] : 'kokoro-v1.0'),
+                  initialValue: availableModels.any((m) => m['id'] == selectedModelId) ? selectedModelId : (availableModels.isNotEmpty ? availableModels.first['id'] : 'kokoro-multi-lang-v1_0'),
                   dropdownColor: dropdownBgColor,
                   style: TextStyle(color: textColor),
                   decoration: InputDecoration(
@@ -1116,8 +1230,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
                         }).toList()
                       : const [
                           DropdownMenuItem(
-                            value: 'kokoro-v1.0',
-                            child: Text('Kokoro v1.0 (FP32, ~340 MB)'),
+                            value: 'kokoro-multi-lang-v1_0',
+                            child: Text('Kokoro v1.0 (FP32, ~350 MB)'),
                           ),
                         ],
                   onChanged: (val) async {
@@ -1391,7 +1505,141 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
           _buildDropdown(t('gui_language'), null, 'gui_language', ['auto', 'en', 'it', 'es', 'fr']),
           const SizedBox(height: 16),
           _buildDropdown(t('theme'), null, 'theme_mode', ['dark', 'light', 'system']),
+          const SizedBox(height: 24),
+          const Divider(color: Colors.white10),
           const SizedBox(height: 16),
+          Text(t('hardware_threads'), style: TextStyle(color: textColor70)),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: inputBgColor,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: inputBorderColor),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<int>(
+                isExpanded: true,
+                value: config!['voice']['num_threads'] ?? 0,
+                style: TextStyle(color: textColor, fontFamily: 'Inter'),
+                items: [
+                  DropdownMenuItem(
+                    value: 0,
+                    child: Text(
+                      t('threads_auto').replaceAll(
+                        '{count}',
+                        '${hardwareInfo?['optimal_threads'] ?? 4}',
+                      ),
+                      style: TextStyle(color: textColor),
+                    ),
+                  ),
+                  for (int tCount in [1, 2, 4, 6, 8, 12, 16])
+                    DropdownMenuItem(
+                      value: tCount,
+                      child: Text('$tCount thread', style: TextStyle(color: textColor)),
+                    ),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    _updateNestedConfig('voice', 'num_threads', val);
+                  }
+                },
+                dropdownColor: dropdownBgColor,
+              ),
+            ),
+          ),
+          if (hardwareInfo != null && hardwareInfo!['cpu_model'] != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.memory, size: 16, color: Color(0xFF00E5FF)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    t('hardware_cpu_info').replaceAll('{cpu}', hardwareInfo!['cpu_model']),
+                    style: TextStyle(fontSize: 12, color: textColor54),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 16),
+          const Divider(color: Colors.white10),
+          const SizedBox(height: 8),
+          SwitchListTile(
+            title: Text(t('text_normalization'), style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
+            subtitle: Text(t('text_normalization_desc'), style: TextStyle(color: textColor54, fontSize: 13)),
+            value: config!['text_normalization'] ?? true,
+            activeThumbColor: const Color(0xFF7B61FF),
+            onChanged: (val) {
+              setState(() => config!['text_normalization'] = val);
+              _scheduleSave();
+            },
+            contentPadding: EdgeInsets.zero,
+          ),
+          const SizedBox(height: 12),
+          SwitchListTile(
+            title: Text(t('neural_punctuation'), style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 4),
+                Text(t('neural_punctuation_desc'), style: TextStyle(color: textColor54, fontSize: 13)),
+                const SizedBox(height: 8),
+                if (!isPunctInstalled) ...[
+                  if (isPunctDownloading) ...[
+                    Row(
+                      children: [
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF00E5FF)),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '${t('punct_downloading')} ${(punctDownloadProgress * 100).toInt()}%',
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF00E5FF)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ] else ...[
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.download, size: 16, color: Color(0xFF00E5FF)),
+                      label: Text(t('punct_download_btn'), style: const TextStyle(fontSize: 12, color: Color(0xFF00E5FF))),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFF00E5FF)),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      ),
+                      onPressed: _startPunctDownload,
+                    ),
+                  ],
+                ] else ...[
+                  Row(
+                    children: [
+                      const Icon(Icons.check_circle, size: 14, color: Colors.greenAccent),
+                      const SizedBox(width: 6),
+                      Text(t('punct_installed_badge'), style: const TextStyle(fontSize: 12, color: Colors.greenAccent)),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+            value: (config!['neural_punctuation'] ?? false) && isPunctInstalled,
+            activeThumbColor: const Color(0xFF7B61FF),
+            onChanged: isPunctInstalled
+                ? (val) {
+                    setState(() => config!['neural_punctuation'] = val);
+                    _scheduleSave();
+                  }
+                : null,
+            contentPadding: EdgeInsets.zero,
+          ),
+          const SizedBox(height: 16),
+          const Divider(color: Colors.white10),
+          const SizedBox(height: 8),
           SwitchListTile(
             title: Text(t('enable_debug'), style: TextStyle(color: textColor)),
             subtitle: Text(t('check_logs'), style: TextStyle(color: textColor54)),

@@ -23,7 +23,7 @@ class VoiceConfig(BaseModel):
     """Voice configuration"""
 
     engine: str = Field("kokoro", description="TTS engine to use (always 'kokoro')")
-    model: str = Field("kokoro-v1.0", description="Voice model name")
+    model: str = Field("kokoro-multi-lang-v1_0", description="Voice model name")
     language: str = Field("it", description="Language code")
     language_models: dict[str, str] = Field(
         default_factory=lambda: {
@@ -45,6 +45,8 @@ class VoiceConfig(BaseModel):
         },
         description="Map of language codes to model names"
     )
+    num_threads: int = Field(0, ge=0, le=64, description="Threads for neural inference (0 = Auto-detect optimal)")
+    provider: str = Field("cpu", description="Execution provider: 'cpu', 'cuda', etc.")
 
 
 class KeyboardConfig(BaseModel):
@@ -73,6 +75,8 @@ class AppConfig(BaseModel):
     debug: bool = Field(False, description="Enable debug logging")
     gui_language: str = Field("auto", description="GUI language: 'auto', 'en', 'it', 'es', 'fr'")
     theme_mode: str = Field("system", description="Theme mode: 'dark', 'light', 'system'")
+    text_normalization: bool = Field(True, description="Enable smart formatting, line unwrap, and de-hyphenation")
+    neural_punctuation: bool = Field(False, description="Enable neural punctuation restoration (Sherpa-ONNX CT-Transformer, EN/ZH)")
 
     class Config:
         """Pydantic config"""
@@ -94,6 +98,18 @@ def get_data_dir() -> Path:
     return data_dir
 
 
+def _migrate_config_dict(config_dict: dict) -> dict:
+    """Migrate legacy configuration values (e.g., kokoro-v1.0 -> kokoro-multi-lang-v1_0)."""
+    voice = config_dict.get("voice")
+    if isinstance(voice, dict):
+        model = voice.get("model")
+        if model in ("kokoro-v1.0", "kokoro-v1.0-fp16"):
+            voice["model"] = "kokoro-multi-lang-v1_0"
+        elif model == "kokoro-v1.0-int8":
+            voice["model"] = "kokoro-int8-multi-lang-v1_0"
+    return config_dict
+
+
 def load_config(config_path: Optional[Path] = None) -> AppConfig:
     """Load configuration from YAML file or use defaults"""
     if config_path is None:
@@ -102,6 +118,7 @@ def load_config(config_path: Optional[Path] = None) -> AppConfig:
     if config_path.exists():
         with open(config_path) as f:
             config_dict = yaml.safe_load(f) or {}
+        config_dict = _migrate_config_dict(config_dict)
         return AppConfig(**config_dict)
 
     return AppConfig()

@@ -132,49 +132,27 @@ def test_preprocess_currencies():
     assert "50 ユーロ" in processed_ja
 
 
-def test_kokoro_tokenizer_truncation():
-    from select_to_speech.tts_engine import KokoroEngine
-    config = MagicMock()
-    config.model = "af"
-    engine = KokoroEngine(config)
-    
-    with patch.object(engine, 'ensure_model_downloaded', return_value=True), \
-         patch('kokoro_onnx.Kokoro') as mock_kokoro_class:
-        mock_kokoro = MagicMock()
-        # Mock original tokenize returning > 509 tokens
-        mock_kokoro.tokenizer.tokenize.return_value = list(range(600))
-        mock_kokoro.tokenizer.phonemize.return_value = "dummy phonemes"
-        mock_kokoro_class.return_value = mock_kokoro
-        
-        assert engine._init_kokoro() is True
-        
-        # Test that calling patched tokenize truncates to 509
-        tokens = engine.kokoro.tokenizer.tokenize("some long text")
-        assert len(tokens) == 509
-        assert tokens == list(range(509))
-
-
 def test_kokoro_synthesize_chunking():
     from select_to_speech.tts_engine import KokoroEngine
     import numpy as np
     config = MagicMock()
-    config.model = "af"
+    config.model = "af_heart"
     engine = KokoroEngine(config)
     
-    with patch.object(engine, '_init_kokoro', return_value=True):
-        engine.kokoro = MagicMock()
-        # Return 100 samples per chunk
-        engine.kokoro.create.side_effect = [
-            (np.ones(100, dtype=np.float32) * 0.5, 24000),
-            (np.ones(100, dtype=np.float32) * 0.5, 24000)
-        ]
+    mock_audio = MagicMock()
+    mock_audio.samples = np.ones(100, dtype=np.float32) * 0.5
+    mock_audio.sample_rate = 24000
+    
+    with patch.object(engine, '_init_tts', return_value=True):
+        engine.tts = MagicMock()
+        engine.tts.generate.return_value = mock_audio
         
         with patch.object(engine, '_chunk_text', return_value=["Chunk one.", "Chunk two."]):
             res = engine.synthesize("Chunk one. Chunk two.")
             assert res is not None
             audio_bytes, sr = res
             assert sr == 24000
-            assert engine.kokoro.create.call_count == 2
+            assert engine.tts.generate.call_count == 2
 
 
 def test_base_tts_engine_update_config():
@@ -189,27 +167,95 @@ def test_base_tts_engine_update_config():
 
 def test_kokoro_engine_update_config_same_model():
     from select_to_speech.tts_engine import KokoroEngine
-    config1 = VoiceConfig(model="kokoro-v1.0", language="it")
+    config1 = VoiceConfig(model="kokoro-multi-lang-v1_0", language="it")
     engine = KokoroEngine(config1)
-    engine.kokoro = MagicMock()
+    engine.tts = MagicMock()
     
-    config2 = VoiceConfig(model="kokoro-v1.0", language="en")
+    config2 = VoiceConfig(model="kokoro-multi-lang-v1_0", language="en")
     engine.update_config(config2)
     
-    assert engine.model_id == "kokoro-v1.0"
+    assert engine.model_id == "kokoro-multi-lang-v1_0"
     assert engine.voice_config.language == "en"
-    assert engine.kokoro is not None
+    assert engine.tts is not None
 
 
 def test_kokoro_engine_update_config_model_change():
     from select_to_speech.tts_engine import KokoroEngine
-    config1 = VoiceConfig(model="kokoro-v1.0")
+    config1 = VoiceConfig(model="kokoro-multi-lang-v1_0")
     engine = KokoroEngine(config1)
-    engine.kokoro = MagicMock()
+    engine.tts = MagicMock()
     
-    config2 = VoiceConfig(model="kokoro-v1.0-fp16")
+    config2 = VoiceConfig(model="kokoro-int8-multi-lang-v1_0")
     engine.update_config(config2)
     
-    assert engine.model_id == "kokoro-v1.0-fp16"
-    assert engine.model_path.name == "kokoro-v1.0.fp16.onnx"
-    assert engine.kokoro is None
+    assert engine.model_id == "kokoro-int8-multi-lang-v1_0"
+    assert engine.model_dir.name == "kokoro-int8-multi-lang-v1_0"
+    assert engine.tts is None
+
+
+def test_kokoro_synthesize_stream_native_callback():
+    from select_to_speech.tts_engine import KokoroEngine
+    import numpy as np
+
+    config = MagicMock()
+    config.model = "af_heart"
+    engine = KokoroEngine(config)
+
+    def fake_generate(text, gen_config, callback=None):
+        if callback:
+            # Simulate 2 batch callbacks
+            s1 = np.ones(500, dtype=np.float32) * 0.1
+            cont = callback(s1, 0.5)
+            if cont:
+                s2 = np.ones(500, dtype=np.float32) * 0.2
+                callback(s2, 1.0)
+        ret = MagicMock()
+        ret.samples = np.ones(1000, dtype=np.float32)
+        ret.sample_rate = 24000
+        return ret
+
+    with patch.object(engine, '_init_tts', return_value=True):
+        engine.tts = MagicMock()
+        engine.tts.sample_rate = 24000
+        engine.tts.generate.side_effect = fake_generate
+
+        chunks = list(engine.synthesize_stream("Questa è una frase lunga di test per lo streaming."))
+        assert len(chunks) == 2
+        for data, sr in chunks:
+            assert sr == 24000
+            assert len(data) > 0
+
+
+def test_kokoro_synthesize_stream_early_stop():
+    from select_to_speech.tts_engine import KokoroEngine
+    import numpy as np
+    import threading
+
+    config = MagicMock()
+    config.model = "af_heart"
+    engine = KokoroEngine(config)
+    stop_event = threading.Event()
+
+    calls = []
+    def fake_generate(text, gen_config, callback=None):
+        if callback:
+            s1 = np.ones(500, dtype=np.float32) * 0.1
+            calls.append(1)
+            stop_event.set()  # Stop triggered after 1st batch
+            cont = callback(s1, 0.5)
+            if cont:
+                s2 = np.ones(500, dtype=np.float32) * 0.2
+                calls.append(2)
+                callback(s2, 1.0)
+        ret = MagicMock()
+        return ret
+
+    with patch.object(engine, '_init_tts', return_value=True):
+        engine.tts = MagicMock()
+        engine.tts.sample_rate = 24000
+        engine.tts.generate.side_effect = fake_generate
+
+        chunks = list(engine.synthesize_stream("Testo con stop anticipato.", stop_event=stop_event))
+        assert len(chunks) <= 1
+        assert len(calls) == 1
+

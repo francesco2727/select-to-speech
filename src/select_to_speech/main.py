@@ -7,6 +7,7 @@ import signal
 import sys
 import threading
 import queue
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -60,6 +61,10 @@ class SelectToSpeechApp:
         self.audio_player = AudioPlayer(self.config.audio.device_id)
         self.audio_player.ducker.enabled = self.config.audio.ducking
         self.ocr_engine = OcrEngine()
+        from .punctuation_engine import NeuralPunctuationEngine
+        threads = getattr(self.config.voice, "num_threads", 0) or 2
+        provider = getattr(self.config.voice, "provider", "cpu") or "cpu"
+        self.punctuation_engine = NeuralPunctuationEngine(num_threads=threads, provider=provider)
         self._lingua_detector = self._build_lingua_detector()
         self.selection_listener = WaylandSelectionListener(
             on_selection_change=self._on_text_selected,
@@ -80,6 +85,9 @@ class SelectToSpeechApp:
         self._process_thread: Optional[threading.Thread] = None
         self._ocr_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self._shortcut_lock = threading.Lock()
+        self._last_shortcut_time: float = 0.0
+        self._last_stop_time: float = 0.0
 
         # Pre-warm TTS engine in background daemon thread
         threading.Thread(target=self.tts_engine.warmup, daemon=True, name="TTS-Warmup").start()
@@ -128,6 +136,9 @@ class SelectToSpeechApp:
 
         # 1. Update TTS engine config
         self.tts_engine.update_config(config.voice)
+        threads = getattr(config.voice, "num_threads", 0) or 2
+        provider = getattr(config.voice, "provider", "cpu") or "cpu"
+        self.punctuation_engine.update_config(num_threads=threads, provider=provider)
 
         # 2. Update Audio player device_id (recreate if changed) and ducking
         if self.audio_player.device_id != config.audio.device_id:
@@ -257,36 +268,42 @@ class SelectToSpeechApp:
 
     def _on_shortcut_pressed(self) -> None:
         """Callback when keyboard shortcut is pressed"""
+        now = time.monotonic()
+        if now - self._last_shortcut_time < 0.35:
+            logger.debug("Ignoring duplicate shortcut trigger (debounced)")
+            return
+        self._last_shortcut_time = now
+
         logger.info("Shortcut pressed, delegating to background thread...")
         threading.Thread(target=self._process_shortcut, daemon=True).start()
 
     def _process_shortcut(self) -> None:
         """Process the shortcut press in a background thread"""
-        is_playing = self.audio_player.is_playing or (self._process_thread and self._process_thread.is_alive())
+        with self._shortcut_lock:
+            is_playing = self.audio_player.is_playing or (self._process_thread and self._process_thread.is_alive())
 
-        current_selection = self.selection_listener.get_primary_selection()
-        current_text = current_selection.strip() if current_selection else ""
+            current_selection = self.selection_listener.get_primary_selection()
+            current_text = current_selection.strip() if current_selection else ""
 
-        # If currently playing and the selection hasn't changed, do nothing
-        if is_playing and current_text == self.selection_listener.last_selection:
-            logger.info("Playing and selection unchanged. Ignoring trigger (use stop shortcut to stop).")
-            return
+            # If currently playing and the selection hasn't changed, do nothing
+            if is_playing and current_text == self.selection_listener.last_selection:
+                logger.info("Playing and selection unchanged. Ignoring trigger (use stop shortcut to stop).")
+                return
 
-        # Stop current playback if needed
-        if is_playing:
-            logger.info("Stopping current playback for new selection...")
-            self._stop_event.set()
-            self.audio_player.stop()
-            if self._process_thread and self._process_thread.is_alive():
-                self._process_thread.join(timeout=0.2)
+            # Stop current playback if needed
+            if is_playing:
+                logger.info("Stopping current playback for new selection...")
+                self._stop_event.set()
+                self.audio_player.stop()
+                if self._process_thread and self._process_thread.is_alive():
+                    self._process_thread.join(timeout=0.5)
 
-        if current_text:
-            # Reuse the already-fetched text — no second subprocess call needed
-            self.selection_listener.last_selection = current_text
-            self._on_text_selected(current_text, play_feedback=True)
-        elif not is_playing:
-            # Nothing selected and not playing: force re-read of last selection
-            self.selection_listener.on_trigger(force=True)
+            if current_text:
+                # Reuse the already-fetched text — no second subprocess call needed
+                self.selection_listener.last_selection = current_text
+                self._on_text_selected(current_text, play_feedback=True)
+            elif not is_playing:
+                logger.debug("No text currently selected in clipboard/primary")
 
     def _on_pause_pressed(self) -> None:
         """Callback when pause shortcut is pressed"""
@@ -300,10 +317,18 @@ class SelectToSpeechApp:
 
     def _on_stop_pressed(self) -> None:
         """Callback when stop shortcut is pressed"""
+        now = time.monotonic()
+        if now - self._last_stop_time < 0.25:
+            return
+        self._last_stop_time = now
+
         if self.audio_player.is_playing or (self._process_thread and self._process_thread.is_alive()):
             logger.info("Explicit stop requested...")
             self._stop_event.set()
             self.audio_player.stop()
+            # Clear last_selection so subsequent text selections aren't treated as identical
+            # if user re-selects or clears selection.
+            self.selection_listener.last_selection = ""
 
     def _on_ocr_pressed(self) -> None:
         """Callback when OCR screen capture shortcut is pressed"""
@@ -384,6 +409,7 @@ class SelectToSpeechApp:
                     speed=self.config.audio.speed,
                     volume=self.config.audio.volume,
                     phoneme_lang=seg_phoneme_lang,
+                    stop_event=stop_event,
                 ):
                     produced = True
                     if not _enqueue(chunk_data):
@@ -398,6 +424,7 @@ class SelectToSpeechApp:
                         language=language,
                         speed=self.config.audio.speed,
                         volume=self.config.audio.volume,
+                        stop_event=stop_event,
                     ):
                         if not _enqueue(chunk_data):
                             return
@@ -426,7 +453,16 @@ class SelectToSpeechApp:
         if stop_event.is_set():
             return None
 
-        # Preprocess text to expand math symbols and domain/filename dots
+        # 1. Apply heuristic text normalization (unwrap lines, de-hyphenate, list pauses)
+        if getattr(self.config, "text_normalization", True):
+            from .text_normalizer import normalize_text_for_tts
+            text = normalize_text_for_tts(text)
+
+        # 2. Apply neural punctuation restoration if enabled (CT-Transformer for EN/ZH)
+        if getattr(self.config, "neural_punctuation", False) and hasattr(self, "punctuation_engine"):
+            text = self.punctuation_engine.add_punctuation(text, language=language)
+
+        # 3. Preprocess text to expand math symbols, emojis, and domain/filename dots
         text = self.tts_engine.preprocess_text(text, language)
 
         segments = [(text, language, None)]

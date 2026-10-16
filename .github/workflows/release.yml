@@ -77,20 +77,13 @@ jobs:
 
       - name: Build all binaries with Nuitka
         run: |
-          # Resolve data directories once
-          KOKORO_DIR=$(python -c "import kokoro_onnx; from pathlib import Path; print(Path(kokoro_onnx.__file__).parent)")
-          ESPEAK_DIR=$(python -c "import espeakng_loader; from pathlib import Path; print(Path(espeakng_loader.__file__).parent)")
           # Common Nuitka flags
           # Note: ccache is already in PATH via hendrikmuhs/ccache-action symlinks
           NUITKA_FLAGS=(
             --onefile
             --include-package=select_to_speech
-            --include-package=kokoro_onnx
-            --include-package=espeakng_loader
-            --include-package=onnxruntime
-            --include-package=misaki
-            --include-package=dlinfo
-            --include-package=phonemizer
+            --include-package=sherpa_onnx
+            --include-package=sherpa_onnx_core
             --include-package=uvicorn
             --include-package=fastapi
             --include-package=pydantic
@@ -106,18 +99,9 @@ jobs:
             --include-package=requests
             --include-package=urllib3
             --include-package=certifi
-            --include-package-data=misaki
-            --include-package-data=language_tags
-            --include-package-data=csvw
-            --include-package-data=segments
-            --include-package-data=phonemizer
             --include-package-data=lingua
             --include-package-data=emoji
             --include-package-data=certifi
-            --include-distribution-metadata=kokoro-onnx
-            --include-data-dir="$KOKORO_DIR=kokoro_onnx"
-            --include-data-dir="$ESPEAK_DIR=espeakng_loader"
-            --include-data-files="$KOKORO_DIR/config.json=kokoro_onnx/config.json"
           )
 
           build_binary() {

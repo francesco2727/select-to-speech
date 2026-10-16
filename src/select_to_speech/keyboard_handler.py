@@ -107,6 +107,19 @@ class KeyboardHandler:
             logger.warning("Keyboard listener not running")
             return
 
-        self.listener.stop()
-        self.listener = None
-        logger.info("Keyboard listener stopped")
+        try:
+            self.listener.stop()
+            # On Linux X11/XWayland, pynput's _stop_platform calls record_disable_context
+            # but doesn't flush the display_stop connection, leaving the listener thread blocked.
+            if hasattr(self.listener, "_display_stop") and self.listener._display_stop and hasattr(self.listener, "_context"):
+                try:
+                    self.listener._display_stop.record_disable_context(self.listener._context)
+                    self.listener._display_stop.flush()
+                except Exception:
+                    pass
+            self.listener.join(timeout=0.5)
+        except Exception as e:
+            logger.debug(f"Error stopping keyboard listener: {e}")
+        finally:
+            self.listener = None
+            logger.info("Keyboard listener stopped")

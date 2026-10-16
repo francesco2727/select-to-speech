@@ -25,6 +25,8 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
     "en": {
         "title": "SELECT-TO-SPEECH - SYSTEM DEPENDENCIES CHECK",
         "req_header": "--- System Dependencies (Required for core functionality) ---",
+        "req_audio_header": "\n--- Audio System & TTS Models (Required for speech playback) ---",
+        "opt_audio_header": "\n--- Audio Server & Volume Management (Optional) ---",
         "opt_ocr_header": "\n--- Optional Dependencies: Screen Text Recognition (OCR - Alt+R) ---",
         "opt_xwayland_header": "\n--- Optional Dependencies: XWayland Applications Compatibility ---",
         "install_header": "INSTALLATION INSTRUCTIONS (ARCH LINUX)",
@@ -34,14 +36,19 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "package_label": "package:",
         "packages_label": "packages:",
         "library_label": "system library",
+        "model_label": "voice model:",
         "langs_detected_label": "detected languages:",
         "missing_req_summary": "[✗] Missing REQUIRED dependencies:",
-        "missing_opt_summary": "[⚠] Missing OPTIONAL dependencies (reduced OCR or XWayland functionality):",
+        "missing_opt_summary": "[⚠] Missing OPTIONAL dependencies (reduced OCR, ducking, or XWayland functionality):",
         "req_cmd_hint": "👉 Installation command for required dependencies:",
         "opt_cmd_hint": "👉 Command to enable all optional features (OCR + XWayland):",
-        "all_ok_msg": "\n✓ All required system dependencies are correctly installed!\n",
+        "model_cmd_hint": "👉 Download Kokoro TTS voice model files with:",
+        "all_ok_msg": "\n✓ All required system dependencies and voice models are correctly installed!\n",
         "desc_wl": "Allows intercepting and reading selected or copied text in native Wayland environments.",
         "desc_tray": "System library required by the Flutter GUI to display the icon and menu in the Linux system tray.",
+        "desc_portaudio": "C audio library required by PyAudio to output synthesized speech to your speakers/headphones.",
+        "desc_kokoro_model": "Neural voice model files required by Sherpa-ONNX to generate speech audio offline.",
+        "desc_pulse": "PulseAudio/PipeWire system library enabling automatic background audio ducking during speech.",
         "desc_tess": "Core OCR engine required to extract and read text directly from a screen area or screenshot.",
         "desc_langs": "Language packs and models (e.g. Italian and English) required by Tesseract OCR to recognize words and characters.",
         "desc_spectacle": "Primary screen capture tool on KDE Wayland environments to select the screen rectangle for OCR reading.",
@@ -53,6 +60,8 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
     "it": {
         "title": "SELECT-TO-SPEECH - CONTROLLO DIPENDENZE DI SISTEMA",
         "req_header": "--- Dipendenze di Sistema (Richieste per il funzionamento core) ---",
+        "req_audio_header": "\n--- Sistema Audio & Modelli TTS (Richiesti per la riproduzione vocale) ---",
+        "opt_audio_header": "\n--- Server Audio & Gestione Volume (Opzionale) ---",
         "opt_ocr_header": "\n--- Dipendenze Opzionali: Riconoscimento Testo da Schermo (OCR - Alt+R) ---",
         "opt_xwayland_header": "\n--- Dipendenze Opzionali: Compatibilità Applicazioni XWayland ---",
         "install_header": "ISTRUZIONI PER L'INSTALLAZIONE (ARCH LINUX)",
@@ -62,14 +71,19 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "package_label": "pacchetto:",
         "packages_label": "pacchetti:",
         "library_label": "libreria di sistema",
+        "model_label": "modello vocale:",
         "langs_detected_label": "lingue rilevate:",
         "missing_req_summary": "[✗] Dipendenze RICHIESTE mancanti:",
-        "missing_opt_summary": "[⚠] Dipendenze OPZIONALI mancanti (funzionalità OCR o XWayland ridotte):",
+        "missing_opt_summary": "[⚠] Dipendenze OPZIONALI mancanti (funzionalità OCR, ducking o XWayland ridotte):",
         "req_cmd_hint": "👉 Comando di installazione per le dipendenze richieste:",
         "opt_cmd_hint": "👉 Comando per abilitare tutte le funzionalità opzionali (OCR + XWayland):",
-        "all_ok_msg": "\n✓ Tutte le dipendenze di sistema richieste sono correttamente installate!\n",
+        "model_cmd_hint": "👉 Scarica i file del modello vocale Kokoro TTS con:",
+        "all_ok_msg": "\n✓ Tutte le dipendenze di sistema richieste e i modelli vocali sono correttamente installati!\n",
         "desc_wl": "Permette l'intercettazione e la lettura del testo selezionato o copiato negli ambienti nativi Wayland.",
         "desc_tray": "Libreria di sistema necessaria all'interfaccia grafica Flutter per mostrare l'icona e il menu nella system tray di Linux.",
+        "desc_portaudio": "Libreria audio C richiesta da PyAudio per riprodurre la voce sintetizzata attraverso gli altoparlanti/cuffie.",
+        "desc_kokoro_model": "File del modello vocale neurale necessari a Sherpa-ONNX per generare la voce offline.",
+        "desc_pulse": "Libreria di sistema PulseAudio/PipeWire che abilita l'abbassamento automatico del volume (audio ducking) durante la lettura.",
         "desc_tess": "Motore OCR di base necessario per estrarre e leggere il testo direttamente da un'area o screenshot dello schermo.",
         "desc_langs": "Pacchetti e modelli linguistici (es. italiano e inglese) necessari al motore OCR Tesseract per riconoscere le parole e i caratteri.",
         "desc_spectacle": "Strumento principale di cattura schermo su ambienti KDE Wayland per selezionare il rettangolo di schermo da leggere con l'OCR.",
@@ -81,6 +95,8 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
     "fr": {
         "title": "SELECT-TO-SPEECH - VÉRIFICATION DES DÉPENDANCES SYSTÈME",
         "req_header": "--- Dépendances Système (Requises pour le fonctionnement de base) ---",
+        "req_audio_header": "\n--- Système Audio & Modèles TTS (Requis pour la synthèse vocale) ---",
+        "opt_audio_header": "\n--- Serveur Audio & Gestion du Volume (Optionnel) ---",
         "opt_ocr_header": "\n--- Dépendances Optionnelles : Reconnaissance de texte à l'écran (OCR - Alt+R) ---",
         "opt_xwayland_header": "\n--- Dépendances Optionnelles : Compatibilité applications XWayland ---",
         "install_header": "INSTRUCTIONS D'INSTALLATION (ARCH LINUX)",
@@ -90,14 +106,19 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "package_label": "paquet :",
         "packages_label": "paquets :",
         "library_label": "bibliothèque système",
+        "model_label": "modèle vocal :",
         "langs_detected_label": "langues détectées :",
         "missing_req_summary": "[✗] Dépendances REQUISES manquantes :",
-        "missing_opt_summary": "[⚠] Dépendances OPTIONNELLES manquantes (fonctionnalités OCR ou XWayland réduites) :",
+        "missing_opt_summary": "[⚠] Dépendances OPTIONNELLES manquantes (fonctionnalités OCR, ducking ou XWayland réduites) :",
         "req_cmd_hint": "👉 Commande d'installation pour les dépendances requises :",
         "opt_cmd_hint": "👉 Commande pour activer toutes les fonctionnalités optionnelles (OCR + XWayland) :",
-        "all_ok_msg": "\n✓ Toutes les dépendances système requises sont correctement installées !\n",
+        "model_cmd_hint": "👉 Téléchargez les fichiers de modèles vocaux Kokoro TTS avec :",
+        "all_ok_msg": "\n✓ Toutes les dépendances système requises et les modèles vocaux sont correctement installés !\n",
         "desc_wl": "Permet d'intercepter et de lire le texte sélectionné ou copié dans les environnements Wayland natifs.",
         "desc_tray": "Bibliothèque système requise par l'interface Flutter pour afficher l'icône et le menu dans la barre d'état système Linux.",
+        "desc_portaudio": "Bibliothèque audio C requise par PyAudio pour restituer la voix synthétisée sur vos haut-parleurs/écouteurs.",
+        "desc_kokoro_model": "Fichiers de modèle vocal neuronal requis par Sherpa-ONNX pour générer la parole hors ligne.",
+        "desc_pulse": "Bibliothèque système PulseAudio/PipeWire permettant l'atténuation automatique du son en arrière-plan pendant la lecture.",
         "desc_tess": "Moteur OCR de base requis pour extraire et lire le texte directement depuis une zone d'écran ou une capture.",
         "desc_langs": "Paquets et modèles linguistiques (ex. italien et anglais) requis par Tesseract OCR pour reconnaître les mots et caractères.",
         "desc_spectacle": "Outil de capture d'écran principal sur KDE Wayland pour sélectionner le rectangle d'écran à lire par OCR.",
@@ -109,6 +130,8 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
     "es": {
         "title": "SELECT-TO-SPEECH - VERIFICACIÓN DE DEPENDENCIAS DEL SISTEMA",
         "req_header": "--- Dependencias del Sistema (Requeridas para el funcionamiento principal) ---",
+        "req_audio_header": "\n--- Sistema de Audio y Modelos TTS (Requeridos para la reproducción de voz) ---",
+        "opt_audio_header": "\n--- Servidor de Audio y Gestión de Volumen (Opcional) ---",
         "opt_ocr_header": "\n--- Dependencias Opcionales: Reconocimiento de texto en pantalla (OCR - Alt+R) ---",
         "opt_xwayland_header": "\n--- Dependencias Opcionales: Compatibilidad con aplicaciones XWayland ---",
         "install_header": "INSTRUCCIONES DE INSTALACIÓN (ARCH LINUX)",
@@ -118,14 +141,19 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "package_label": "paquete:",
         "packages_label": "paquetes:",
         "library_label": "librería del sistema",
+        "model_label": "modelo de voz:",
         "langs_detected_label": "idiomas detectados:",
         "missing_req_summary": "[✗] Dependencias REQUERIDAS faltantes:",
-        "missing_opt_summary": "[⚠] Dependencias OPCIONALES faltantes (funcionalidades OCR o XWayland reducidas):",
+        "missing_opt_summary": "[⚠] Dependencias OPCIONALES faltantes (funcionalidades OCR, ducking o XWayland reducidas):",
         "req_cmd_hint": "👉 Comando de instalación para las dependencias requeridas:",
         "opt_cmd_hint": "👉 Comando para habilitar todas las funcionalidades opcionales (OCR + XWayland):",
-        "all_ok_msg": "\n✓ ¡Todas las dependencias del sistema requeridas están correctamente instaladas!\n",
+        "model_cmd_hint": "👉 Descarga los archivos del modelo de voz Kokoro TTS con:",
+        "all_ok_msg": "\n✓ ¡Todas las dependencias del sistema requeridas y modelos de voz están correctamente instalados!\n",
         "desc_wl": "Permite interceptar y leer el texto seleccionado o copiado en entornos nativos de Wayland.",
         "desc_tray": "Librería del sistema requerida por la interfaz gráfica Flutter para mostrar el icono y el menú en la bandeja del sistema de Linux.",
+        "desc_portaudio": "Librería de audio en C requerida por PyAudio para reproducir la voz sintetizada en sus altavoces/auriculares.",
+        "desc_kokoro_model": "Archivos del modelo de voz neuronal requeridos por Sherpa-ONNX para generar voz sin conexión.",
+        "desc_pulse": "Librería de sistema PulseAudio/PipeWire que permite la atenuación automática de volumen durante la lectura.",
         "desc_tess": "Motor OCR básico requerido para extraer y leer texto directamente desde un área de pantalla o captura.",
         "desc_langs": "Paquetes y modelos lingüísticos (ej. italiano e inglés) requeridos por el motor OCR Tesseract para reconocer palabras y caracteres.",
         "desc_spectacle": "Herramienta principal de captura de pantalla en entornos KDE Wayland para seleccionar el rectángulo de pantalla para lectura OCR.",
@@ -175,6 +203,30 @@ def _check_appindicator() -> bool:
     return False
 
 
+def _check_portaudio() -> bool:
+    """Check if PortAudio library is available in the system or PyAudio can be imported."""
+    if pyaudio is not None:
+        return True
+    import ctypes.util
+    if ctypes.util.find_library("portaudio"):
+        return True
+    for path in ["/usr/lib/libportaudio.so", "/usr/lib/libportaudio.so.2", "/lib/x86_64-linux-gnu/libportaudio.so.2"]:
+        if Path(path).exists():
+            return True
+    return False
+
+
+def _check_pulseaudio() -> bool:
+    """Check if libpulse or a running PulseAudio/PipeWire pulse socket is available."""
+    import ctypes.util
+    if ctypes.util.find_library("pulse"):
+        return True
+    for path in ["/usr/lib/libpulse.so", "/usr/lib/libpulse.so.0", "/lib/x86_64-linux-gnu/libpulse.so.0"]:
+        if Path(path).exists():
+            return True
+    return False
+
+
 def check_system_dependencies(lang: str | None = None) -> bool:
     """
     Check for required and optional system dependencies with clear explanations of their purpose.
@@ -194,6 +246,7 @@ def check_system_dependencies(lang: str | None = None) -> bool:
 
     missing_required = []
     missing_optional = []
+    missing_models = []
 
     # 1. Required Core Dependencies
     logger.info(msg["req_header"])
@@ -218,7 +271,48 @@ def check_system_dependencies(lang: str | None = None) -> bool:
         logger.error(f"    └─ {msg['purpose_label']} {desc_tray}")
         missing_required.append(("libayatana-appindicator", "libayatana-appindicator", desc_tray))
 
-    # 2. Optional OCR & Screen Capture Dependencies
+    # 2. Audio System & TTS Models (Required)
+    logger.info(msg["req_audio_header"])
+
+    # portaudio
+    desc_portaudio = msg["desc_portaudio"]
+    if _check_portaudio():
+        logger.info(f"  ✓ portaudio ({msg['library_label']} libportaudio.so)")
+        logger.info(f"    └─ {msg['purpose_label']} {desc_portaudio}")
+    else:
+        logger.error(f"  ✗ portaudio ({msg['package_label']} portaudio) {msg['missing_req_tag']}")
+        logger.error(f"    └─ {msg['purpose_label']} {desc_portaudio}")
+        missing_required.append(("portaudio", "portaudio", desc_portaudio))
+
+    # kokoro model check
+    desc_kokoro_model = msg["desc_kokoro_model"]
+    has_kokoro_model = False
+    try:
+        from .voice_manager import is_kokoro_installed
+        has_kokoro_model = is_kokoro_installed("kokoro-multi-lang-v1_0")
+    except Exception:
+        has_kokoro_model = False
+
+    if has_kokoro_model:
+        logger.info(f"  ✓ Kokoro TTS ({msg['model_label']} kokoro-multi-lang-v1_0)")
+        logger.info(f"    └─ {msg['purpose_label']} {desc_kokoro_model}")
+    else:
+        logger.warning(f"  ⚠ Kokoro TTS ({msg['model_label']} kokoro-multi-lang-v1_0) {msg['missing_opt_tag']}")
+        logger.warning(f"    └─ {msg['purpose_label']} {desc_kokoro_model}")
+        missing_models.append(("kokoro-multi-lang-v1_0", desc_kokoro_model))
+
+    # 3. Audio Server & Volume Management (Optional)
+    logger.info(msg["opt_audio_header"])
+    desc_pulse = msg["desc_pulse"]
+    if _check_pulseaudio():
+        logger.info(f"  ✓ libpulse / PulseAudio ({msg['library_label']})")
+        logger.info(f"    └─ {msg['purpose_label']} {desc_pulse}")
+    else:
+        logger.warning(f"  ⚠ libpulse ({msg['package_label']} libpulse) {msg['missing_opt_tag']}")
+        logger.warning(f"    └─ {msg['purpose_label']} {desc_pulse}")
+        missing_optional.append(("libpulse", "libpulse", desc_pulse))
+
+    # 4. Optional OCR & Screen Capture Dependencies
     logger.info(msg["opt_ocr_header"])
 
     # tesseract binary
@@ -279,7 +373,7 @@ def check_system_dependencies(lang: str | None = None) -> bool:
         logger.warning(f"    └─ {msg['purpose_label']} {msg['desc_ocr_missing']}")
         missing_optional.append(("spectacle (slurp+grim)", "spectacle slurp grim", msg["desc_ocr_missing_summary"]))
 
-    # 3. Optional XWayland Compatibility
+    # 5. Optional XWayland Compatibility
     logger.info(msg["opt_xwayland_header"])
     desc_xclip = msg["desc_xclip"]
     if shutil.which("xclip"):
@@ -291,7 +385,7 @@ def check_system_dependencies(lang: str | None = None) -> bool:
         missing_optional.append(("xclip", "xclip", desc_xclip))
 
     # Summary & Installation instructions
-    if missing_required or missing_optional:
+    if missing_required or missing_optional or missing_models:
         logger.info("\n==================================================================")
         logger.info(f"           {msg['install_header']}")
         logger.info("==================================================================")
@@ -304,6 +398,13 @@ def check_system_dependencies(lang: str | None = None) -> bool:
                 logger.error(f"    └─ {msg['purpose_label']} {desc}")
             logger.error(f"\n  {msg['req_cmd_hint']}")
             logger.error(f"     sudo pacman -S {' '.join(req_pkgs)}")
+
+        if missing_models:
+            for model_id, desc in missing_models:
+                logger.warning(f"\n[⚠] {msg['model_label']} {model_id}")
+                logger.warning(f"    └─ {msg['purpose_label']} {desc}")
+                logger.warning(f"  {msg['model_cmd_hint']}")
+                logger.warning(f"     select-to-speech-download --model {model_id}")
 
         if missing_optional:
             all_opt = []
@@ -385,6 +486,29 @@ def list_audio_devices() -> None:
     logger.info("To use a specific device, edit ~/.config/select-to-speech/config.yaml:")
     logger.info("  audio:")
     logger.info("    device_id: <device_number>\n")
+
+
+def get_hardware_info() -> dict:
+    """Detect CPU model and calculate optimal threads for neural inference."""
+    model_name = "Unknown CPU"
+    try:
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if "model name" in line:
+                    model_name = line.split(":", 1)[1].strip()
+                    break
+    except Exception:
+        pass
+
+    total_threads = os.cpu_count() or 1
+    # Optimal calculation: up to 6-8 threads, reserving cores for desktop/UI
+    optimal_threads = max(1, min(6, total_threads // 2 if total_threads > 4 else total_threads))
+
+    return {
+        "cpu_model": model_name,
+        "total_threads": total_threads,
+        "optimal_threads": optimal_threads,
+    }
 
 
 def main_audio_devices(argv: list[str] | None = None) -> int:
