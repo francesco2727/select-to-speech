@@ -8,7 +8,7 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Iterator, Optional, Tuple
+from typing import Iterator, Optional, Tuple, Union
 
 import emoji
 import numpy as np
@@ -309,6 +309,42 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
 }
 
 
+# Precompiled regular expressions for text preprocessing and chunking
+_RE_EMOJI_COLON = re.compile(r":([^:]+):")
+_RE_DATE_PATTERNS = [
+    re.compile(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b"),
+    re.compile(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2}\b"),
+    re.compile(r"\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b"),
+    re.compile(r"\b\d{1,2}[/-]\d{4}\b"),
+]
+_RE_DOT = re.compile(
+    r"(?<=[a-zA-Z_-])\.(?=[a-zA-Z0-9_-])|(?<=[a-zA-Z0-9_-])\.(?=[a-zA-Z_-])"
+)
+_SCALE_WORDS = (
+    r"(?:thousand|thousands|million|millions|billion|billions|trillion|trillions|"
+    r"mila|milione|milioni|miliardo|miliardi|mil|millón|millones|billón|billones|"
+    r"mille|millier|milliers|milliard|milliards|Tausend|Million|Millionen|Milliarde|Milliarden|"
+    r"milhão|milhões|bilhão|bilhões|bilião|biliões)"
+)
+_RE_PREFIX_CURRENCY = re.compile(
+    rf"([$€£¥₹₽₩¢฿₺₴])\s*(\d+(?:[.,]\d+)*)(?:\s+({_SCALE_WORDS})\b)?",
+    re.IGNORECASE,
+)
+_RE_MINUS_SPACED = re.compile(r"\s+-\s+")
+_RE_MINUS_NUMBER = re.compile(r"(^|\s)-(?=\d)")
+_RE_TIMES_DIGIT = re.compile(r"(?<=\d)\s*\*\s*(?=\d)")
+_RE_TIMES_SPACED = re.compile(r"\s+\*\s+")
+_RE_DIVIDE_DIGIT = re.compile(r"(?<=\d)\s*/\s*(?=\d)")
+_RE_DIVIDE_SPACED = re.compile(r"\s+/\s+")
+_RE_DATE_SEP = re.compile(r"[/-]")
+_RE_WHITESPACE = re.compile(r"\s+")
+_RE_SANITIZE_CHARS = re.compile(r"[^\w\s.,!?;:\'\"/-]")
+_RE_NEWLINE_NO_PUNCT = re.compile(r"([^.!?])\n+")
+_RE_NEWLINE_WITH_PUNCT = re.compile(r"([.!?])\n+")
+_RE_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+_RE_WEAK_SPLIT = re.compile(r"(?<=[,;:—])\s+")
+
+
 class BaseTTSEngine(ABC):
     """Abstract base class for TTS engines"""
 
@@ -336,36 +372,19 @@ class BaseTTSEngine(ABC):
             demojized = emoji.demojize(text, language=lang_key)
         except (KeyError, ValueError, TypeError):
             demojized = emoji.demojize(text, language="en")
-        text = re.sub(r":([^:]+):", lambda m: " " + m.group(1).replace("_", " ") + " ", demojized)
+        text = _RE_EMOJI_COLON.sub(lambda m: " " + m.group(1).replace("_", " ") + " ", demojized)
 
         # Mask dates to prevent their separators from being replaced by math operations
-        date_patterns = [
-            r"\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b",
-            r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2}\b",
-            r"\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b",
-            r"\b\d{1,2}[/-]\d{4}\b",
-        ]
-
-        date_placeholders = {}
-        for pattern in date_patterns:
-            def repl(match):
+        date_placeholders: dict[str, str] = {}
+        for pattern in _RE_DATE_PATTERNS:
+            def repl(match: re.Match) -> str:
                 placeholder = f"__DATE_{len(date_placeholders)}__"
                 date_placeholders[placeholder] = match.group(0)
                 return placeholder
-            text = re.sub(pattern, repl, text)
+            text = pattern.sub(repl, text)
 
         # Replace dots in domains/filenames
-        dot_pattern = r"(?<=[a-zA-Z_-])\.(?=[a-zA-Z0-9_-])|(?<=[a-zA-Z0-9_-])\.(?=[a-zA-Z_-])"
-        text = re.sub(dot_pattern, f" {words['dot']} ", text)
-
-        # Replace currency symbols
-        scale_words = (
-            r"(?:thousand|thousands|million|millions|billion|billions|trillion|trillions|"
-            r"mila|milione|milioni|miliardo|miliardi|mil|millón|millones|billón|billones|"
-            r"mille|millier|milliers|milliard|milliards|Tausend|Million|Millionen|Milliarde|Milliarden|"
-            r"milhão|milhões|bilhão|bilhões|bilião|biliões)"
-        )
-        pattern_prefix = rf"([$€£¥₹₽₩¢฿₺₴])\s*(\d+(?:[.,]\d+)*)(?:\s+({scale_words})\b)?"
+        text = _RE_DOT.sub(f" {words['dot']} ", text)
 
         def _replace_prefix_currency(match: re.Match) -> str:
             sym = match.group(1)
@@ -379,7 +398,7 @@ class BaseTTSEngine(ABC):
                 return f" {num} {scale} {sym_name} "
             return f" {num} {sym_name} "
 
-        text = re.sub(pattern_prefix, _replace_prefix_currency, text, flags=re.IGNORECASE)
+        text = _RE_PREFIX_CURRENCY.sub(_replace_prefix_currency, text)
 
         for sym, key in _CURRENCY_SYMBOLS.items():
             if sym in text:
@@ -387,24 +406,32 @@ class BaseTTSEngine(ABC):
                 if sym_name:
                     text = text.replace(sym, f" {sym_name} ")
 
-        text = text.replace("%", f" {words['percent']} ")
-        text = text.replace("+", f" {words['plus']} ")
+        if "%" in text:
+            text = text.replace("%", f" {words['percent']} ")
+        if "+" in text:
+            text = text.replace("+", f" {words['plus']} ")
 
-        text = re.sub(r"\s+-\s+", f" {words['minus']} ", text)
-        text = re.sub(r"(^|\s)-(?=\d)", rf"\1{words['minus']} ", text)
+        if "-" in text:
+            text = _RE_MINUS_SPACED.sub(f" {words['minus']} ", text)
+            text = _RE_MINUS_NUMBER.sub(rf"\1{words['minus']} ", text)
 
-        text = re.sub(r"(?<=\d)\s*\*\s*(?=\d)", f" {words['times']} ", text)
-        text = re.sub(r"\s+\*\s+", f" {words['times']} ", text)
+        if "*" in text:
+            text = _RE_TIMES_DIGIT.sub(f" {words['times']} ", text)
+            text = _RE_TIMES_SPACED.sub(f" {words['times']} ", text)
 
-        text = re.sub(r"(?<=\d)\s*/\s*(?=\d)", f" {words['divide']} ", text)
-        text = re.sub(r"\s+/\s+", f" {words['divide']} ", text)
+        if "/" in text:
+            text = _RE_DIVIDE_DIGIT.sub(f" {words['divide']} ", text)
+            text = _RE_DIVIDE_SPACED.sub(f" {words['divide']} ", text)
 
-        text = text.replace("=", f" {words['equals']} ")
-        text = text.replace("<", f" {words['less']} ")
-        text = text.replace(">", f" {words['greater']} ")
+        if "=" in text:
+            text = text.replace("=", f" {words['equals']} ")
+        if "<" in text:
+            text = text.replace("<", f" {words['less']} ")
+        if ">" in text:
+            text = text.replace(">", f" {words['greater']} ")
 
         for placeholder, original_date in date_placeholders.items():
-            spaced_date = re.sub(r"[/-]", " ", original_date)
+            spaced_date = _RE_DATE_SEP.sub(" ", original_date)
             text = text.replace(placeholder, spaced_date)
 
         return text
@@ -415,20 +442,20 @@ class BaseTTSEngine(ABC):
             text = self.preprocess_text(text, language)
         text = text.replace('"""', '"')
         text = text.replace("'''", "'")
-        text = re.sub(r"\s+", " ", text)
-        text = re.sub(r"[^\w\s.,!?;:\'\"/-]", "", text)
+        text = _RE_WHITESPACE.sub(" ", text)
+        text = _RE_SANITIZE_CHARS.sub("", text)
         text = text.strip()
         logger.debug(f"Sanitized: '{text[:100]}{'...' if len(text) > 100 else ''}'")
         return text
 
     def _chunk_text(self, text: str, max_chars: int = 80, language: Optional[str] = None, already_preprocessed: bool = False) -> list[str]:
         """Split text into logical, speakable chunks for streaming TTS."""
-        text = re.sub(r"([^.!?])\n+", r"\1. ", text)
-        text = re.sub(r"([.!?])\n+", r"\1 ", text)
+        text = _RE_NEWLINE_NO_PUNCT.sub(r"\1. ", text)
+        text = _RE_NEWLINE_WITH_PUNCT.sub(r"\1 ", text)
 
         text = self._sanitize_text(text, language=language, already_preprocessed=already_preprocessed)
 
-        raw_sentences = re.split(r"(?<=[.!?])\s+", text)
+        raw_sentences = _RE_SENTENCE_SPLIT.split(text)
         chunks = []
 
         def _split_and_add_weak(sentence: str):
@@ -437,7 +464,7 @@ class BaseTTSEngine(ABC):
                     chunks.append(sentence)
                 return
 
-            weak_parts = re.split(r"(?<=[,;:—])\s+", sentence)
+            weak_parts = _RE_WEAK_SPLIT.split(sentence)
             current_chunk = ""
 
             def _add_piece(piece: str):
@@ -714,7 +741,7 @@ class KokoroEngine(BaseTTSEngine):
         volume: float = 1.0,
         phoneme_lang: Optional[str] = None,
         stop_event: Optional[threading.Event] = None,
-    ) -> Iterator[Tuple[bytes, int]]:
+    ) -> Iterator[Tuple[Union[np.ndarray, bytes], int]]:
         if not text or not text.strip():
             return
 
@@ -729,8 +756,8 @@ class KokoroEngine(BaseTTSEngine):
         gen_config.speed = speed
         gen_config.extra = {"lang": lang_code}
 
-        # Queue to pass audio chunks produced by Sherpa C++ callback to this generator
-        audio_chunk_queue: queue.Queue[Optional[Tuple[bytes, int]]] = queue.Queue(maxsize=16)
+        # Queue to pass raw float32 audio chunks produced by Sherpa C++ callback to this generator
+        audio_chunk_queue: queue.Queue[Optional[Tuple[np.ndarray, int]]] = queue.Queue(maxsize=16)
         synthesis_error: list[Optional[Exception]] = [None]
 
         def _on_samples(samples: np.ndarray, progress: float) -> int:
@@ -738,12 +765,12 @@ class KokoroEngine(BaseTTSEngine):
                 return 0  # Stop C++ generation immediately
 
             if len(samples) > 0:
-                s = np.array(samples, dtype=np.float32)
+                s = np.asarray(samples, dtype=np.float32)
                 if volume != 1.0:
                     s = np.clip(s * volume, -1.0, 1.0)
-                with io.BytesIO() as out:
-                    sf.write(out, s, self.tts.sample_rate, format="WAV", subtype="PCM_16")
-                    audio_chunk_queue.put((out.getvalue(), self.tts.sample_rate))
+                else:
+                    s = s.copy()
+                audio_chunk_queue.put((s, self.tts.sample_rate))
 
             return 0 if (stop_event is not None and stop_event.is_set()) else 1
 

@@ -169,14 +169,20 @@ class SelectToSpeechApp:
         logger.info("Configuration successfully reloaded")
 
     def _build_lingua_detector(self):
-        """Build a lingua detector for all configured languages."""
+        """Build a lingua detector only for languages with a configured voice model."""
         configured_langs = [
             _LINGUA_LANGUAGES[code]
-            for code in self.config.voice.language_models
-            if code in _LINGUA_LANGUAGES
+            for code, model in self.config.voice.language_models.items()
+            if model and code in _LINGUA_LANGUAGES
         ]
-        if not configured_langs:
-            configured_langs = list(_LINGUA_LANGUAGES.values())
+        default_lang = getattr(self.config.voice, "language", "en")
+        if default_lang in _LINGUA_LANGUAGES and _LINGUA_LANGUAGES[default_lang] not in configured_langs:
+            configured_langs.append(_LINGUA_LANGUAGES[default_lang])
+        if len(configured_langs) < 2:
+            # Ensure at least English + Italian (or all supported if neither) so detection works
+            for fallback_code in ("en", "it"):
+                if fallback_code in _LINGUA_LANGUAGES and _LINGUA_LANGUAGES[fallback_code] not in configured_langs:
+                    configured_langs.append(_LINGUA_LANGUAGES[fallback_code])
         return LanguageDetectorBuilder.from_languages(*configured_langs).build()
 
     def _detect_language(self, text: str) -> Optional[str]:
@@ -192,48 +198,6 @@ class SelectToSpeechApp:
         except Exception as e:
             logger.warning(f"Language detection failed: {e}")
         return None
-
-    def _segment_by_language(self, text: str, dominant_lang: str) -> list[tuple[str, str]]:
-        """
-        Split text into (segment, lang_code) pairs using per-span language detection.
-        Segments whose detected language has no configured voice fall back to dominant_lang.
-        """
-        try:
-            results = self._lingua_detector.detect_multiple_languages_of(text)
-        except Exception as e:
-            logger.warning(f"Multi-language segmentation failed: {e}")
-            return [(text, dominant_lang)]
-
-        if not results:
-            return [(text, dominant_lang)]
-
-        segments: list[tuple[str, str]] = []
-        for result in results:
-            segment_text = text[result.start_index:result.end_index]
-            if not segment_text.strip():
-                continue
-            lang_code = result.language.iso_code_639_1.name.lower()
-            # Fall back to dominant if no voice is configured for this language
-            if not self.config.voice.language_models.get(lang_code):
-                lang_code = dominant_lang
-            segments.append((segment_text, lang_code))
-
-        if not segments:
-            return [(text, dominant_lang)]
-
-        # Merge consecutive segments with the same language
-        merged: list[tuple[str, str]] = [segments[0]]
-        for seg_text, seg_lang in segments[1:]:
-            if seg_lang == merged[-1][1]:
-                merged[-1] = (merged[-1][0] + seg_text, seg_lang)
-            else:
-                merged.append((seg_text, seg_lang))
-
-        if len(merged) > 1:
-            langs = ", ".join(f"'{l}'" for _, l in merged)
-            logger.debug(f"Mixed-language text split into {len(merged)} segments: {langs}")
-
-        return merged
 
     def _on_text_selected(self, text: str, play_feedback: bool = True) -> None:
         """
@@ -558,12 +522,37 @@ class SelectToSpeechApp:
 
 
 def main() -> int:
-    """Main entry point for the application"""
+    """Main entry point for the application (supports multi-call binary dispatch)."""
+    prog_name = Path(sys.argv[0]).name if sys.argv else "select-to-speech"
+
+    # Multi-call symlink dispatch or explicit subcommand flags
+    if prog_name == "select-to-speech-check" or "--check" in sys.argv:
+        if "--check" in sys.argv:
+            sys.argv.remove("--check")
+        from select_to_speech.system_check import main_check
+        return main_check()
+
+    if prog_name == "select-to-speech-audio" or "--audio-devices" in sys.argv:
+        if "--audio-devices" in sys.argv:
+            sys.argv.remove("--audio-devices")
+        from select_to_speech.system_check import main_audio_devices
+        return main_audio_devices()
+
+    if prog_name == "select-to-speech-download" or "--download" in sys.argv:
+        if "--download" in sys.argv:
+            sys.argv.remove("--download")
+        from select_to_speech.voice_manager import download_kokoro_cli
+        download_kokoro_cli()
+        return 0
+
     if len(sys.argv) > 1 and any(arg in sys.argv for arg in ("-h", "--help")):
         print("Select-to-Speech daemon & backend server")
         print("Usage: select-to-speech [options]")
         print("\nOptions:")
-        print("  -h, --help     Show this help message and exit")
+        print("  -h, --help         Show this help message and exit")
+        print("  --check            Run system dependency check")
+        print("  --audio-devices    List available audio output devices")
+        print("  --download         Download Kokoro TTS model files")
         return 0
 
     from select_to_speech.api.server import run_server

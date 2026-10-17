@@ -187,6 +187,31 @@ class TestAudioPlayerPlayback:
         mock_stream.stop_stream.assert_called_once()
         mock_stream.close.assert_called_once()
 
+    @patch('select_to_speech.audio_player.pyaudio.PyAudio')
+    def test_play_stream_numpy_float32(self, mock_pyaudio_class):
+        """Test streaming raw float32 numpy audio array without WAV decoding"""
+        import queue
+        import numpy as np
+        mock_pyaudio = MagicMock()
+        mock_stream = MagicMock()
+        mock_pyaudio.open.return_value = mock_stream
+        mock_pyaudio.get_format_from_width.return_value = 8
+        mock_pyaudio_class.return_value = mock_pyaudio
+
+        player = AudioPlayer()
+        samples = np.linspace(-0.5, 0.5, 2400, dtype=np.float32)
+
+        q = queue.Queue()
+        q.put((samples, 24000))
+        q.put(None)  # EOF
+
+        result = player.play_stream(q)
+
+        assert result is True
+        mock_stream.write.assert_called()
+        mock_stream.stop_stream.assert_called_once()
+        mock_stream.close.assert_called_once()
+
 
 class TestAudioPlayerDeviceHandling:
     """Test device handling and fallback mechanisms"""

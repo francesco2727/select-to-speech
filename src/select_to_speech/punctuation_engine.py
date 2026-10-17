@@ -57,28 +57,35 @@ def download_punct_model(
         return True
 
     url = PUNCT_MODEL_INFO["download_url"]
+    archive_path = _punct_dir() / PUNCT_MODEL_INFO["archive"]
     logger.info(f"Downloading neural punctuation model from {url}...")
 
     try:
-        response = requests.get(url, stream=True, timeout=60)
-        response.raise_for_status()
+        with requests.get(url, stream=True, timeout=60) as response:
+            response.raise_for_status()
 
-        total = int(response.headers.get("content-length", 0))
-        downloaded = 0
-        chunks = []
+            total = int(response.headers.get("content-length", 0))
+            downloaded = 0
 
-        for chunk in response.iter_content(chunk_size=1024 * 64):
-            if chunk:
-                chunks.append(chunk)
-                downloaded += len(chunk)
-                if progress_cb:
-                    progress_cb(downloaded, total)
+            with open(archive_path, "wb") as fh:
+                for chunk in response.iter_content(chunk_size=1024 * 64):
+                    if chunk:
+                        fh.write(chunk)
+                        downloaded += len(chunk)
+                        if progress_cb:
+                            progress_cb(downloaded, total)
 
         logger.info(f"Punctuation archive downloaded ({downloaded} bytes). Extracting...")
-        archive_bytes = b"".join(chunks)
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
 
-        with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:bz2") as tar:
-            tar.extractall(path=_punct_dir())
+        with tarfile.open(archive_path, mode="r:bz2") as tar:
+            if hasattr(tarfile, "data_filter"):
+                tar.extractall(path=_punct_dir(), filter="data")
+            else:
+                tar.extractall(path=_punct_dir())
+
+        archive_path.unlink(missing_ok=True)
 
         if is_punct_model_installed():
             logger.info("Neural punctuation model installed successfully.")
@@ -88,6 +95,8 @@ def download_punct_model(
             return False
     except Exception as e:
         logger.error(f"Failed to download punctuation model: {e}", exc_info=True)
+        if archive_path.exists():
+            archive_path.unlink(missing_ok=True)
         return False
 
 

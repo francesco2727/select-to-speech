@@ -1,5 +1,6 @@
 """Sound feedback generator and player using PyAudio and NumPy for UI earcons."""
 
+import functools
 import logging
 import threading
 from typing import Optional
@@ -9,43 +10,56 @@ import pyaudio
 logger = logging.getLogger(__name__)
 
 
+@functools.lru_cache(maxsize=32)
+def _cached_tone(freq: float, duration_s: float, volume: float = 0.15, sample_rate: int = 44100) -> np.ndarray:
+    """Generate and cache a smooth sine wave tone with attack and decay envelope."""
+    n_samples = int(sample_rate * duration_s)
+    if n_samples <= 0:
+        return np.zeros(0, dtype=np.int16)
+
+    t = np.linspace(0, duration_s, n_samples, endpoint=False)
+    signal = np.sin(2 * np.pi * freq * t)
+
+    # Attack and decay envelope to prevent clicks
+    attack_samples = min(int(0.012 * sample_rate), n_samples // 4)
+    decay_samples = min(int(0.025 * sample_rate), n_samples // 3)
+
+    envelope = np.ones(n_samples)
+    if attack_samples > 0:
+        envelope[:attack_samples] = np.linspace(0.0, 1.0, attack_samples)
+    if decay_samples > 0:
+        envelope[-decay_samples:] = np.linspace(1.0, 0.0, decay_samples)
+
+    samples = (signal * envelope * volume * 32767).astype(np.int16)
+    return samples
+
+
 class SoundFeedback:
     """Generates and plays short, pleasant synthetic UI sound feedback tones."""
 
     _lock = threading.Lock()
+    _pa: Optional[pyaudio.PyAudio] = None
 
     @classmethod
     def _generate_tone(cls, freq: float, duration_s: float, volume: float = 0.15, sample_rate: int = 44100) -> np.ndarray:
         """Generate a smooth sine wave tone with attack and decay envelope."""
-        n_samples = int(sample_rate * duration_s)
-        if n_samples <= 0:
-            return np.zeros(0, dtype=np.int16)
+        return _cached_tone(freq, duration_s, volume, sample_rate)
 
-        t = np.linspace(0, duration_s, n_samples, endpoint=False)
-        signal = np.sin(2 * np.pi * freq * t)
-
-        # Attack and decay envelope to prevent clicks
-        attack_samples = min(int(0.012 * sample_rate), n_samples // 4)
-        decay_samples = min(int(0.025 * sample_rate), n_samples // 3)
-
-        envelope = np.ones(n_samples)
-        if attack_samples > 0:
-            envelope[:attack_samples] = np.linspace(0.0, 1.0, attack_samples)
-        if decay_samples > 0:
-            envelope[-decay_samples:] = np.linspace(1.0, 0.0, decay_samples)
-
-        samples = (signal * envelope * volume * 32767).astype(np.int16)
-        return samples
+    @classmethod
+    def _get_pyaudio(cls) -> pyaudio.PyAudio:
+        """Return a shared PyAudio instance to avoid costly PortAudio re-initialization."""
+        if cls._pa is None:
+            cls._pa = pyaudio.PyAudio()
+        return cls._pa
 
     @classmethod
     def _play_audio_bytes(cls, audio_data: bytes, sample_rate: int = 44100) -> None:
         """Play PCM 16-bit audio bytes in a thread-safe manner."""
         def _worker():
             with cls._lock:
-                pa = None
                 stream = None
                 try:
-                    pa = pyaudio.PyAudio()
+                    pa = cls._get_pyaudio()
                     stream = pa.open(
                         format=pyaudio.paInt16,
                         channels=1,
@@ -55,16 +69,17 @@ class SoundFeedback:
                     stream.write(audio_data)
                 except Exception as e:
                     logger.debug(f"Could not play sound feedback tone: {e}")
+                    if cls._pa is not None:
+                        try:
+                            cls._pa.terminate()
+                        except Exception:
+                            pass
+                        cls._pa = None
                 finally:
                     if stream:
                         try:
                             stream.stop_stream()
                             stream.close()
-                        except Exception:
-                            pass
-                    if pa:
-                        try:
-                            pa.terminate()
                         except Exception:
                             pass
 

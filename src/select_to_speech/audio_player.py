@@ -13,7 +13,6 @@ import pyaudio
 import wave
 import numpy as np
 from pedalboard import Pedalboard, PitchShift
-import os
 
 try:
     import pulsectl
@@ -29,6 +28,7 @@ class AudioDucker:
         self.duck_volume = duck_volume
         self.enabled = True
         self._original_volumes: dict[int, list[float]] = {}
+        self._pulse = None
         self._queue: queue.Queue = queue.Queue()
         self._worker_thread = threading.Thread(
             target=self._worker_loop,
@@ -36,6 +36,22 @@ class AudioDucker:
             name="AudioDucker-Worker"
         )
         self._worker_thread.start()
+
+    def _get_pulse(self):
+        """Return a persistent Pulse connection for the worker thread, reconnecting if needed."""
+        if not pulsectl:
+            return None
+        if self._pulse is None:
+            self._pulse = pulsectl.Pulse('select-to-speech-ducker')
+        return self._pulse
+
+    def _reset_pulse(self) -> None:
+        if self._pulse is not None:
+            try:
+                self._pulse.close()
+            except Exception:
+                pass
+            self._pulse = None
 
     def _worker_loop(self) -> None:
         """Dedicated background loop that serializes all PulseAudio operations safely without leaks."""
@@ -50,26 +66,34 @@ class AudioDucker:
                     self._do_ensure_own_volume_max()
             except Exception as e:
                 logger.warning(f"AudioDucker action '{action}' failed: {e}")
+                self._reset_pulse()
             finally:
                 self._queue.task_done()
+
+    def _is_own_sink_input(self, sink_input, my_pid: str) -> bool:
+        """Check whether a PulseAudio/PipeWire sink-input belongs to this process."""
+        pid_str = sink_input.proplist.get('application.process.id')
+        if pid_str and str(pid_str) == my_pid:
+            return True
+        app_name = sink_input.proplist.get('application.name', '').lower()
+        proc_bin = sink_input.proplist.get('application.process.binary', '').lower()
+        if any(k in app_name or k in proc_bin for k in ('select-to-speech', 'python', 'alsa plug-in')):
+            return True
+        return False
 
     def _do_duck(self) -> None:
         if not self.enabled or not pulsectl:
             return
 
-        pulse = None
         try:
-            pulse = pulsectl.Pulse('select-to-speech-ducker')
-            my_pid = os.getpid()
+            pulse = self._get_pulse()
+            if not pulse:
+                return
+            my_pid = str(os.getpid())
             sink_inputs = pulse.sink_input_list()
 
             for sink_input in sink_inputs:
-                pid_str = sink_input.proplist.get('application.process.id')
-                app_name = sink_input.proplist.get('application.name', '').lower()
-
-                if pid_str and str(pid_str) == str(my_pid):
-                    continue
-                if 'python' in app_name or 'select-to-speech' in app_name:
+                if self._is_own_sink_input(sink_input, my_pid):
                     continue
 
                 if sink_input.index not in self._original_volumes:
@@ -78,12 +102,7 @@ class AudioDucker:
                 pulse.volume_set_all_chans(sink_input, self.duck_volume)
         except Exception as e:
             logger.warning(f"Failed to duck audio: {e}")
-        finally:
-            if pulse:
-                try:
-                    pulse.close()
-                except Exception:
-                    pass
+            self._reset_pulse()
 
     def _do_unduck(self) -> None:
         if not self.enabled or not pulsectl:
@@ -93,49 +112,33 @@ class AudioDucker:
         if not self._original_volumes:
             return
 
-        pulse = None
         try:
-            pulse = pulsectl.Pulse('select-to-speech-unducker')
+            pulse = self._get_pulse()
+            if not pulse:
+                return
             for sink_input in pulse.sink_input_list():
                 if sink_input.index in self._original_volumes:
                     pulse.volume_set_all_chans(sink_input, self._original_volumes[sink_input.index])
         except Exception as e:
             logger.warning(f"Failed to restore audio volume: {e}")
+            self._reset_pulse()
         finally:
             self._original_volumes.clear()
-            if pulse:
-                try:
-                    pulse.close()
-                except Exception:
-                    pass
 
     def _do_ensure_own_volume_max(self) -> None:
-        if not self.enabled or not pulsectl:
+        if not pulsectl:
             return
-        pulse = None
         try:
-            pulse = pulsectl.Pulse('select-to-speech-vol-fix')
-            my_pid = os.getpid()
+            pulse = self._get_pulse()
+            if not pulse:
+                return
+            my_pid = str(os.getpid())
             for sink_input in pulse.sink_input_list():
-                pid_str = sink_input.proplist.get('application.process.id')
-                app_name = sink_input.proplist.get('application.name', '').lower()
-
-                is_ours = False
-                if pid_str and str(pid_str) == str(my_pid):
-                    is_ours = True
-                if 'python' in app_name or 'select-to-speech' in app_name:
-                    is_ours = True
-
-                if is_ours:
+                if self._is_own_sink_input(sink_input, my_pid):
                     pulse.volume_set_all_chans(sink_input, 1.0)
         except Exception as e:
             logger.warning(f"Failed to restore own audio volume: {e}")
-        finally:
-            if pulse:
-                try:
-                    pulse.close()
-                except Exception:
-                    pass
+            self._reset_pulse()
 
     def start_ducking(self) -> None:
         """Enqueue ducking request."""
@@ -151,7 +154,7 @@ class AudioDucker:
 
     def ensure_own_volume_max(self) -> None:
         """Enqueue stream volume maximization request."""
-        if not self.enabled or not pulsectl:
+        if not pulsectl:
             return
         self._queue.put("ensure_max")
 
@@ -365,6 +368,13 @@ class AudioPlayer:
             self._stop_requested = False
             self.ducker.start_ducking()
             stream_opened = False
+            board: Optional[Pedalboard] = None
+            if pitch != 1.0:
+                try:
+                    semitones = 12 * math.log2(pitch)
+                    board = Pedalboard([PitchShift(semitones=semitones)])
+                except Exception as e:
+                    logger.error(f"Failed to initialize pitch shift board: {e}", exc_info=True)
 
             try:
                 while not self._stop_requested:
@@ -376,30 +386,43 @@ class AudioPlayer:
                         break
 
                     audio_data, sample_rate = chunk_data
-                    if not audio_data:
+                    if audio_data is None or (isinstance(audio_data, (bytes, np.ndarray)) and len(audio_data) == 0):
                         continue
 
-                    audio_buffer = io.BytesIO(audio_data)
-                    with wave.open(audio_buffer, "rb") as wav_file:
-                        n_channels = wav_file.getnchannels()
-                        sample_width = wav_file.getsampwidth()
-                        frame_rate = wav_file.getframerate()
-                        frames = wav_file.readframes(wav_file.getnframes())
+                    if isinstance(audio_data, np.ndarray):
+                        n_channels = 1
+                        sample_width = 2
+                        frame_rate = sample_rate
+                        audio_float = np.asarray(audio_data, dtype=np.float32)
+                        if board is not None:
+                            try:
+                                audio_float = board(audio_float, sample_rate=frame_rate, reset=False)
+                            except Exception as e:
+                                logger.error(f"Failed to apply pitch shift: {e}", exc_info=True)
+                        frames = (np.clip(audio_float, -1.0, 1.0) * 32767.0).astype(np.int16).tobytes()
+                    else:
+                        audio_buffer = io.BytesIO(audio_data)
+                        with wave.open(audio_buffer, "rb") as wav_file:
+                            n_channels = wav_file.getnchannels()
+                            sample_width = wav_file.getsampwidth()
+                            frame_rate = wav_file.getframerate()
+                            frames = wav_file.readframes(wav_file.getnframes())
+
+                        if not frames:
+                            continue
+
+                        if board is not None and sample_width == 2:
+                            try:
+                                audio_int16 = np.frombuffer(frames, dtype=np.int16)
+                                audio_float = audio_int16.astype(np.float32) / 32768.0
+                                processed_audio = board(audio_float, sample_rate=frame_rate, reset=False)
+                                processed_int16 = (np.clip(processed_audio, -1.0, 1.0) * 32767.0).astype(np.int16)
+                                frames = processed_int16.tobytes()
+                            except Exception as e:
+                                logger.error(f"Failed to apply pitch shift: {e}", exc_info=True)
 
                     if not frames:
                         continue
-
-                    if pitch != 1.0 and sample_width == 2:
-                        try:
-                            audio_int16 = np.frombuffer(frames, dtype=np.int16)
-                            audio_float = audio_int16.astype(np.float32) / 32768.0
-                            semitones = 12 * math.log2(pitch)
-                            board = Pedalboard([PitchShift(semitones=semitones)])
-                            processed_audio = board(audio_float, sample_rate=frame_rate, reset=False)
-                            processed_int16 = (processed_audio * 32767.0).astype(np.int16)
-                            frames = processed_int16.tobytes()
-                        except Exception as e:
-                            logger.error(f"Failed to apply pitch shift: {e}", exc_info=True)
 
                     if not stream_opened:
                         if not self._open_stream_with_fallback(sample_width, n_channels, frame_rate):

@@ -42,56 +42,71 @@ jobs:
       - name: Install dependencies
         run: uv pip install --system . nuitka ordered-set
 
-      - name: Create entry points
+      - name: Create entry point
         run: |
           cat > run_main.py << 'ENTRY'
-          from select_to_speech.main import main
+          import os
           import sys
+
+          def _dispatch() -> int:
+              prog = os.path.basename(sys.argv[0]) if sys.argv else "select-to-speech"
+              if prog == "select-to-speech-check" or "--check" in sys.argv:
+                  if "--check" in sys.argv:
+                      sys.argv.remove("--check")
+                  from select_to_speech.system_check import main_check
+                  return main_check()
+              if prog == "select-to-speech-audio" or "--audio-devices" in sys.argv:
+                  if "--audio-devices" in sys.argv:
+                      sys.argv.remove("--audio-devices")
+                  from select_to_speech.system_check import main_audio_devices
+                  return main_audio_devices()
+              if prog == "select-to-speech-download" or "--download" in sys.argv:
+                  if "--download" in sys.argv:
+                      sys.argv.remove("--download")
+                  from select_to_speech.voice_manager import download_kokoro_cli
+                  download_kokoro_cli()
+                  return 0
+              if len(sys.argv) > 1 and any(a in sys.argv for a in ("-h", "--help")):
+                  print("Select-to-Speech daemon & backend server")
+                  print("Usage: select-to-speech [options]")
+                  print("\nOptions:")
+                  print("  -h, --help         Show this help message and exit")
+                  print("  --check            Run system dependency check")
+                  print("  --audio-devices    List available audio output devices")
+                  print("  --download         Download Kokoro TTS model files")
+                  return 0
+              from select_to_speech.main import main
+              return main()
+
           if __name__ == "__main__":
-              sys.exit(main())
+              sys.exit(_dispatch())
           ENTRY
           sed -i 's/^          //' run_main.py
 
-          cat > run_check.py << 'ENTRY'
-          import sys
-          from select_to_speech.system_check import main_check
-          if __name__ == "__main__":
-              sys.exit(main_check())
-          ENTRY
-          sed -i 's/^          //' run_check.py
-
-          cat > run_audio.py << 'ENTRY'
-          import sys
-          from select_to_speech.system_check import main_audio_devices
-          if __name__ == "__main__":
-              sys.exit(main_audio_devices())
-          ENTRY
-          sed -i 's/^          //' run_audio.py
-
-          cat > run_download.py << 'ENTRY'
-          from select_to_speech.voice_manager import download_kokoro_cli
-          if __name__ == "__main__":
-              download_kokoro_cli()
-          ENTRY
-          sed -i 's/^          //' run_download.py
-
-      - name: Build all binaries with Nuitka
+      - name: Build single multi-call binary with Nuitka
         run: |
-          # Common Nuitka flags
           # Note: ccache is already in PATH via hendrikmuhs/ccache-action symlinks
           NUITKA_FLAGS=(
             --onefile
+            --onefile-tempdir-spec="{CACHE_DIR}/select-to-speech/${{ github.ref_name }}"
+            --lto=yes
+            --python-flag=no_site
+            --python-flag=no_docstrings
+            --python-flag=no_asserts
+            --nofollow-import-to=pytest,unittest,doctest,pdb,tkinter,idlelib
             --include-package=select_to_speech
             --include-package=sherpa_onnx
-            --include-package=sherpa_onnx_core
             --include-package=uvicorn
             --include-package=fastapi
             --include-package=pydantic
             --include-package=pulsectl
             --include-package=lingua
             --include-package=pedalboard
+            --include-module=pedalboard_native
             --include-package=pynput
+            --include-package=Xlib
             --include-package=soundfile
+            --include-package=_soundfile_data
             --include-package=_cffi_backend
             --include-package=pyaudio
             --include-package=yaml
@@ -102,24 +117,20 @@ jobs:
             --include-package-data=lingua
             --include-package-data=emoji
             --include-package-data=certifi
+            --include-package-data=_soundfile_data
           )
 
-          build_binary() {
-            local output_name="$1"
-            local entry_file="$2"
-            echo ""
-            echo "=========================================="
-            echo "Building $output_name"
-            echo "=========================================="
-            python -m nuitka "${NUITKA_FLAGS[@]}" \
-              --output-filename="$output_name" \
-              "$entry_file"
-          }
+          echo "=========================================="
+          echo "Building unified select-to-speech binary"
+          echo "=========================================="
+          python -m nuitka "${NUITKA_FLAGS[@]}" \
+            --output-filename="select-to-speech" \
+            "run_main.py"
 
-          build_binary "select-to-speech"          "run_main.py"
-          build_binary "select-to-speech-check"    "run_check.py"
-          build_binary "select-to-speech-audio"    "run_audio.py"
-          build_binary "select-to-speech-download" "run_download.py"
+          # Create multi-call symlinks for auxiliary CLI tools
+          ln -sf select-to-speech select-to-speech-check
+          ln -sf select-to-speech select-to-speech-audio
+          ln -sf select-to-speech select-to-speech-download
 
       - name: Smoke test binaries
         run: |
@@ -135,8 +146,8 @@ jobs:
       - name: Package Backend
         run: |
           mkdir -p dist
-          cp select-to-speech select-to-speech-check select-to-speech-audio select-to-speech-download dist/
-          chmod +x dist/*
+          cp -P select-to-speech select-to-speech-check select-to-speech-audio select-to-speech-download dist/
+          chmod +x dist/select-to-speech
           tar -czf select-to-speech-backend-linux.tar.gz -C dist .
 
       - name: Upload Backend Artifact

@@ -25,6 +25,11 @@ _HYPHEN_WRAP_PATTERN = re.compile(
 )
 
 
+_PARAGRAPH_SPLIT_PATTERN = re.compile(r"\n\s*\n")
+_INLINE_WS_PATTERN = re.compile(r"[ \t]+")
+_EXCESS_NEWLINES_PATTERN = re.compile(r"\n{3,}")
+
+
 def dehyphenate(text: str) -> str:
     """
     Rejoin words split by a trailing hyphen and line-break.
@@ -85,7 +90,7 @@ def unwrap_lines(text: str) -> str:
         return text
 
     # Split into logical paragraphs separated by blank lines
-    paragraphs = re.split(r"\n\s*\n", text)
+    paragraphs = _PARAGRAPH_SPLIT_PATTERN.split(text)
     cleaned_paragraphs = []
 
     for p in paragraphs:
@@ -147,7 +152,7 @@ def normalize_text_for_tts(
         res = unwrap_lines(res)
 
     # 4. Collapse excess internal whitespace (without destroying sentence dots)
-    res = re.sub(r"[ \t]+", " ", res)
-    res = re.sub(r"\n{3,}", "\n\n", res)
+    res = _INLINE_WS_PATTERN.sub(" ", res)
+    res = _EXCESS_NEWLINES_PATTERN.sub("\n\n", res)
 
     return res.strip()
