@@ -42,3 +42,11 @@ The project is split into two main components:
 
 5. **Flutter Dependencies (tray_manager_patched)**:
    The UI uses a custom patched version of `tray_manager` located in `src/ui/tray_manager_patched`. This patch is necessary to resolve C++ deprecation warnings on Linux (using `g_object_new` instead of `app_indicator_new`) and support SVG icons. It is overridden via `src/ui/pubspec_overrides.yaml`. Do not remove this override, and ensure the `lib` folder inside `tray_manager_patched` is intact for successful Flutter compilation.
+
+6. **Nuitka Compilation Readiness**:
+   Whenever you make substantial modifications to the Python backend, add/remove dependencies in `pyproject.toml`, or change CLI entry points, you **MUST** verify that the code remains ready for standalone `--onefile` compilation with Nuitka (configured in `.github/workflows/release.yml`):
+   - Keep `NUITKA_FLAGS` in `.github/workflows/release.yml` synchronized with `pyproject.toml` dependencies.
+   - Use `--include-package` only for actual packages (directories with `__init__.py` or namespace packages) and `--include-module` for single-file `.py` or C-extension `.so` modules.
+   - Include `--include-package-data` for any new dependency that loads non-code assets at runtime.
+   - Catch `(ImportError, OSError)` when importing optional dependencies that load system C shared libraries via `ctypes`/`cffi` at import time (e.g., `pulsectl`, `pyaudio`), since compiled Nuitka binaries always bundle the Python wrapper even if the host C library is missing.
+   - Keep the multi-call CLI dispatcher in `src/select_to_speech/main.py` and `run_main.py` (in `.github/workflows/release.yml`) aligned.

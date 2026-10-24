@@ -16,12 +16,13 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - **Natural Text Segmentation**: Replaced artificial fixed-character regex chunking (`max_chars=80`) with native sentence-level synthesis, significantly improving speech prosody, naturalness, and intonation for long paragraphs.
-- **Dependencies**: Removed `kokoro-onnx`, `misaki`, and `onnxruntime` Python packages in favor of `sherpa-onnx` and `sherpa-onnx-core`.
+- **Dependencies**: Removed `kokoro-onnx`, `misaki`, `onnxruntime`, and `soundfile` (along with `cffi` and `pycparser`) in favor of `sherpa-onnx`, `sherpa-onnx-core`, and Python's standard library `wave` module.
 - **Model Distribution Format**: Models are now fetched as bundled `.tar.bz2` packages directly from the official `k2-fsa/sherpa-onnx` releases, containing ONNX weights, float32 voices binary, tokens, and lexicons.
 - **CI & Build Pipeline (Unified Single Binary with Nuitka)**:
-  - Consolidated the 4 separate Nuitka `--onefile` builds (`select-to-speech`, `select-to-speech-check`, `select-to-speech-audio`, `select-to-speech-download`) into a single unified multi-call binary with lightweight symlinks and a fast pre-import CLI dispatcher, cutting release archive size and CI compilation time by ~75%.
+  - Consolidated the 4 separate Nuitka `--onefile` builds (`select-to-speech`, `select-to-speech-check`, `select-to-speech-audio`, `select-to-speech-download`) into a single unified multi-call binary with lightweight symlinks and a fast pre-import CLI dispatcher (checking both `sys.argv[0]` and `NUITKA_ONEFILE_BINARY`), cutting release archive size and CI compilation time by ~75%.
   - Enabled Nuitka Link-Time Optimization (`--lto=yes`), `--python-flag=no_site,no_docstrings,no_asserts`, and persistent extraction cache (`--onefile-tempdir-spec`) for near-instantaneous startup after first run.
-  - Fixed Nuitka packaging flags by removing the non-existent `sherpa_onnx_core` module import and adding `_soundfile_data`, `pedalboard_native`, and `Xlib`.
+  - Fixed Nuitka packaging flags by removing `sherpa_onnx_core`, `soundfile`, `_soundfile_data`, and `_cffi_backend`, adding `pedalboard_native` and `Xlib`, and excluding non-Linux `pynput` backends (`_darwin`, `_win32`), `pulsectl.tests`, and `sherpa_onnx.cli`.
+  - Updated `AudioPlayer` and `system_check` to catch `(ImportError, OSError)` when loading optional `pulsectl` / `pyaudio` C libraries in compiled Nuitka builds, and updated `AudioDucker` to recognize the unpacked Nuitka binary name (`run_main`).
 - **Runtime Performance Optimizations**:
   - **Zero-WAV-Copy Streaming**: Eliminated redundant in-memory WAV encoding (`soundfile.write`) and decoding (`wave.open`) between `KokoroEngine.synthesize_stream` and `AudioPlayer.play_stream` by passing raw `float32` NumPy arrays directly through the streaming queue, and reused a single `Pedalboard` instance across chunks when pitch shifting is active.
   - **Selective Language Detector Loading**: Filtered `SelectToSpeechApp._build_lingua_detector` to load only languages that have an active voice model configured instead of all 10 languages unconditionally, reducing startup time and RAM footprint.

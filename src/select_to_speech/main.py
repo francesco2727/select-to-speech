@@ -306,7 +306,8 @@ class SelectToSpeechApp:
 
         def _capture_and_read():
             try:
-                out_path = Path("/tmp/select_to_speech_ocr.png")
+                runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+                out_path = Path(runtime_dir) / "select_to_speech_ocr.png"
                 success = ScreenCapture.capture_region(out_path)
                 if success:
                     text = self.ocr_engine.extract_text(
@@ -523,22 +524,25 @@ class SelectToSpeechApp:
 
 def main() -> int:
     """Main entry point for the application (supports multi-call binary dispatch)."""
-    prog_name = Path(sys.argv[0]).name if sys.argv else "select-to-speech"
+    prog_names = {Path(sys.argv[0]).name} if sys.argv else {"select-to-speech"}
+    onefile_bin = os.environ.get("NUITKA_ONEFILE_BINARY")
+    if onefile_bin:
+        prog_names.add(Path(onefile_bin).name)
 
     # Multi-call symlink dispatch or explicit subcommand flags
-    if prog_name == "select-to-speech-check" or "--check" in sys.argv:
+    if "select-to-speech-check" in prog_names or "--check" in sys.argv:
         if "--check" in sys.argv:
             sys.argv.remove("--check")
         from select_to_speech.system_check import main_check
         return main_check()
 
-    if prog_name == "select-to-speech-audio" or "--audio-devices" in sys.argv:
+    if "select-to-speech-audio" in prog_names or "--audio-devices" in sys.argv:
         if "--audio-devices" in sys.argv:
             sys.argv.remove("--audio-devices")
         from select_to_speech.system_check import main_audio_devices
         return main_audio_devices()
 
-    if prog_name == "select-to-speech-download" or "--download" in sys.argv:
+    if "select-to-speech-download" in prog_names or "--download" in sys.argv:
         if "--download" in sys.argv:
             sys.argv.remove("--download")
         from select_to_speech.voice_manager import download_kokoro_cli

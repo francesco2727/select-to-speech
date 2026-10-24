@@ -9,7 +9,7 @@ from pathlib import Path
 
 try:
     import pyaudio
-except ImportError:
+except (ImportError, OSError):
     pyaudio = None
 
 # Configure basic console logging for the system check

@@ -16,7 +16,7 @@ from pedalboard import Pedalboard, PitchShift
 
 try:
     import pulsectl
-except ImportError:
+except (ImportError, OSError):
     pulsectl = None
 
 logger = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ class AudioDucker:
             return True
         app_name = sink_input.proplist.get('application.name', '').lower()
         proc_bin = sink_input.proplist.get('application.process.binary', '').lower()
-        if any(k in app_name or k in proc_bin for k in ('select-to-speech', 'python', 'alsa plug-in')):
+        if any(k in app_name or k in proc_bin for k in ('select-to-speech', 'run_main', 'python', 'alsa plug-in')):
             return True
         return False
 

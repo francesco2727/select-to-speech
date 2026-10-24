@@ -12,7 +12,7 @@ from typing import Iterator, Optional, Tuple, Union
 
 import emoji
 import numpy as np
-import soundfile as sf
+import wave
 
 from .config import VoiceConfig, get_data_dir
 from .voice_manager import (
@@ -725,9 +725,16 @@ class KokoroEngine(BaseTTSEngine):
         samples = np.concatenate(all_samples)
         if volume != 1.0:
             samples = np.clip(samples * volume, -1.0, 1.0)
+        else:
+            samples = np.clip(samples, -1.0, 1.0)
 
+        pcm16_bytes = (samples * 32767.0).astype(np.int16).tobytes()
         with io.BytesIO() as output:
-            sf.write(output, samples, sample_rate, format="WAV", subtype="PCM_16")
+            with wave.open(output, "wb") as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(sample_rate)
+                wav_file.writeframes(pcm16_bytes)
             audio_bytes = output.getvalue()
 
         logger.info(f"Synthesized {len(text)} chars to {len(audio_bytes)} bytes at {sample_rate}Hz (sid={sid}, lang={lang_code})")

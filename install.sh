@@ -62,10 +62,10 @@ ln -sf "$INSTALL_DIR/bin/select-to-speech" "$INSTALL_DIR/.venv/bin/select-to-spe
 
 # ── Download Kokoro models ─────────────────────────────────────────────────────
 info "Downloading Kokoro TTS model files (~350 MB)..."
-if ! "$INSTALL_DIR/bin/select-to-speech-download" --model kokoro-multi-lang-v1_0; then
+if ! "$INSTALL_DIR/bin/select-to-speech" --download --model kokoro-multi-lang-v1_0; then
     warn "Failed to download Kokoro model files during installation."
     warn "You can download them manually later via the settings GUI or by running:"
-    warn "  $INSTALL_DIR/bin/select-to-speech-download --model kokoro-multi-lang-v1_0"
+    warn "  $INSTALL_DIR/bin/select-to-speech --download --model kokoro-multi-lang-v1_0"
 fi
 
 # ── Download Flutter UI ────────────────────────────────────────────────────────
@@ -139,4 +139,4 @@ info "  $INSTALL_DIR/uninstall.sh"
 # ── System Check ───────────────────────────────────────────────────────────────
 echo ""
 info "Running system dependencies check..."
-"$INSTALL_DIR/bin/select-to-speech-check" || true
+"$INSTALL_DIR/bin/select-to-speech" --check || true
