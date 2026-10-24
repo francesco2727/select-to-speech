@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [v0.4.0] - 2026-10-24
 
 ### Added
 - **Sherpa-ONNX TTS Engine Integration**: Migrated the TTS engine backend from `kokoro-onnx` to `sherpa-onnx` (`OfflineTts`), leveraging native self-contained C++ bindings with built-in ONNX Runtime and espeak-ng.
