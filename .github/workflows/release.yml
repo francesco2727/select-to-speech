@@ -42,51 +42,6 @@ jobs:
       - name: Install dependencies
         run: uv pip install --system . nuitka ordered-set
 
-      - name: Create entry point
-        run: |
-          cat > run_main.py << 'ENTRY'
-          import os
-          import sys
-
-          def _dispatch() -> int:
-              prog_names = {os.path.basename(sys.argv[0])} if sys.argv else {"select-to-speech"}
-              onefile_bin = os.environ.get("NUITKA_ONEFILE_BINARY")
-              if onefile_bin:
-                  prog_names.add(os.path.basename(onefile_bin))
-
-              if "select-to-speech-check" in prog_names or "--check" in sys.argv:
-                  if "--check" in sys.argv:
-                      sys.argv.remove("--check")
-                  from select_to_speech.system_check import main_check
-                  return main_check()
-              if "select-to-speech-audio" in prog_names or "--audio-devices" in sys.argv:
-                  if "--audio-devices" in sys.argv:
-                      sys.argv.remove("--audio-devices")
-                  from select_to_speech.system_check import main_audio_devices
-                  return main_audio_devices()
-              if "select-to-speech-download" in prog_names or "--download" in sys.argv:
-                  if "--download" in sys.argv:
-                      sys.argv.remove("--download")
-                  from select_to_speech.voice_manager import download_kokoro_cli
-                  download_kokoro_cli()
-                  return 0
-              if len(sys.argv) > 1 and any(a in sys.argv for a in ("-h", "--help")):
-                  print("Select-to-Speech daemon & backend server")
-                  print("Usage: select-to-speech [options]")
-                  print("\nOptions:")
-                  print("  -h, --help         Show this help message and exit")
-                  print("  --check            Run system dependency check")
-                  print("  --audio-devices    List available audio output devices")
-                  print("  --download         Download Kokoro TTS model files")
-                  return 0
-              from select_to_speech.main import main
-              return main()
-
-          if __name__ == "__main__":
-              sys.exit(_dispatch())
-          ENTRY
-          sed -i 's/^          //' run_main.py
-
       - name: Build single multi-call binary with Nuitka
         run: |
           # Note: ccache is already in PATH via hendrikmuhs/ccache-action symlinks
@@ -125,7 +80,7 @@ jobs:
           echo "=========================================="
           python -m nuitka "${NUITKA_FLAGS[@]}" \
             --output-filename="select-to-speech" \
-            "run_main.py"
+            "src/select_to_speech/entrypoint.py"
 
           # Create multi-call symlinks for auxiliary CLI tools
           ln -sf select-to-speech select-to-speech-check
