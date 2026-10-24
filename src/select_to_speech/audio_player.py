@@ -6,6 +6,7 @@ import math
 import os
 import queue
 import threading
+import time
 import traceback
 from typing import Optional
 
@@ -345,6 +346,17 @@ class AudioPlayer:
                         if self.stream and not self._stop_requested:
                             self.stream.write(chunk)
 
+                # Drain hardware buffer so the last frames are not truncated
+                if not self._stop_requested and self.stream:
+                    try:
+                        latency = self.stream.get_output_latency()
+                        drain_time = max(0.15, min(latency * 1.2, 1.5))
+                    except Exception:
+                        drain_time = 0.3
+                    end_drain = time.time() + drain_time
+                    while time.time() < end_drain and not self._stop_requested:
+                        time.sleep(0.04)
+
                 return not self._stop_requested
 
             except Exception as e:
@@ -446,6 +458,17 @@ class AudioPlayer:
                         with self._stream_lock:
                             if self.stream and not self._stop_requested:
                                 self.stream.write(chunk)
+
+                # Drain hardware buffer so the trailing words are not truncated on stream close
+                if not self._stop_requested and self.stream and stream_opened:
+                    try:
+                        latency = self.stream.get_output_latency()
+                        drain_time = max(0.15, min(latency * 1.2, 1.5))
+                    except Exception:
+                        drain_time = 0.3
+                    end_drain = time.time() + drain_time
+                    while time.time() < end_drain and not self._stop_requested:
+                        time.sleep(0.04)
 
                 return not self._stop_requested
 

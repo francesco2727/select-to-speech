@@ -186,15 +186,41 @@ class SelectToSpeechApp:
         return LanguageDetectorBuilder.from_languages(*configured_langs).build()
 
     def _detect_language(self, text: str) -> Optional[str]:
-        """Detect language of the whole text. Returns None if text is too short."""
-        if len(text.strip()) < 10:
+        """Detect language of the text using confidence scoring against default language."""
+        stripped = text.strip()
+        if len(stripped) < 20:
             return None
         try:
-            lang = self._lingua_detector.detect_language_of(text)
-            if lang is not None:
-                code = lang.iso_code_639_1.name.lower()
-                logger.debug(f"Detected language '{code}'")
-                return code
+            confidences = self._lingua_detector.compute_language_confidence_values(stripped)
+            if not confidences:
+                return None
+
+            top = confidences[0]
+            top_code = top.language.iso_code_639_1.name.lower()
+            default_code = getattr(self.config.voice, "language", "en")
+
+            # If top language matches the user's default language, accept it directly
+            if top_code == default_code:
+                logger.debug(f"Detected language '{top_code}' matches default language (confidence: {top.value:.2f})")
+                return top_code
+
+            # Find confidence for default language
+            default_conf = 0.0
+            for c in confidences:
+                if c.language.iso_code_639_1.name.lower() == default_code:
+                    default_conf = c.value
+                    break
+
+            # Only switch away from default language if detection is confident and distinct
+            if top.value >= 0.70 and (top.value - default_conf) >= 0.25:
+                logger.debug(f"Detected language '{top_code}' (confidence: {top.value:.2f} vs default {default_conf:.2f})")
+                return top_code
+            else:
+                logger.debug(
+                    f"Language detection inconclusive (top: {top_code} {top.value:.2f}, default: {default_code} {default_conf:.2f}). "
+                    f"Falling back to default language '{default_code}'."
+                )
+                return default_code
         except Exception as e:
             logger.warning(f"Language detection failed: {e}")
         return None

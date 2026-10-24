@@ -32,6 +32,10 @@ All notable changes to this project will be documented in this file.
 - **Settings UI**: Updated model selector and download handlers in the Flutter GUI to use Sherpa Kokoro models.
 
 ### Fixed
+- **Audio Output Buffer Truncation**: Fixed an issue in `AudioPlayer` (`play` and `play_stream`) where the trailing 1–2 seconds of speech were abruptly cut off because `stop_stream()` was called before the hardware output buffer finished draining.
+- **Language Detection Misclassification & Routing**: Fixed a bug in `main.py` where short Italian texts or sentences containing borrowed words (e.g. "rock", "app", "develop") were falsely classified as English, overriding the user's default language and producing unintelligible speech with American English G2P (`af_heart`). Added confidence scoring thresholds and prioritization for the configured default language.
+- **Typographical Apostrophe & Punctuation Sanitization**: Normalized curly apostrophes (`’`, `‘`, `ʼ`, `´`, ``` ` ```) and quotes (`“`, `”`, `«`, `»`) to standard ASCII equivalents in `tts_engine.py` before sanitization, preventing words from being joined together (e.g. `l’app` becoming `lapp`, `c’è` becoming `cè`) and garbling pronunciation.
+- **Smart Line Break & Verse Segmentation**: Enhanced `text_normalizer.py` and `tts_engine.py` to insert natural pauses and sentence boundaries on multiline selections (such as song lyrics, poems, and headings) when lines start with uppercase letters or end without punctuation.
 - **Shortcut Double-Trigger & Zombie Playback Fix**: Fixed an issue where stopping playback with the stop shortcut and immediately triggering reading caused duplicate executions and re-read the previous stale text.
   - Added debouncing (`350ms`) to shortcut triggers and serial execution locks (`_shortcut_lock`) preventing race conditions between concurrent triggers.
   - Reset `last_selection` to empty upon explicit stop so that cleared or newly selected texts are evaluated freshly.

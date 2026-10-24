@@ -24,6 +24,18 @@ def test_sanitize_text():
     
     assert clean_text == 'Hello "world"! How are you?'
 
+    # Test typographical apostrophes, quotes, and newlines
+    typo_text = "l’app funziona con un’ora di ritardo, c’è chi dice: «bravo»!\nAltra riga di prova"
+    sanitized = engine._sanitize_text(typo_text)
+    assert "l'app" in sanitized
+    assert "un'ora" in sanitized
+    assert "c'è" in sanitized
+    assert '"bravo"' in sanitized
+    assert "«" not in sanitized
+    assert "»" not in sanitized
+    # Unpunctuated newline should receive a period
+    assert "bravo\"! Altra riga di prova" in sanitized
+
 def test_chunk_text():
     config = VoiceConfig()
     engine = DummyEngine(config)

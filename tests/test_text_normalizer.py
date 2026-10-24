@@ -53,6 +53,13 @@ Questo è il secondo paragrafo."""
     assert paragraphs[0] == "Questo è un paragrafo che va a capo su più righe perché la finestra è stretta."
     assert paragraphs[1] == "Questo è il secondo paragrafo."
 
+    # Poetry or independent lines starting with capital letters
+    verse_raw = """Dicono che devi proprio farti fuori
+Se vuoi fare il rock in qualche modo
+Che ti portiamo i fiori"""
+    verse_res = unwrap_lines(verse_raw)
+    assert verse_res == "Dicono che devi proprio farti fuori. Se vuoi fare il rock in qualche modo. Che ti portiamo i fiori."
+
 
 def test_normalize_text_for_tts_pipeline():
     raw = """Capitolo 1: Intro-

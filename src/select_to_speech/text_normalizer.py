@@ -102,10 +102,22 @@ def unwrap_lines(text: str) -> str:
         if not lines:
             continue
 
-        # Join lines inside a paragraph
-        # If line ends in punctuation (. ! ? : ;), join with space
-        # If line ends without punctuation, join with space
-        joined = " ".join(lines)
+        # Join lines inside a paragraph:
+        # If line does not end with punctuation and the next line begins with an uppercase letter
+        # or digit (header, verse, independent clause), append a period for a natural pause.
+        # If the next line begins with lowercase, treat it as a terminal soft-wrap and join with space.
+        joined_pieces = []
+        for i, line in enumerate(lines):
+            if i < len(lines) - 1:
+                next_line = lines[i + 1]
+                if line and line[-1] not in ".!?;:" and next_line and (next_line[0].isupper() or next_line[0].isdigit()):
+                    joined_pieces.append(line + ".")
+                else:
+                    joined_pieces.append(line)
+            else:
+                joined_pieces.append(line)
+
+        joined = " ".join(joined_pieces)
 
         # If paragraph doesn't end with ending punctuation, append a dot
         if joined and joined[-1] not in ".!?;:":

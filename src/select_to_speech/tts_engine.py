@@ -339,8 +339,8 @@ _RE_DIVIDE_SPACED = re.compile(r"\s+/\s+")
 _RE_DATE_SEP = re.compile(r"[/-]")
 _RE_WHITESPACE = re.compile(r"\s+")
 _RE_SANITIZE_CHARS = re.compile(r"[^\w\s.,!?;:\'\"/-]")
-_RE_NEWLINE_NO_PUNCT = re.compile(r"([^.!?])\n+")
-_RE_NEWLINE_WITH_PUNCT = re.compile(r"([.!?])\n+")
+_RE_NEWLINE_WITH_PUNCT = re.compile(r"([.!?])\s*\n+")
+_RE_NEWLINE_NO_PUNCT = re.compile(r"([^.!?\s])\s*\n+")
 _RE_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _RE_WEAK_SPLIT = re.compile(r"(?<=[,;:—])\s+")
 
@@ -361,6 +361,13 @@ class BaseTTSEngine(ABC):
         """Preprocess text to replace mathematical symbols, currency symbols, and dots in domains/filenames with words."""
         if not text:
             return text
+
+        # Normalize typographical apostrophes and quotes
+        for q in ("\u2019", "\u2018", "\u02bc", "\u02bb", "\u00b4", "\u0060"):
+            text = text.replace(q, "'")
+        for q in ("\u201c", "\u201d", "\u00ab", "\u00bb"):
+            text = text.replace(q, '"')
+        text = text.replace("\u2014", " - ").replace("\u2013", " - ").replace("\u2026", "...")
 
         lang_key = (language or "").split("-")[0].split("_")[0].lower()
         if lang_key not in _SYMBOL_WORDS:
@@ -440,6 +447,17 @@ class BaseTTSEngine(ABC):
         """Sanitize text for TTS processing."""
         if not already_preprocessed:
             text = self.preprocess_text(text, language)
+
+        for q in ("\u2019", "\u2018", "\u02bc", "\u02bb", "\u00b4", "\u0060"):
+            text = text.replace(q, "'")
+        for q in ("\u201c", "\u201d", "\u00ab", "\u00bb"):
+            text = text.replace(q, '"')
+        text = text.replace("\u2014", " - ").replace("\u2013", " - ").replace("\u2026", "...")
+
+        # Turn line breaks into periods or spaces with natural pauses
+        text = _RE_NEWLINE_WITH_PUNCT.sub(r"\1 ", text)
+        text = _RE_NEWLINE_NO_PUNCT.sub(r"\1. ", text)
+
         text = text.replace('"""', '"')
         text = text.replace("'''", "'")
         text = _RE_WHITESPACE.sub(" ", text)
@@ -450,8 +468,8 @@ class BaseTTSEngine(ABC):
 
     def _chunk_text(self, text: str, max_chars: int = 80, language: Optional[str] = None, already_preprocessed: bool = False) -> list[str]:
         """Split text into logical, speakable chunks for streaming TTS."""
-        text = _RE_NEWLINE_NO_PUNCT.sub(r"\1. ", text)
         text = _RE_NEWLINE_WITH_PUNCT.sub(r"\1 ", text)
+        text = _RE_NEWLINE_NO_PUNCT.sub(r"\1. ", text)
 
         text = self._sanitize_text(text, language=language, already_preprocessed=already_preprocessed)
 

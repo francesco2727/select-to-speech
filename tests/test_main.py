@@ -123,3 +123,22 @@ def test_process_shortcut_debounced(mock_app):
         mock_thread.assert_called_once()
 
 
+def test_detect_language_confidence_and_default_fallback(mock_app):
+    mock_app.config.voice.language = "it"
+    mock_app._lingua_detector = mock_app._build_lingua_detector()
+
+    # Short text (< 20 chars) should return None to respect default language
+    assert mock_app._detect_language("ciao come va") is None
+
+    # Italian text with borrowed English words shouldn't switch away from default "it"
+    italian_with_loanwords = "cono che devi proprio farti fuori se vuoi fare il rock in qualche modo"
+    detected = mock_app._detect_language(italian_with_loanwords)
+    assert detected == "it"
+
+    # Definite English sentence should detect "en"
+    english_text = "This is a full English sentence explaining software design principles."
+    detected_en = mock_app._detect_language(english_text)
+    assert detected_en == "en"
+
+
+
