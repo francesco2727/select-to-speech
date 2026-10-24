@@ -101,6 +101,11 @@ sed "s|%h|$HOME|g" "$INSTALL_DIR/select-to-speech.desktop" > "$APPS_DIR/select-t
 # Create a symlink for Wayland to match the default Flutter app_id
 ln -sf "$APPS_DIR/select-to-speech.desktop" "$APPS_DIR/com.example.ui.desktop"
 update-desktop-database "$APPS_DIR" || true
+if command -v kbuildsycoca6 >/dev/null 2>&1; then
+    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+elif command -v kbuildsycoca5 >/dev/null 2>&1; then
+    kbuildsycoca5 --noincremental >/dev/null 2>&1 || true
+fi
 
 # ── Systemd user service ───────────────────────────────────────────────────────
 info "Installing systemd user service..."

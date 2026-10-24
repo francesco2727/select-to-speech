@@ -38,6 +38,9 @@ All notable changes to this project will be documented in this file.
   - Fixed `AudioPlayer.play_stream` to check for stop requests with a timeout when waiting for chunks from the synthesis queue.
   - Fixed `KeyboardHandler.stop` on Linux X11/XWayland to explicitly flush the record context and join the background listener thread.
 - **Workaround Cleanup**: Removed monkey-patches for Kokoro tokenizer length truncation, espeak language tag stripping, and Nuitka bundle `config.json` extraction, now handled natively by sherpa-onnx.
+- **Desktop Entry & Cross-Distro GUI Compatibility**:
+  - Fixed `select-to-speech.desktop` validation errors by adding the required `Actions=Settings;` declaration and `AudioVideo` main category, and added `kbuildsycoca6`/`kbuildsycoca5` cache refresh to `install.sh`, `install-local.sh`, and `uninstall.sh` so the application immediately appears in the KDE Plasma launcher.
+  - Fixed pre-compiled Flutter GUI startup crash (`libayatana-indicator3.so.7: cannot open shared object file`) on Arch/CachyOS/Fedora by stripping unused Ubuntu transitive `DT_NEEDED` entries (`libayatana-indicator3.so.7`, `libayatana-ido3-0.4.so.0`) in CI/CMake and adding compatibility symlinks in `install.sh` and wrapper scripts.
 
 ## [v0.3.3] - 2026-09-10
 

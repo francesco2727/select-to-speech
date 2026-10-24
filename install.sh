@@ -78,6 +78,32 @@ if curl -L -f -o "$INSTALL_DIR/select-to-speech-gui-linux.tar.gz" "$RELEASE_URL"
     info "Extracting GUI bundle..."
     tar -xzf "$INSTALL_DIR/select-to-speech-gui-linux.tar.gz" -C "$UI_BUNDLE_DIR"
     rm -f "$INSTALL_DIR/select-to-speech-gui-linux.tar.gz"
+
+    # Strip unused Ubuntu-specific transitive DT_NEEDED entries (libayatana-indicator3.so.7,
+    # libayatana-ido3-0.4.so.0) or provide compatibility symlinks for Arch/Fedora distros
+    TRAY_PLUGIN="$UI_BUNDLE_DIR/lib/libtray_manager_plugin.so"
+    if [ -f "$TRAY_PLUGIN" ]; then
+        if command -v patchelf >/dev/null 2>&1; then
+            patchelf --remove-needed libayatana-indicator3.so.7 \
+                     --remove-needed libayatana-ido3-0.4.so.0 \
+                     --set-rpath '$ORIGIN' "$TRAY_PLUGIN" 2>/dev/null || true
+        fi
+        SYS_AYATANA=""
+        for candidate in /usr/lib/libayatana-appindicator3.so.1 /usr/lib64/libayatana-appindicator3.so.1 /usr/lib/x86_64-linux-gnu/libayatana-appindicator3.so.1; do
+            if [ -f "$candidate" ]; then
+                SYS_AYATANA="$candidate"
+                break
+            fi
+        done
+        if [ -n "$SYS_AYATANA" ]; then
+            for compat_lib in libayatana-indicator3.so.7 libayatana-ido3-0.4.so.0; do
+                if ! ldconfig -p 2>/dev/null | grep -q "$compat_lib"; then
+                    ln -sf "$SYS_AYATANA" "$UI_BUNDLE_DIR/lib/$compat_lib"
+                fi
+            done
+        fi
+    fi
+
     info "GUI bundle set up successfully."
 else
     error "Failed to download pre-compiled GUI from GitHub Releases."
@@ -113,6 +139,11 @@ sed "s|%h|$HOME|g" "$INSTALL_DIR/select-to-speech.desktop" > "$APPS_DIR/select-t
 # Create a symlink for Wayland to match the default Flutter app_id
 ln -sf "$APPS_DIR/select-to-speech.desktop" "$APPS_DIR/com.example.ui.desktop"
 update-desktop-database "$APPS_DIR" || true
+if command -v kbuildsycoca6 >/dev/null 2>&1; then
+    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+elif command -v kbuildsycoca5 >/dev/null 2>&1; then
+    kbuildsycoca5 --noincremental >/dev/null 2>&1 || true
+fi
 
 # ── Systemd user service ───────────────────────────────────────────────────────
 info "Installing systemd user service..."

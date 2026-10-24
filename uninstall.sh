@@ -39,6 +39,11 @@ fi
 rm -f "$APPS_DIR/select-to-speech.desktop" || true
 rm -f "$APPS_DIR/com.example.ui.desktop" || true
 update-desktop-database "$APPS_DIR" || true
+if command -v kbuildsycoca6 >/dev/null 2>&1; then
+    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+elif command -v kbuildsycoca5 >/dev/null 2>&1; then
+    kbuildsycoca5 --noincremental >/dev/null 2>&1 || true
+fi
 
 ICONS_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
 rm -f "$ICONS_DIR/select-to-speech.svg" || true
