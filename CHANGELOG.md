@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **Precompiled Backend Garbled Speech on Non-English Text**: Fixed a critical bug in the pre-compiled Nuitka release where Italian (and other non-English) text was read as unintelligible syllable fragments, while English was mostly correct.
+  - **Root cause**: the release CI installs dependencies with `uv pip install --system .`, which ignores `uv.lock` and resolves `sherpa-onnx>=1.13.0` fresh from PyPI. The v0.4.0 build silently picked up the newly released `sherpa-onnx` 2.0.0, which removed the espeak-ng G2P engine from Kokoro TTS ("Deprecated. Ignored since v2.0.0: espeak-ng is no longer used"). Without espeak-ng, only lexicon-based phonemization remains (`lexicon-us-en.txt` covers English), so Italian words could no longer be phonemized and were pronounced as garbled fragments. Local installations via `install-local.sh` (`uv sync`) honor `uv.lock` (sherpa-onnx 1.13.8) and were unaffected.
+  - Pinned `sherpa-onnx` and `sherpa-onnx-core` to `>=1.13.x,<2.0.0` in `pyproject.toml` so both lockfile-based and fresh PyPI resolution stay on the 1.x line with espeak-ng support.
+  - Added a runtime version guard in `KokoroEngine._init_tts` that refuses to initialize and logs a clear error if `sherpa-onnx >= 2.0.0` is detected (preventing silently garbled multi-language speech in future builds).
+
 ## [v0.4.0] - 2026-10-24
 
 ### Added

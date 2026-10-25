@@ -26,8 +26,8 @@ dependencies = [
     "uvicorn>=0.49.0",
     "emoji>=2.12.0",
     "pulsectl>=24.4.0",
-    "sherpa-onnx>=1.13.0",
-    "sherpa-onnx-core>=1.13.8",
+    "sherpa-onnx>=1.13.0,<2.0.0",
+    "sherpa-onnx-core>=1.13.8,<2.0.0",
 ]
 
 [project.scripts]

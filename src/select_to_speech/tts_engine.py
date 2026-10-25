@@ -635,6 +635,19 @@ class KokoroEngine(BaseTTSEngine):
             )
             return False
 
+        sherpa_version = getattr(sherpa_onnx, "__version__", "")
+        try:
+            sherpa_major = int(sherpa_version.split(".")[0])
+        except (ValueError, IndexError):
+            sherpa_major = 0
+        if sherpa_major >= 2:
+            logger.error(
+                "sherpa-onnx %s is not supported: starting from v2.0.0 espeak-ng G2P was removed, "
+                "so non-English languages (e.g. Italian) cannot be phonemized and will be garbled. "
+                "Install sherpa-onnx < 2.0.0.", sherpa_version or ">=2"
+            )
+            return False
+
         with self._lock:
             if self.tts is None:
                 info = KOKORO_MODELS[self.model_id]

@@ -271,3 +271,44 @@ def test_kokoro_synthesize_stream_early_stop():
         assert len(chunks) <= 1
         assert len(calls) == 1
 
+
+@pytest.mark.parametrize("version", ["2.0.0", "2.1.3"])
+def test_init_tts_rejects_sherpa_onnx_v2(version):
+    import types
+    from select_to_speech.tts_engine import KokoroEngine
+
+    config = MagicMock()
+    config.model = "af_heart"
+    engine = KokoroEngine(config)
+
+    fake_sherpa = types.ModuleType("sherpa_onnx")
+    fake_sherpa.__version__ = version
+
+    with patch.dict(sys.modules, {"sherpa_onnx": fake_sherpa}):
+        with patch.object(engine, "ensure_model_downloaded", return_value=True):
+            assert engine._init_tts() is False
+            assert engine.tts is None
+
+
+def test_init_tts_accepts_sherpa_onnx_v1():
+    import types
+    from select_to_speech.tts_engine import KokoroEngine
+
+    config = MagicMock()
+    config.model = "af_heart"
+    config.num_threads = 4
+    config.provider = "cpu"
+    engine = KokoroEngine(config)
+
+    fake_sherpa = types.ModuleType("sherpa_onnx")
+    fake_sherpa.__version__ = "1.13.8"
+    fake_sherpa.OfflineTtsKokoroModelConfig = MagicMock()
+    fake_sherpa.OfflineTtsModelConfig = MagicMock()
+    fake_sherpa.OfflineTtsConfig = MagicMock()
+    fake_sherpa.OfflineTts = MagicMock()
+
+    with patch.dict(sys.modules, {"sherpa_onnx": fake_sherpa}):
+        with patch.object(engine, "ensure_model_downloaded", return_value=True):
+            assert engine._init_tts() is True
+            assert engine.tts is not None
+
