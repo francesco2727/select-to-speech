@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [v0.4.1] - 2026-10-25
 
 ### Fixed
 - **Precompiled Backend Garbled Speech on Non-English Text**: Fixed a critical bug in the pre-compiled Nuitka release where Italian (and other non-English) text was read as unintelligible syllable fragments, while English was mostly correct.
