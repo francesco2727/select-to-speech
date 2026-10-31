@@ -347,6 +347,9 @@ ThemeData _buildMaterial3Theme(ColorScheme colorScheme) {
       thickness: 1,
       space: 24,
     ),
+    sliderTheme: const SliderThemeData(
+      trackHeight: 6,
+    ),
   );
 }
 
@@ -368,10 +371,12 @@ class SelectToSpeechApp extends StatelessWidget {
             final ColorScheme lightScheme = ColorScheme.fromSeed(
               seedColor: effectiveSeed,
               brightness: Brightness.light,
+              dynamicSchemeVariant: DynamicSchemeVariant.content,
             );
             final ColorScheme darkScheme = ColorScheme.fromSeed(
               seedColor: effectiveSeed,
               brightness: Brightness.dark,
+              dynamicSchemeVariant: DynamicSchemeVariant.content,
             );
 
             return ValueListenableBuilder<ThemeMode>(
@@ -1449,16 +1454,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
               children: [
                 Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: cs.secondaryContainer,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child:
-                          Icon(icon, size: 22, color: cs.onSecondaryContainer),
-                    ),
-                    const SizedBox(width: 14),
+                    Icon(icon, size: 26, color: cs.primary),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         title,
@@ -1797,7 +1794,6 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             const SizedBox(height: 28),
             _buildSlider(
               label: t('speed'),
-              icon: Icons.speed_rounded,
               section: 'audio',
               keyName: 'speed',
               min: 0.5,
@@ -1805,7 +1801,6 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             ),
             _buildSlider(
               label: t('pitch'),
-              icon: Icons.graphic_eq_rounded,
               section: 'audio',
               keyName: 'pitch',
               min: 0.5,
@@ -1813,7 +1808,6 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             ),
             _buildSlider(
               label: t('volume'),
-              icon: Icons.volume_up_rounded,
               section: 'audio',
               keyName: 'volume',
               min: 0.0,
@@ -1823,7 +1817,6 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             _buildM3SwitchTile(
               title: t('ducking'),
               subtitle: t('ducking_desc'),
-              icon: Icons.spatial_audio_off_rounded,
               value: config!['audio']['ducking'] ?? true,
               onChanged: (val) => _updateNestedConfig('audio', 'ducking', val),
             ),
@@ -2079,7 +2072,6 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             _buildM3SwitchTile(
               title: t('text_normalization'),
               subtitle: t('text_normalization_desc'),
-              icon: Icons.format_align_left_rounded,
               value: config!['text_normalization'] ?? true,
               onChanged: (val) {
                 setState(() => config!['text_normalization'] = val);
@@ -2090,7 +2082,6 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             _buildM3SwitchTile(
               title: t('neural_punctuation'),
               subtitle: t('neural_punctuation_desc'),
-              icon: Icons.auto_fix_high_rounded,
               value:
                   (config!['neural_punctuation'] ?? false) && isPunctInstalled,
               onChanged: isPunctInstalled
@@ -2164,7 +2155,6 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             _buildM3SwitchTile(
               title: t('enable_debug'),
               subtitle: t('check_logs'),
-              icon: Icons.bug_report_outlined,
               value: config!['debug'] ?? false,
               onChanged: (val) {
                 setState(() => config!['debug'] = val);
@@ -2180,7 +2170,6 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   Widget _buildM3SwitchTile({
     required String title,
     required String subtitle,
-    required IconData icon,
     required bool value,
     required ValueChanged<bool>? onChanged,
     Widget? footer,
@@ -2192,22 +2181,25 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       children: [
         Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: cs.secondaryContainer,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, size: 22, color: cs.onSecondaryContainer),
-            ),
-            const SizedBox(width: 14),
             Expanded(
-              child: Text(
-                title,
-                style:
-                    textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: textTheme.bodySmall
+                        ?.copyWith(color: cs.onSurfaceVariant),
+                  ),
+                ],
               ),
             ),
+            const SizedBox(width: 16),
             Switch(
               thumbIcon: WidgetStateProperty.resolveWith<Icon?>((states) {
                 if (states.contains(WidgetState.selected)) {
@@ -2220,24 +2212,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             ),
           ],
         ),
-        Padding(
-          padding: const EdgeInsets.only(left: 56.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 6),
-              Text(
-                subtitle,
-                style:
-                    textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-              ),
-              if (footer != null) ...[
-                const SizedBox(height: 12),
-                footer,
-              ],
-            ],
-          ),
-        ),
+        if (footer != null) ...[
+          const SizedBox(height: 12),
+          footer,
+        ],
       ],
     );
   }
@@ -2323,7 +2301,6 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
 
   Widget _buildSlider({
     required String label,
-    required IconData icon,
     required String section,
     required String keyName,
     required double min,
@@ -2341,8 +2318,6 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         children: [
           Row(
             children: [
-              Icon(icon, size: 18, color: cs.onSurfaceVariant),
-              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   label,
@@ -2592,70 +2567,48 @@ class _ShortcutRecorderWidgetState extends State<ShortcutRecorderWidget>
                       width: _isListening ? 2 : 1,
                     ),
                   ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        _isListening
-                            ? Icons.fiber_manual_record_rounded
-                            : Icons.keyboard_rounded,
-                        size: 20,
-                        color: _isListening ? cs.primary : cs.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 180),
-                          layoutBuilder: (currentChild, previousChildren) {
-                            return Align(
-                              alignment: Alignment.centerLeft,
-                              child: currentChild,
-                            );
-                          },
-                          child: _isListening
-                              ? Text(
-                                  widget.promptText,
-                                  key: const ValueKey('listening'),
-                                  style: textTheme.bodyMedium?.copyWith(
-                                    color: cs.primary,
-                                    fontWeight: FontWeight.w600,
-                                    fontStyle: FontStyle.italic,
-                                  ),
-                                )
-                              : Row(
-                                  key: ValueKey('key_$_currentValue'),
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    _KeycapBadge(
-                                        label:
-                                            widget.modifierKey.toUpperCase()),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 6.0),
-                                      child: Text(
-                                        '+',
-                                        style: textTheme.labelMedium?.copyWith(
-                                            color: cs.onSurfaceVariant),
-                                      ),
-                                    ),
-                                    _KeycapBadge(
-                                      label: (_currentValue.isEmpty
-                                              ? '...'
-                                              : _currentValue)
-                                          .toUpperCase(),
-                                      isPrimary: true,
-                                    ),
-                                  ],
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    layoutBuilder: (currentChild, previousChildren) {
+                      return Align(
+                        alignment: Alignment.centerLeft,
+                        child: currentChild,
+                      );
+                    },
+                    child: _isListening
+                        ? Text(
+                            widget.promptText,
+                            key: const ValueKey('listening'),
+                            style: textTheme.bodyMedium?.copyWith(
+                              color: cs.primary,
+                              fontWeight: FontWeight.w600,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          )
+                        : Row(
+                            key: ValueKey('key_$_currentValue'),
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _KeycapBadge(
+                                  label: widget.modifierKey.toUpperCase()),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 6.0),
+                                child: Text(
+                                  '+',
+                                  style: textTheme.labelMedium
+                                      ?.copyWith(color: cs.onSurfaceVariant),
                                 ),
-                        ),
-                      ),
-                      Icon(
-                        Icons.edit_outlined,
-                        size: 16,
-                        color: _isListening
-                            ? cs.primary
-                            : cs.onSurfaceVariant.withValues(alpha: 0.6),
-                      ),
-                    ],
+                              ),
+                              _KeycapBadge(
+                                label: (_currentValue.isEmpty
+                                        ? '...'
+                                        : _currentValue)
+                                    .toUpperCase(),
+                                isPrimary: true,
+                              ),
+                            ],
+                          ),
                   ),
                 );
               },
