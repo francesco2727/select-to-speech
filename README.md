@@ -40,19 +40,13 @@ sudo pacman -S tesseract tesseract-data-ita tesseract-data-eng spectacle slurp g
 - **`tesseract-data-ita` / `tesseract-data-eng`** — Language packs for Italian and English character recognition (install additional `tesseract-data-*` packages for other languages).
 - **`spectacle`** (or **`slurp` & `grim`**) — Screen capture tools (Spectacle for KDE Wayland; slurp & grim for wlroots-based environments like Sway or Hyprland).
 
-#### 3. Optional Dependencies: XWayland Compatibility
-Required if you want to read selected text inside legacy X11 applications running under XWayland:
-
-```bash
-sudo pacman -S xclip
-```
-- **`xclip`** — Allows intercepting primary selection inside non-native XWayland applications.
+> **XWayland compatibility is built in**: selections inside non-native X11 applications running under XWayland are read directly through python-Xlib, so no extra package (e.g. `xclip`) is required.
 
 #### 👉 Install All Dependencies (Required + Optional)
 To install everything and enable all features right away, run:
 
 ```bash
-sudo pacman -S wl-clipboard libayatana-appindicator tesseract tesseract-data-ita tesseract-data-eng spectacle slurp grim xclip
+sudo pacman -S wl-clipboard libayatana-appindicator tesseract tesseract-data-ita tesseract-data-eng spectacle slurp grim
 ```
 
 

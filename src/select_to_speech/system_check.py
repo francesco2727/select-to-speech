@@ -28,7 +28,6 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "req_audio_header": "\n--- Audio System & TTS Models (Required for speech playback) ---",
         "opt_audio_header": "\n--- Audio Server & Volume Management (Optional) ---",
         "opt_ocr_header": "\n--- Optional Dependencies: Screen Text Recognition (OCR - Alt+R) ---",
-        "opt_xwayland_header": "\n--- Optional Dependencies: XWayland Applications Compatibility ---",
         "install_header": "INSTALLATION INSTRUCTIONS (ARCH LINUX)",
         "purpose_label": "Why needed:",
         "missing_req_tag": "[MISSING - REQUIRED]",
@@ -39,9 +38,9 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "model_label": "voice model:",
         "langs_detected_label": "detected languages:",
         "missing_req_summary": "[✗] Missing REQUIRED dependencies:",
-        "missing_opt_summary": "[⚠] Missing OPTIONAL dependencies (reduced OCR, ducking, or XWayland functionality):",
+        "missing_opt_summary": "[⚠] Missing OPTIONAL dependencies (reduced OCR or ducking functionality):",
         "req_cmd_hint": "👉 Installation command for required dependencies:",
-        "opt_cmd_hint": "👉 Command to enable all optional features (OCR + XWayland):",
+        "opt_cmd_hint": "👉 Command to enable all optional features (OCR + ducking):",
         "model_cmd_hint": "👉 Download Kokoro TTS voice model files with:",
         "all_ok_msg": "\n✓ All required system dependencies and voice models are correctly installed!\n",
         "desc_wl": "Allows intercepting and reading selected or copied text in native Wayland environments.",
@@ -55,7 +54,6 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "desc_slurp_grim": "Fallback screen capture and selection tools on wlroots-based Wayland environments (e.g. Sway, Hyprland).",
         "desc_ocr_missing": "Required to draw and capture the rectangular screen region during OCR reading (Alt+R).",
         "desc_ocr_missing_summary": "Screen capture tools (KDE or wlroots).",
-        "desc_xclip": "Allows intercepting and reading selected text inside non-native XWayland applications (e.g. legacy X11 programs).",
     },
     "it": {
         "title": "SELECT-TO-SPEECH - CONTROLLO DIPENDENZE DI SISTEMA",
@@ -63,7 +61,6 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "req_audio_header": "\n--- Sistema Audio & Modelli TTS (Richiesti per la riproduzione vocale) ---",
         "opt_audio_header": "\n--- Server Audio & Gestione Volume (Opzionale) ---",
         "opt_ocr_header": "\n--- Dipendenze Opzionali: Riconoscimento Testo da Schermo (OCR - Alt+R) ---",
-        "opt_xwayland_header": "\n--- Dipendenze Opzionali: Compatibilità Applicazioni XWayland ---",
         "install_header": "ISTRUZIONI PER L'INSTALLAZIONE (ARCH LINUX)",
         "purpose_label": "A cosa serve:",
         "missing_req_tag": "[MANCANTE - RICHIESTO]",
@@ -74,9 +71,9 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "model_label": "modello vocale:",
         "langs_detected_label": "lingue rilevate:",
         "missing_req_summary": "[✗] Dipendenze RICHIESTE mancanti:",
-        "missing_opt_summary": "[⚠] Dipendenze OPZIONALI mancanti (funzionalità OCR, ducking o XWayland ridotte):",
+        "missing_opt_summary": "[⚠] Dipendenze OPZIONALI mancanti (funzionalità OCR o ducking ridotte):",
         "req_cmd_hint": "👉 Comando di installazione per le dipendenze richieste:",
-        "opt_cmd_hint": "👉 Comando per abilitare tutte le funzionalità opzionali (OCR + XWayland):",
+        "opt_cmd_hint": "👉 Comando per abilitare tutte le funzionalità opzionali (OCR + ducking):",
         "model_cmd_hint": "👉 Scarica i file del modello vocale Kokoro TTS con:",
         "all_ok_msg": "\n✓ Tutte le dipendenze di sistema richieste e i modelli vocali sono correttamente installati!\n",
         "desc_wl": "Permette l'intercettazione e la lettura del testo selezionato o copiato negli ambienti nativi Wayland.",
@@ -90,7 +87,6 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "desc_slurp_grim": "Strumenti di cattura schermo e selezione area di fallback su ambienti Wayland basati su wlroots (es. Sway, Hyprland).",
         "desc_ocr_missing": "Necessario per disegnare e catturare l'area rettangolare dello schermo durante la lettura OCR (Alt+R).",
         "desc_ocr_missing_summary": "Strumenti per la cattura dell'area di schermo (KDE o wlroots).",
-        "desc_xclip": "Consente di intercettare e leggere il testo selezionato all'interno di applicazioni XWayland non native (es. vecchi programmi X11).",
     },
     "fr": {
         "title": "SELECT-TO-SPEECH - VÉRIFICATION DES DÉPENDANCES SYSTÈME",
@@ -98,7 +94,6 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "req_audio_header": "\n--- Système Audio & Modèles TTS (Requis pour la synthèse vocale) ---",
         "opt_audio_header": "\n--- Serveur Audio & Gestion du Volume (Optionnel) ---",
         "opt_ocr_header": "\n--- Dépendances Optionnelles : Reconnaissance de texte à l'écran (OCR - Alt+R) ---",
-        "opt_xwayland_header": "\n--- Dépendances Optionnelles : Compatibilité applications XWayland ---",
         "install_header": "INSTRUCTIONS D'INSTALLATION (ARCH LINUX)",
         "purpose_label": "À quoi ça sert :",
         "missing_req_tag": "[MANQUANT - REQUIS]",
@@ -109,9 +104,9 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "model_label": "modèle vocal :",
         "langs_detected_label": "langues détectées :",
         "missing_req_summary": "[✗] Dépendances REQUISES manquantes :",
-        "missing_opt_summary": "[⚠] Dépendances OPTIONNELLES manquantes (fonctionnalités OCR, ducking ou XWayland réduites) :",
+        "missing_opt_summary": "[⚠] Dépendances OPTIONNELLES manquantes (fonctionnalités OCR ou ducking réduites) :",
         "req_cmd_hint": "👉 Commande d'installation pour les dépendances requises :",
-        "opt_cmd_hint": "👉 Commande pour activer toutes les fonctionnalités optionnelles (OCR + XWayland) :",
+        "opt_cmd_hint": "👉 Commande pour activer toutes les fonctionnalités optionnelles (OCR + ducking) :",
         "model_cmd_hint": "👉 Téléchargez les fichiers de modèles vocaux Kokoro TTS avec :",
         "all_ok_msg": "\n✓ Toutes les dépendances système requises et les modèles vocaux sont correctement installés !\n",
         "desc_wl": "Permet d'intercepter et de lire le texte sélectionné ou copié dans les environnements Wayland natifs.",
@@ -125,7 +120,6 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "desc_slurp_grim": "Outils de capture d'écran et de sélection de secours sur les environnements Wayland basés sur wlroots (ex. Sway, Hyprland).",
         "desc_ocr_missing": "Requis pour dessiner et capturer la zone rectangulaire de l'écran lors de la lecture OCR (Alt+R).",
         "desc_ocr_missing_summary": "Outils de capture d'écran (KDE ou wlroots).",
-        "desc_xclip": "Permet d'intercepter et de lire le texte sélectionné dans les applications XWayland non natives (ex. anciens programmes X11).",
     },
     "es": {
         "title": "SELECT-TO-SPEECH - VERIFICACIÓN DE DEPENDENCIAS DEL SISTEMA",
@@ -133,7 +127,6 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "req_audio_header": "\n--- Sistema de Audio y Modelos TTS (Requeridos para la reproducción de voz) ---",
         "opt_audio_header": "\n--- Servidor de Audio y Gestión de Volumen (Opcional) ---",
         "opt_ocr_header": "\n--- Dependencias Opcionales: Reconocimiento de texto en pantalla (OCR - Alt+R) ---",
-        "opt_xwayland_header": "\n--- Dependencias Opcionales: Compatibilidad con aplicaciones XWayland ---",
         "install_header": "INSTRUCCIONES DE INSTALACIÓN (ARCH LINUX)",
         "purpose_label": "Para qué sirve:",
         "missing_req_tag": "[FALTANTE - REQUERIDO]",
@@ -144,9 +137,9 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "model_label": "modelo de voz:",
         "langs_detected_label": "idiomas detectados:",
         "missing_req_summary": "[✗] Dependencias REQUERIDAS faltantes:",
-        "missing_opt_summary": "[⚠] Dependencias OPCIONALES faltantes (funcionalidades OCR, ducking o XWayland reducidas):",
+        "missing_opt_summary": "[⚠] Dependencias OPCIONALES faltantes (funcionalidades OCR o ducking reducidas):",
         "req_cmd_hint": "👉 Comando de instalación para las dependencias requeridas:",
-        "opt_cmd_hint": "👉 Comando para habilitar todas las funcionalidades opcionales (OCR + XWayland):",
+        "opt_cmd_hint": "👉 Comando para habilitar todas las funcionalidades opcionales (OCR + ducking):",
         "model_cmd_hint": "👉 Descarga los archivos del modelo de voz Kokoro TTS con:",
         "all_ok_msg": "\n✓ ¡Todas las dependencias del sistema requeridas y modelos de voz están correctamente instalados!\n",
         "desc_wl": "Permite interceptar y leer el texto seleccionado o copiado en entornos nativos de Wayland.",
@@ -160,7 +153,6 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "desc_slurp_grim": "Herramientas de captura y selección de pantalla de respaldo en entornos Wayland basados en wlroots (ej. Sway, Hyprland).",
         "desc_ocr_missing": "Requerido para dibujar y capturar el área rectangular de la pantalla durante la lectura OCR (Alt+R).",
         "desc_ocr_missing_summary": "Herramientas para la captura del área de pantalla (KDE o wlroots).",
-        "desc_xclip": "Permite interceptar y leer el texto seleccionado dentro de aplicaciones XWayland no nativas (ej. programas X11 antiguos).",
     },
 }
 
@@ -372,17 +364,6 @@ def check_system_dependencies(lang: str | None = None) -> bool:
         logger.warning(f"  ⚠ spectacle (slurp + grim) ({msg['packages_label']} spectacle slurp grim) {msg['missing_opt_tag']}")
         logger.warning(f"    └─ {msg['purpose_label']} {msg['desc_ocr_missing']}")
         missing_optional.append(("spectacle (slurp+grim)", "spectacle slurp grim", msg["desc_ocr_missing_summary"]))
-
-    # 5. Optional XWayland Compatibility
-    logger.info(msg["opt_xwayland_header"])
-    desc_xclip = msg["desc_xclip"]
-    if shutil.which("xclip"):
-        logger.info(f"  ✓ xclip ({msg['package_label']} xclip)")
-        logger.info(f"    └─ {msg['purpose_label']} {desc_xclip}")
-    else:
-        logger.warning(f"  ⚠ xclip ({msg['package_label']} xclip) {msg['missing_opt_tag']}")
-        logger.warning(f"    └─ {msg['purpose_label']} {desc_xclip}")
-        missing_optional.append(("xclip", "xclip", desc_xclip))
 
     # Summary & Installation instructions
     if missing_required or missing_optional or missing_models:
