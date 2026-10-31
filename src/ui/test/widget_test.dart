@@ -1,30 +1,36 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:ui/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const SelectToSpeechApp());
+  testWidgets('ShortcutRecorderWidget displays M3 keycaps and records key press', (WidgetTester tester) async {
+    String? recordedKey;
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(useMaterial3: true, colorSchemeSeed: kDefaultSeedColor),
+        home: Scaffold(
+          body: ShortcutRecorderWidget(
+            label: 'Trigger Key',
+            modifierKey: 'alt',
+            initialValue: 'esc',
+            promptText: 'Press a key...',
+            onChanged: (val) => recordedKey = val,
+          ),
+        ),
+      ),
+    );
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+    expect(find.text('ALT'), findsOneWidget);
+    expect(find.text('ESC'), findsOneWidget);
+
+    await tester.tap(find.byType(ShortcutRecorderWidget));
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('Press a key...'), findsOneWidget);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.keyK);
     await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(recordedKey, equals('k'));
   });
 }

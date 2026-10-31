@@ -9,7 +9,7 @@ Categories=AudioVideo;Audio;Utility;Accessibility;
 Keywords=tts;speech;text;read;voice;
 StartupNotify=false
 NoDisplay=false
-StartupWMClass=com.example.ui
+StartupWMClass=select-to-speech-gui
 Actions=Settings;
 
 [Desktop Action Settings]

@@ -38,6 +38,7 @@ if [ -d "$APPS_DIR" ] && [ ! -w "$APPS_DIR" ]; then
 fi
 rm -f "$APPS_DIR/select-to-speech.desktop" || true
 rm -f "$APPS_DIR/com.example.ui.desktop" || true
+rm -f "$APPS_DIR/select-to-speech-gui.desktop" || true
 update-desktop-database "$APPS_DIR" || true
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
     kbuildsycoca6 --noincremental >/dev/null 2>&1 || true

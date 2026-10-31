@@ -98,8 +98,10 @@ if [ -d "$APPS_DIR" ] && [ ! -w "$APPS_DIR" ]; then
 fi
 mkdir -p "$APPS_DIR"
 sed "s|%h|$HOME|g" "$INSTALL_DIR/select-to-speech.desktop" > "$APPS_DIR/select-to-speech.desktop"
-# Create a symlink for Wayland to match the default Flutter app_id
-ln -sf "$APPS_DIR/select-to-speech.desktop" "$APPS_DIR/com.example.ui.desktop"
+# Create a symlink for Wayland to match the GUI binary name (the app_id of a
+# GTK3 window on Wayland is the program name, i.e. select-to-speech-gui)
+ln -sf "$APPS_DIR/select-to-speech.desktop" "$APPS_DIR/select-to-speech-gui.desktop"
+rm -f "$APPS_DIR/com.example.ui.desktop" || true
 update-desktop-database "$APPS_DIR" || true
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
     kbuildsycoca6 --noincremental >/dev/null 2>&1 || true

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui';
+import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -9,12 +9,132 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:tray_manager/tray_manager.dart';
 
-final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier(ThemeMode.system);
+final ValueNotifier<ThemeMode> themeModeNotifier =
+    ValueNotifier(ThemeMode.system);
+final ValueNotifier<Color?> systemAccentColorNotifier = ValueNotifier(null);
+
+const Color kDefaultSeedColor = Color(0xFF7B61FF);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  unawaited(_initLinuxAccentColorWatcher());
   await startPythonBackend();
   runApp(const SelectToSpeechApp());
+}
+
+/// Detects the system accent color on Linux desktops (XDG Desktop Portal / KDE Plasma kdeglobals)
+/// as a complement to `DynamicColorBuilder` (which reads GTK / Windows / macOS accent colors).
+Future<void> _initLinuxAccentColorWatcher() async {
+  if (!Platform.isLinux) return;
+
+  Future<void> refreshAccent() async {
+    final color = await _detectLinuxSystemAccentColor();
+    if (color != null && systemAccentColorNotifier.value != color) {
+      systemAccentColorNotifier.value = color;
+    }
+  }
+
+  await refreshAccent();
+
+  // Watch ~/.config/kdeglobals if present so live KDE Plasma accent color changes apply immediately
+  try {
+    final homeDir = Platform.environment['HOME'] ?? '';
+    if (homeDir.isNotEmpty) {
+      final configDir = Directory('$homeDir/.config');
+      if (configDir.existsSync()) {
+        configDir
+            .watch(
+                events: FileSystemEvent.modify |
+                    FileSystemEvent.move |
+                    FileSystemEvent.create)
+            .listen((event) {
+          if (event.path.endsWith('kdeglobals') ||
+              event.path.endsWith('gtk.css')) {
+            refreshAccent();
+          }
+        });
+      }
+    }
+  } catch (_) {}
+}
+
+Future<Color?> _detectLinuxSystemAccentColor() async {
+  // 1. Try XDG Desktop Portal (supported by GNOME 42+, KDE Plasma 5.25+, Cosmic, etc.)
+  try {
+    final result = await Process.run(
+      'gdbus',
+      [
+        'call',
+        '--session',
+        '--dest',
+        'org.freedesktop.portal.Desktop',
+        '--object-path',
+        '/org/freedesktop/portal/desktop',
+        '--method',
+        'org.freedesktop.portal.Settings.Read',
+        'org.freedesktop.appearance',
+        'accent-color',
+      ],
+    ).timeout(const Duration(milliseconds: 800));
+
+    if (result.exitCode == 0) {
+      final out = result.stdout.toString();
+      final match =
+          RegExp(r'\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\)')
+              .firstMatch(out);
+      if (match != null) {
+        final r = double.tryParse(match.group(1)!);
+        final g = double.tryParse(match.group(2)!);
+        final b = double.tryParse(match.group(3)!);
+        if (r != null &&
+            g != null &&
+            b != null &&
+            r >= 0.0 &&
+            r <= 1.0 &&
+            g >= 0.0 &&
+            g <= 1.0 &&
+            b >= 0.0 &&
+            b <= 1.0) {
+          return Color.fromARGB(
+            255,
+            (r * 255).round().clamp(0, 255),
+            (g * 255).round().clamp(0, 255),
+            (b * 255).round().clamp(0, 255),
+          );
+        }
+      }
+    }
+  } catch (_) {}
+
+  // 2. Fallback: read ~/.config/kdeglobals for KDE Plasma
+  try {
+    final homeDir = Platform.environment['HOME'] ?? '';
+    if (homeDir.isNotEmpty) {
+      final kdeFile = File('$homeDir/.config/kdeglobals');
+      if (kdeFile.existsSync()) {
+        final lines = await kdeFile.readAsLines();
+        for (final key in ['AccentColor=', 'DecorationFocus=']) {
+          for (final line in lines) {
+            final trimmed = line.trim();
+            if (trimmed.startsWith(key)) {
+              final parts = trimmed.substring(key.length).split(',');
+              if (parts.length >= 3) {
+                final r = int.tryParse(parts[0].trim());
+                final g = int.tryParse(parts[1].trim());
+                final b = int.tryParse(parts[2].trim());
+                if (r != null && g != null && b != null) {
+                  return Color.fromARGB(
+                      255, r.clamp(0, 255), g.clamp(0, 255), b.clamp(0, 255));
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  return null;
 }
 
 Process? pythonBackend;
@@ -59,7 +179,8 @@ Future<void> startPythonBackend() async {
       '$exeDir/select-to-speech',
       '$exeDir/bin/select-to-speech',
       // User local share install
-      if (homeDir.isNotEmpty) '$homeDir/.local/share/select-to-speech/bin/select-to-speech',
+      if (homeDir.isNotEmpty)
+        '$homeDir/.local/share/select-to-speech/bin/select-to-speech',
       if (homeDir.isNotEmpty) '$homeDir/.local/bin/select-to-speech',
     ];
 
@@ -87,11 +208,12 @@ Future<void> startPythonBackend() async {
       }
     }
   }
-  
+
   if (_backendPath != null) {
     await _launchAndMonitorBackend();
   } else {
-    debugPrint('Warning: could not find select-to-speech backend binary or .venv');
+    debugPrint(
+        'Warning: could not find select-to-speech backend binary or .venv');
   }
 }
 
@@ -99,7 +221,7 @@ Future<void> _launchAndMonitorBackend() async {
   try {
     pythonBackend = await Process.start(_backendPath!, []);
     debugPrint('Python backend started with PID: ${pythonBackend?.pid}');
-    
+
     // Drain stdout and stderr so that child writes never block on full pipe buffers
     pythonBackend?.stdout
         .transform(utf8.decoder)
@@ -118,26 +240,29 @@ Future<void> _launchAndMonitorBackend() async {
     }, onError: (e) {
       debugPrint('Backend stderr stream error: $e');
     });
-    
+
     // Monitor the process and auto-restart on unexpected exit
     pythonBackend?.exitCode.then((exitCode) async {
       debugPrint('Python backend exited with code: $exitCode');
       if (_shuttingDown) return;
-      
+
       // Rate-limit restarts to avoid infinite crash loops
       final now = DateTime.now();
-      if (_firstRestartTime == null || now.difference(_firstRestartTime!) > _restartWindow) {
+      if (_firstRestartTime == null ||
+          now.difference(_firstRestartTime!) > _restartWindow) {
         _restartCount = 0;
         _firstRestartTime = now;
       }
       _restartCount++;
-      
+
       if (_restartCount > _maxRestartsInWindow) {
-        debugPrint('Backend crashed $_restartCount times in ${_restartWindow.inSeconds}s. Giving up auto-restart.');
+        debugPrint(
+            'Backend crashed $_restartCount times in ${_restartWindow.inSeconds}s. Giving up auto-restart.');
         return;
       }
-      
-      debugPrint('Restarting backend in ${_restartDelay.inSeconds}s (attempt $_restartCount/$_maxRestartsInWindow)...');
+
+      debugPrint(
+          'Restarting backend in ${_restartDelay.inSeconds}s (attempt $_restartCount/$_maxRestartsInWindow)...');
       await Future.delayed(_restartDelay);
       if (!_shuttingDown) {
         await _launchAndMonitorBackend();
@@ -159,56 +284,114 @@ http.Client createUdsClient() {
   return IOClient(ioClient);
 }
 
+ThemeData _buildMaterial3Theme(ColorScheme colorScheme) {
+  return ThemeData(
+    useMaterial3: true,
+    colorScheme: colorScheme,
+    fontFamily: 'Inter',
+    scaffoldBackgroundColor: colorScheme.surface,
+    cardTheme: CardThemeData(
+      elevation: 0,
+      color: colorScheme.surfaceContainerLow,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
+        side: BorderSide(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+          width: 1,
+        ),
+      ),
+    ),
+    navigationDrawerTheme: NavigationDrawerThemeData(
+      backgroundColor: colorScheme.surfaceContainerLow,
+      indicatorColor: colorScheme.secondaryContainer,
+      indicatorShape: const StadiumBorder(),
+      tileHeight: 52,
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: colorScheme.outlineVariant),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(
+            color: colorScheme.outlineVariant.withValues(alpha: 0.7)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: colorScheme.primary, width: 2),
+      ),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    ),
+    dividerTheme: DividerThemeData(
+      color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+      thickness: 1,
+      space: 24,
+    ),
+  );
+}
+
 class SelectToSpeechApp extends StatelessWidget {
   const SelectToSpeechApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: themeModeNotifier,
-      builder: (context, currentThemeMode, _) {
-        return MaterialApp(
-          title: 'Select to Speech',
-          themeMode: currentThemeMode,
-          theme: ThemeData(
-            brightness: Brightness.light,
-            primaryColor: const Color(0xFF7B61FF),
-            scaffoldBackgroundColor: const Color(0xFFF5F5FA),
-            cardColor: const Color(0xFFFFFFFF),
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF7B61FF),
-              secondary: Color(0xFF00E5FF),
-              surface: Color(0xFFFFFFFF),
-            ),
-            fontFamily: 'Inter',
-            sliderTheme: const SliderThemeData(
-              activeTrackColor: Color(0xFF7B61FF),
-              inactiveTrackColor: Color(0xFFE0E0E0),
-              thumbColor: Color(0xFF7B61FF),
-              overlayColor: Color(0x337B61FF),
-            ),
-          ),
-          darkTheme: ThemeData(
-            brightness: Brightness.dark,
-            primaryColor: const Color(0xFF7B61FF),
-            scaffoldBackgroundColor: const Color(0xFF0F0F1A),
-            cardColor: const Color(0xFF1E1E2E),
-            colorScheme: const ColorScheme.dark(
-              primary: Color(0xFF7B61FF),
-              secondary: Color(0xFF00E5FF),
-              surface: Color(0xFF1E1E2E),
-            ),
-            fontFamily: 'Inter',
-            sliderTheme: const SliderThemeData(
-              activeTrackColor: Color(0xFF00E5FF),
-              inactiveTrackColor: Color(0xFF33334D),
-              thumbColor: Color(0xFFFFFFFF),
-              overlayColor: Color(0x3300E5FF),
-            ),
-          ),
-          home: const SettingsScreen(),
+    return DynamicColorBuilder(
+      builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
+        return ValueListenableBuilder<Color?>(
+          valueListenable: systemAccentColorNotifier,
+          builder: (context, linuxAccent, _) {
+            final Color effectiveSeed = linuxAccent ??
+                lightDynamic?.primary ??
+                darkDynamic?.primary ??
+                kDefaultSeedColor;
+
+            final ColorScheme lightScheme = ColorScheme.fromSeed(
+              seedColor: effectiveSeed,
+              brightness: Brightness.light,
+            );
+            final ColorScheme darkScheme = ColorScheme.fromSeed(
+              seedColor: effectiveSeed,
+              brightness: Brightness.dark,
+            );
+
+            return ValueListenableBuilder<ThemeMode>(
+              valueListenable: themeModeNotifier,
+              builder: (context, currentThemeMode, _) {
+                return MaterialApp(
+                  title: 'Select to Speech',
+                  debugShowCheckedModeBanner: false,
+                  themeMode: currentThemeMode,
+                  themeAnimationDuration: const Duration(milliseconds: 350),
+                  themeAnimationCurve: Curves.easeOutCubic,
+                  theme: _buildMaterial3Theme(lightScheme),
+                  darkTheme: _buildMaterial3Theme(darkScheme),
+                  home: const SettingsScreen(),
+                );
+              },
+            );
+          },
         );
-      }
+      },
     );
   }
 }
@@ -223,7 +406,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   late http.Client apiClient;
   int _selectedIndex = 0;
-  
+
   bool isLoading = true;
   Map<String, dynamic>? config;
   List<dynamic> audioDevices = [];
@@ -247,14 +430,6 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
 
   Timer? _saveTimer;
 
-  bool get isDark => Theme.of(context).brightness == Brightness.dark;
-  Color get textColor => isDark ? Colors.white : const Color(0xFF1E1E2E);
-  Color get textColor70 => isDark ? Colors.white70 : Colors.black87;
-  Color get textColor54 => isDark ? Colors.white54 : Colors.black54;
-  Color get dropdownBgColor => isDark ? const Color(0xFF1E1E2E) : const Color(0xFFFFFFFF);
-  Color get inputBgColor => isDark ? Colors.black.withValues(alpha: 0.2) : Colors.black.withValues(alpha: 0.04);
-  Color get inputBorderColor => isDark ? Colors.white12 : Colors.black12;
-
   static const Map<String, Map<String, String>> translations = {
     'en': {
       'app_title': 'Select to Speech',
@@ -270,6 +445,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'save_settings': 'Save Settings',
       'voice_config': 'Voice Configuration',
       'voice_model': 'Voice Model',
+      'default_language': 'Default Language',
       'download': 'Download',
       'downloading': 'Downloading...',
       'preparing_download': 'Preparing download...',
@@ -290,6 +466,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'stop_key': 'Stop Key (e.g. s)',
       'ocr_key': 'OCR Key',
       'general_settings': 'General Settings',
+      'appearance': 'Appearance',
+      'performance': 'Performance',
+      'text_processing': 'Text Processing',
+      'diagnostics': 'Diagnostics',
       'gui_language': 'GUI Language',
       'enable_debug': 'Enable Debug Logging',
       'check_logs': 'Check logs at ~/.local/state/select-to-speech/app.log',
@@ -313,16 +493,19 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme_light': 'Light',
       'theme_system': 'System Default',
       'press_a_key': 'Press a key...',
-      'no_ocr_langs': 'No Tesseract languages found. Please install language packages.',
+      'no_ocr_langs':
+          'No Tesseract languages found. Please install language packages.',
       'ducking': 'Audio Ducking',
       'ducking_desc': 'Lower background volume while reading',
       'hardware_threads': 'Inference Threads',
       'threads_auto': 'Auto ({count} threads)',
       'hardware_cpu_info': 'Detected CPU: {cpu}',
       'text_normalization': 'Smart Text Formatting & Line Unwrap',
-      'text_normalization_desc': 'Rejoin hyphenated words, fix soft line wraps, and format list pauses',
+      'text_normalization_desc':
+          'Rejoin hyphenated words, fix soft line wraps, and format list pauses',
       'neural_punctuation': 'Neural Punctuation Restoration',
-      'neural_punctuation_desc': 'Model: Sherpa-ONNX CT-Transformer INT8. Supported languages: English (en) and Chinese (zh).',
+      'neural_punctuation_desc':
+          'Model: Sherpa-ONNX CT-Transformer INT8. Supported languages: English (en) and Chinese (zh).',
       'punct_download_btn': 'Download Punctuation Model (~62 MB)',
       'punct_downloading': 'Downloading Punctuation Model...',
       'punct_installed_badge': 'Model installed',
@@ -341,6 +524,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'save_settings': 'Salva Impostazioni',
       'voice_config': 'Configurazione Voce',
       'voice_model': 'Modello Vocale',
+      'default_language': 'Lingua Predefinita',
       'download': 'Scarica',
       'downloading': 'Download in corso...',
       'preparing_download': 'Preparazione download...',
@@ -361,9 +545,14 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'stop_key': 'Tasto Interrompi (es. s)',
       'ocr_key': 'Tasto OCR',
       'general_settings': 'Impostazioni Generali',
+      'appearance': 'Aspetto',
+      'performance': 'Prestazioni',
+      'text_processing': 'Elaborazione del Testo',
+      'diagnostics': 'Diagnostica',
       'gui_language': 'Lingua dell\'Interfaccia',
       'enable_debug': 'Abilita Log di Debug',
-      'check_logs': 'Controlla i log in ~/.local/state/select-to-speech/app.log',
+      'check_logs':
+          'Controlla i log in ~/.local/state/select-to-speech/app.log',
       'save_success': 'Impostazioni salvate con successo!',
       'save_failed': 'Salvataggio delle impostazioni fallito',
       'download_success': 'Modello scaricato con successo!',
@@ -384,16 +573,19 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme_light': 'Chiaro',
       'theme_system': 'Predefinito di Sistema',
       'press_a_key': 'Premi un tasto...',
-      'no_ocr_langs': 'Nessuna lingua trovata per Tesseract. Installa i pacchetti lingua.',
+      'no_ocr_langs':
+          'Nessuna lingua trovata per Tesseract. Installa i pacchetti lingua.',
       'ducking': 'Ducking Audio',
       'ducking_desc': 'Abbassa il volume di sottofondo durante la lettura',
       'hardware_threads': 'Thread di Calcolo',
       'threads_auto': 'Automatico ({count} thread)',
       'hardware_cpu_info': 'Processore Rilevato: {cpu}',
       'text_normalization': 'Formattazione Intelligente del Testo',
-      'text_normalization_desc': 'Ricompone parole sillabate (a capo), unisce righe spezzate e imposta pause negli elenchi',
+      'text_normalization_desc':
+          'Ricompone parole sillabate (a capo), unisce righe spezzate e imposta pause negli elenchi',
       'neural_punctuation': 'Ripristino Punteggiatura Neurale',
-      'neural_punctuation_desc': 'Modello: Sherpa-ONNX CT-Transformer INT8. Lingue supportate: Inglese (en) e Cinese (zh).',
+      'neural_punctuation_desc':
+          'Modello: Sherpa-ONNX CT-Transformer INT8. Lingue supportate: Inglese (en) e Cinese (zh).',
       'punct_download_btn': 'Scarica Modello Punteggiatura (~62 MB)',
       'punct_downloading': 'Download modello di punteggiatura in corso...',
       'punct_installed_badge': 'Modello installato',
@@ -412,6 +604,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'save_settings': 'Guardar Ajustes',
       'voice_config': 'Configuración de Voz',
       'voice_model': 'Modelo de Voz',
+      'default_language': 'Idioma Predeterminado',
       'download': 'Descargar',
       'downloading': 'Descargando...',
       'preparing_download': 'Preparando descarga...',
@@ -432,9 +625,14 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'stop_key': 'Tecla Detener (ej. s)',
       'ocr_key': 'Tecla OCR',
       'general_settings': 'Ajustes Generales',
+      'appearance': 'Apariencia',
+      'performance': 'Rendimiento',
+      'text_processing': 'Procesamiento de Texto',
+      'diagnostics': 'Diagnóstico',
       'gui_language': 'Idioma de la Interfaz',
       'enable_debug': 'Habilitar Registro de Depuración',
-      'check_logs': 'Revisa los registros en ~/.local/state/select-to-speech/app.log',
+      'check_logs':
+          'Revisa los registros en ~/.local/state/select-to-speech/app.log',
       'save_success': '¡Ajustes guardados con éxito!',
       'save_failed': 'Error al guardar los ajustes',
       'download_success': '¡Modelo descargado con éxito!',
@@ -453,18 +651,21 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme': 'Tema',
       'theme_dark': 'Oscuro',
       'theme_light': 'Claro',
-      'theme_system': 'Predeterminato del Sistema',
+      'theme_system': 'Predeterminado del Sistema',
       'press_a_key': 'Presiona una tecla...',
-      'no_ocr_langs': 'No se encontraron idiomas de Tesseract. Por favor instala los paquetes de idioma.',
+      'no_ocr_langs':
+          'No se encontraron idiomas de Tesseract. Por favor instala los paquetes de idioma.',
       'ducking': 'Atenuación de Audio',
       'ducking_desc': 'Bajar el volumen de fondo durante la lectura',
       'hardware_threads': 'Hilos de Inferencia',
       'threads_auto': 'Automático ({count} hilos)',
       'hardware_cpu_info': 'CPU Detectada: {cpu}',
       'text_normalization': 'Formato Inteligente y Ajuste de Líneas',
-      'text_normalization_desc': 'Recompone palabras cortadas por guiones, une saltos suaves y formatea pausas en listas',
+      'text_normalization_desc':
+          'Recompone palabras cortadas por guiones, une saltos suaves y formatea pausas en listas',
       'neural_punctuation': 'Restauración de Puntuación Neuronal',
-      'neural_punctuation_desc': 'Modelo: Sherpa-ONNX CT-Transformer INT8. Idiomas compatibles: Inglés (en) y Chino (zh).',
+      'neural_punctuation_desc':
+          'Modelo: Sherpa-ONNX CT-Transformer INT8. Idiomas compatibles: Inglés (en) y Chino (zh).',
       'punct_download_btn': 'Descargar Modelo de Puntuación (~62 MB)',
       'punct_downloading': 'Descargando modelo de puntuación...',
       'punct_installed_badge': 'Modelo instalado',
@@ -483,6 +684,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'save_settings': 'Enregistrer les paramètres',
       'voice_config': 'Configuration de la Voix',
       'voice_model': 'Modèle de Voix',
+      'default_language': 'Langue par Défaut',
       'download': 'Télécharger',
       'downloading': 'Téléchargement...',
       'preparing_download': 'Préparation du téléchargement...',
@@ -503,9 +705,14 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'stop_key': 'Touche d\'Arrêt (ex. s)',
       'ocr_key': 'Touche OCR',
       'general_settings': 'Paramètres Généraux',
+      'appearance': 'Apparence',
+      'performance': 'Performances',
+      'text_processing': 'Traitement du Texte',
+      'diagnostics': 'Diagnostic',
       'gui_language': 'Langue de l\'Interface',
       'enable_debug': 'Activer le Journal de Débogage',
-      'check_logs': 'Vérifiez les journaux dans ~/.local/state/select-to-speech/app.log',
+      'check_logs':
+          'Vérifiez les journaux dans ~/.local/state/select-to-speech/app.log',
       'save_success': 'Paramètres enregistrés avec succès !',
       'save_failed': 'Échec de l\'enregistrement des paramètres',
       'download_success': 'Modèle téléchargé avec succès !',
@@ -526,16 +733,19 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       'theme_light': 'Clair',
       'theme_system': 'Par Défaut du Système',
       'press_a_key': 'Appuyez sur une touche...',
-      'no_ocr_langs': 'Aucune langue Tesseract trouvée. Veuillez installer les paquets de langue.',
+      'no_ocr_langs':
+          'Aucune langue Tesseract trouvée. Veuillez installer les paquets de langue.',
       'ducking': 'Atténuation Audio',
       'ducking_desc': 'Baisser le volume d\'arrière-plan pendant la lecture',
       'hardware_threads': 'Threads d\'Inférence',
       'threads_auto': 'Automatique ({count} threads)',
       'hardware_cpu_info': 'Processeur Détecté : {cpu}',
       'text_normalization': 'Formatage Intelligent et Ajustement de Ligne',
-      'text_normalization_desc': 'Recompose les mots coupés par des traits d\'union et insère des pauses logiques',
+      'text_normalization_desc':
+          'Recompose les mots coupés par des traits d\'union et insère des pauses logiques',
       'neural_punctuation': 'Restauration de la Ponctuation Neuronale',
-      'neural_punctuation_desc': 'Modèle : Sherpa-ONNX CT-Transformer INT8. Langues supportées : Anglais (en) et Chinois (zh).',
+      'neural_punctuation_desc':
+          'Modèle : Sherpa-ONNX CT-Transformer INT8. Langues supportées : Anglais (en) et Chinois (zh).',
       'punct_download_btn': 'Télécharger le Modèle de Ponctuation (~62 Mo)',
       'punct_downloading': 'Téléchargement du modèle de ponctuation...',
       'punct_installed_badge': 'Modèle installé',
@@ -571,22 +781,31 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   }
 
   Future<void> _initTray() async {
-    String iconPath = Platform.isWindows ? 'images/tray_icon.ico' : 'images/select_to_speech_tray_icon.svg';
-    if (Platform.isLinux) {
-      final String exeDir = File(Platform.resolvedExecutable).parent.path;
-      iconPath = '$exeDir/data/flutter_assets/images/select_to_speech_tray_icon.svg';
+    try {
+      String iconPath = Platform.isWindows
+          ? 'images/tray_icon.ico'
+          : 'images/select_to_speech_tray_icon.svg';
+      if (Platform.isLinux) {
+        final String exeDir = File(Platform.resolvedExecutable).parent.path;
+        iconPath =
+            '$exeDir/data/flutter_assets/images/select_to_speech_tray_icon.svg';
+      }
+      await trayManager.setIcon(iconPath);
+      await _updateTrayMenu();
+      trayManager.addListener(this);
+    } catch (_) {
+      // Ignore tray initialization errors in headless / widget test environments
     }
-    await trayManager.setIcon(iconPath);
-    await _updateTrayMenu();
-    trayManager.addListener(this);
   }
 
   Future<void> _updateTrayMenu() async {
-    await trayManager.setContextMenu(Menu(items: [
-      MenuItem(key: 'settings', label: t('settings')),
-      MenuItem.separator(),
-      MenuItem(key: 'quit', label: t('quit')),
-    ]));
+    try {
+      await trayManager.setContextMenu(Menu(items: [
+        MenuItem(key: 'settings', label: t('settings')),
+        MenuItem.separator(),
+        MenuItem(key: 'quit', label: t('quit')),
+      ]));
+    } catch (_) {}
   }
 
   @override
@@ -606,10 +825,11 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   Future<void> _quit() async {
     _shuttingDown = true;
     try {
-      await apiClient.post(Uri.parse('http://localhost/stop')).timeout(const Duration(seconds: 2));
+      await apiClient
+          .post(Uri.parse('http://localhost/stop'))
+          .timeout(const Duration(seconds: 2));
     } catch (_) {}
     pythonBackend?.kill();
-    // Give the backend a moment to shut down gracefully
     await Future.delayed(const Duration(milliseconds: 500));
     exit(0);
   }
@@ -623,8 +843,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
     });
 
     try {
-      final selectedModel = config?['voice']?['model'] ?? 'kokoro-multi-lang-v1_0';
-      final res = await apiClient.post(Uri.parse('http://localhost/download_model?model_id=$selectedModel&force=true'));
+      final selectedModel =
+          config?['voice']?['model'] ?? 'kokoro-multi-lang-v1_0';
+      final res = await apiClient.post(Uri.parse(
+          'http://localhost/download_model?model_id=$selectedModel&force=true'));
       if (res.statusCode == 200) {
         _pollDownloadStatus();
       } else {
@@ -648,9 +870,12 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       await Future.delayed(const Duration(milliseconds: 800));
       if (!mounted) return;
       try {
-        final res = await apiClient.get(Uri.parse('http://localhost/download_status'));
+        final res =
+            await apiClient.get(Uri.parse('http://localhost/download_status'));
+        if (!mounted) return;
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
+          final cs = Theme.of(context).colorScheme;
           setState(() {
             downloadStatus = data['status'];
             downloadProgress = (data['progress'] as num).toDouble() / 100.0;
@@ -658,13 +883,21 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
               isDownloading = false;
               isModelInstalled = true;
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(t('download_success')), backgroundColor: Colors.green),
+                SnackBar(
+                  content: Text(t('download_success'),
+                      style: TextStyle(color: cs.onPrimaryContainer)),
+                  backgroundColor: cs.primaryContainer,
+                ),
               );
             } else if (downloadStatus == 'failed') {
               isDownloading = false;
               downloadError = data['error'];
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('${t('download_failed')}: ${data['error']}'), backgroundColor: Colors.redAccent),
+                SnackBar(
+                  content: Text('${t('download_failed')}: ${data['error']}',
+                      style: TextStyle(color: cs.onErrorContainer)),
+                  backgroundColor: cs.errorContainer,
+                ),
               );
             }
           });
@@ -683,7 +916,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
     });
 
     try {
-      final res = await apiClient.post(Uri.parse('http://localhost/download_punctuation'));
+      final res = await apiClient
+          .post(Uri.parse('http://localhost/download_punctuation'));
       if (res.statusCode == 200) {
         _pollPunctDownloadStatus();
       } else {
@@ -705,22 +939,35 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       await Future.delayed(const Duration(milliseconds: 800));
       if (!mounted) return;
       try {
-        final res = await apiClient.get(Uri.parse('http://localhost/punctuation_status'));
+        final res = await apiClient
+            .get(Uri.parse('http://localhost/punctuation_status'));
+        if (!mounted) return;
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
+          final cs = Theme.of(context).colorScheme;
           setState(() {
             punctDownloadStatus = data['download_status'] ?? 'idle';
-            punctDownloadProgress = ((data['download_progress'] ?? 0) as num).toDouble() / 100.0;
+            punctDownloadProgress =
+                ((data['download_progress'] ?? 0) as num).toDouble() / 100.0;
             if (punctDownloadStatus == 'success' || data['installed'] == true) {
               isPunctDownloading = false;
               isPunctInstalled = true;
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(t('download_success')), backgroundColor: Colors.green),
+                SnackBar(
+                  content: Text(t('download_success'),
+                      style: TextStyle(color: cs.onPrimaryContainer)),
+                  backgroundColor: cs.primaryContainer,
+                ),
               );
             } else if (punctDownloadStatus == 'failed') {
               isPunctDownloading = false;
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('${t('download_failed')}: ${data['download_error']}'), backgroundColor: Colors.redAccent),
+                SnackBar(
+                  content: Text(
+                      '${t('download_failed')}: ${data['download_error']}',
+                      style: TextStyle(color: cs.onErrorContainer)),
+                  backgroundColor: cs.errorContainer,
+                ),
               );
             }
           });
@@ -728,28 +975,39 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       } catch (_) {}
     }
   }
-  
+
   Future<void> _fetchData() async {
     setState(() => isLoading = true);
     int retries = 20;
     while (retries > 0) {
+      if (!mounted) return;
       try {
-        final configRes = await apiClient.get(Uri.parse('http://localhost/config'));
-        final devicesRes = await apiClient.get(Uri.parse('http://localhost/audio_devices'));
-        final voicesRes = await apiClient.get(Uri.parse('http://localhost/voices'));
-        final ocrLangsRes = await apiClient.get(Uri.parse('http://localhost/ocr_languages'));
-        final availableModelsRes = await apiClient.get(Uri.parse('http://localhost/available_models'));
-        final hardwareRes = await apiClient.get(Uri.parse('http://localhost/hardware'));
-        final punctRes = await apiClient.get(Uri.parse('http://localhost/punctuation_status'));
-        
+        final configRes =
+            await apiClient.get(Uri.parse('http://localhost/config'));
+        final devicesRes =
+            await apiClient.get(Uri.parse('http://localhost/audio_devices'));
+        final voicesRes =
+            await apiClient.get(Uri.parse('http://localhost/voices'));
+        final ocrLangsRes =
+            await apiClient.get(Uri.parse('http://localhost/ocr_languages'));
+        final availableModelsRes =
+            await apiClient.get(Uri.parse('http://localhost/available_models'));
+        final hardwareRes =
+            await apiClient.get(Uri.parse('http://localhost/hardware'));
+        final punctRes = await apiClient
+            .get(Uri.parse('http://localhost/punctuation_status'));
+
         if (configRes.statusCode == 200) {
           final decodedConfig = jsonDecode(configRes.body);
-          final selectedModel = decodedConfig['voice']?['model'] ?? 'kokoro-multi-lang-v1_0';
-          final modelInstRes = await apiClient.get(Uri.parse('http://localhost/model_installed?model_id=$selectedModel'));
+          final selectedModel =
+              decodedConfig['voice']?['model'] ?? 'kokoro-multi-lang-v1_0';
+          final modelInstRes = await apiClient.get(Uri.parse(
+              'http://localhost/model_installed?model_id=$selectedModel'));
 
+          if (!mounted) return;
           setState(() {
             config = decodedConfig;
-            config!['theme_mode'] ??= 'dark';
+            config!['theme_mode'] ??= 'system';
             config!['text_normalization'] ??= true;
             config!['neural_punctuation'] ??= false;
             config!['ocr'] ??= {'language': 'ita+eng'};
@@ -758,28 +1016,30 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             config!['voice']['language'] ??= 'en';
             config!['voice']['num_threads'] ??= 0;
             config!['voice']['provider'] ??= 'cpu';
-            
+
             final themeStr = config!['theme_mode'];
             if (themeStr == 'light') {
               themeModeNotifier.value = ThemeMode.light;
-            } else if (themeStr == 'system') {
-              themeModeNotifier.value = ThemeMode.system;
-            } else {
+            } else if (themeStr == 'dark') {
               themeModeNotifier.value = ThemeMode.dark;
+            } else {
+              themeModeNotifier.value = ThemeMode.system;
             }
             if (devicesRes.statusCode == 200) {
               audioDevices = jsonDecode(devicesRes.body);
             }
             if (voicesRes.statusCode == 200) {
               Map<String, dynamic> voicesMap = jsonDecode(voicesRes.body);
-              availableVoices = voicesMap.map((key, val) => MapEntry(key, List<String>.from(val)));
+              availableVoices = voicesMap
+                  .map((key, val) => MapEntry(key, List<String>.from(val)));
             }
             if (ocrLangsRes.statusCode == 200) {
               ocrLanguages = List<String>.from(jsonDecode(ocrLangsRes.body));
             }
             if (availableModelsRes.statusCode == 200) {
               List<dynamic> modelsList = jsonDecode(availableModelsRes.body);
-              availableModels = modelsList.map((m) => m as Map<String, dynamic>).toList();
+              availableModels =
+                  modelsList.map((m) => m as Map<String, dynamic>).toList();
             }
             if (hardwareRes.statusCode == 200) {
               hardwareInfo = jsonDecode(hardwareRes.body);
@@ -794,7 +1054,6 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
             }
             isLoading = false;
           });
-          // Update the tray menu with localized strings based on the loaded config
           _updateTrayMenu();
           return;
         }
@@ -803,7 +1062,9 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         await Future.delayed(const Duration(milliseconds: 500));
       }
     }
-    setState(() => isLoading = false);
+    if (mounted) {
+      setState(() => isLoading = false);
+    }
   }
 
   Timer? get saveTimer => _saveTimer;
@@ -824,7 +1085,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
         body: jsonEncode(config),
       );
       if (response.statusCode != 200) {
-        debugPrint('Error saving config: HTTP ${response.statusCode} - ${response.body}');
+        debugPrint(
+            'Error saving config: HTTP ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       debugPrint('Error saving config: $e');
@@ -848,24 +1110,32 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
     } else {
       _saveTimer?.cancel();
     }
-    trayManager.removeListener(this);
+    try {
+      trayManager.removeListener(this);
+    } catch (_) {}
     super.dispose();
   }
 
   Widget _getSelectedTabWidget() {
     switch (_selectedIndex) {
       case 0:
-        return _buildVoiceTab();
+        return KeyedSubtree(
+            key: const ValueKey('tab_voice'), child: _buildVoiceTab());
       case 1:
-        return _buildAudioTab();
+        return KeyedSubtree(
+            key: const ValueKey('tab_audio'), child: _buildAudioTab());
       case 2:
-        return _buildOcrTab();
+        return KeyedSubtree(
+            key: const ValueKey('tab_ocr'), child: _buildOcrTab());
       case 3:
-        return _buildKeyboardTab();
+        return KeyedSubtree(
+            key: const ValueKey('tab_shortcuts'), child: _buildKeyboardTab());
       case 4:
-        return _buildGeneralTab();
+        return KeyedSubtree(
+            key: const ValueKey('tab_general'), child: _buildGeneralTab());
       default:
-        return _buildVoiceTab();
+        return KeyedSubtree(
+            key: const ValueKey('tab_voice'), child: _buildVoiceTab());
     }
   }
 
@@ -874,18 +1144,17 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       builder: (context, constraints) {
         return SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 32.0),
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              minHeight: constraints.maxHeight,
+              minHeight:
+                  (constraints.maxHeight - 64).clamp(0.0, double.infinity),
             ),
             child: Align(
               alignment: Alignment.topCenter,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 550),
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 32.0),
-                  child: tabContent,
-                ),
+                constraints: const BoxConstraints(maxWidth: 680),
+                child: tabContent,
               ),
             ),
           ),
@@ -894,134 +1163,315 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
     );
   }
 
-  Widget _buildSidebarItem(int index, IconData icon, String label) {
-    final isSelected = _selectedIndex == index;
-    
-    return InkWell(
-      onTap: () {
-        setState(() {
-          _selectedIndex = index;
-        });
-      },
-      borderRadius: BorderRadius.circular(12),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? const Color(0xFF7B61FF).withValues(alpha: 0.15)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected
-                ? const Color(0xFF7B61FF).withValues(alpha: 0.3)
-                : Colors.transparent,
-            width: 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              color: isSelected 
-                  ? const Color(0xFF7B61FF) 
-                  : (isDark ? Colors.white54 : Colors.black45),
-              size: 20,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: isSelected 
-                      ? (isDark ? Colors.white : const Color(0xFF7B61FF)) 
-                      : (isDark ? Colors.white70 : Colors.black87),
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  fontSize: 14,
-                ),
-              ),
-            ),
-            if (isSelected)
-              Container(
-                width: 6,
-                height: 6,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF00E5FF),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Color(0xFF00E5FF),
-                      blurRadius: 4,
-                      spreadRadius: 1,
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget _buildNavigationDrawer(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
-  Widget _buildSidebar(BuildContext context) {
-    return Container(
-      width: 260,
-      decoration: BoxDecoration(
-        color: isDark
-            ? const Color(0xFF1E1E2E).withValues(alpha: 0.4)
-            : const Color(0xFFFFFFFF).withValues(alpha: 0.4),
-        border: Border(
-          right: BorderSide(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.08)
-                : Colors.black.withValues(alpha: 0.08),
-            width: 1,
-          ),
-        ),
-      ),
-      child: ClipRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return SizedBox(
+      width: 280,
+      child: NavigationDrawer(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (int index) {
+          if (_selectedIndex != index) {
+            setState(() {
+              _selectedIndex = index;
+            });
+          }
+        },
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 20, 20),
+            child: Row(
               children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 12.0),
-                  child: Row(
+                Container(
+                  width: 44,
+                  height: 44,
+                  padding: const EdgeInsets.all(9),
+                  decoration: BoxDecoration(
+                    color: cs.primaryContainer,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: SvgPicture.asset(
+                    'images/select_to_speech_tray_icon.svg',
+                    colorFilter: ColorFilter.mode(
+                        cs.onPrimaryContainer, BlendMode.srcIn),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SvgPicture.asset(
-                        'images/select_to_speech_tray_icon.svg',
-                        width: 26,
-                        height: 26,
+                      Text(
+                        t('app_title'),
+                        style: textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: cs.onSurface,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          t('app_title'),
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.5,
-                            color: textColor,
-                          ),
-                          overflow: TextOverflow.ellipsis,
+                      const SizedBox(height: 2),
+                      Text(
+                        t('settings'),
+                        style: textTheme.labelSmall?.copyWith(
+                          color: cs.onSurfaceVariant,
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 32),
-                _buildSidebarItem(0, Icons.record_voice_over_rounded, t('tab_voice')),
-                const SizedBox(height: 8),
-                _buildSidebarItem(1, Icons.volume_up_rounded, t('tab_audio')),
-                const SizedBox(height: 8),
-                _buildSidebarItem(2, Icons.document_scanner_rounded, t('tab_ocr')),
-                const SizedBox(height: 8),
-                _buildSidebarItem(3, Icons.keyboard_rounded, t('tab_shortcuts')),
-                const SizedBox(height: 8),
-                _buildSidebarItem(4, Icons.settings_rounded, t('tab_general')),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: Divider(
+                color: cs.outlineVariant.withValues(alpha: 0.5), height: 1),
+          ),
+          const SizedBox(height: 12),
+          NavigationDrawerDestination(
+            icon: const Icon(Icons.record_voice_over_outlined),
+            selectedIcon: const Icon(Icons.record_voice_over_rounded),
+            label: Text(t('tab_voice')),
+          ),
+          NavigationDrawerDestination(
+            icon: const Icon(Icons.volume_up_outlined),
+            selectedIcon: const Icon(Icons.volume_up_rounded),
+            label: Text(t('tab_audio')),
+          ),
+          NavigationDrawerDestination(
+            icon: const Icon(Icons.document_scanner_outlined),
+            selectedIcon: const Icon(Icons.document_scanner_rounded),
+            label: Text(t('tab_ocr')),
+          ),
+          NavigationDrawerDestination(
+            icon: const Icon(Icons.keyboard_outlined),
+            selectedIcon: const Icon(Icons.keyboard_rounded),
+            label: Text(t('tab_shortcuts')),
+          ),
+          NavigationDrawerDestination(
+            icon: const Icon(Icons.tune_outlined),
+            selectedIcon: const Icon(Icons.tune_rounded),
+            label: Text(t('tab_general')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNavigationRail(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return NavigationRail(
+      backgroundColor: cs.surfaceContainerLow,
+      selectedIndex: _selectedIndex,
+      labelType: NavigationRailLabelType.all,
+      onDestinationSelected: (int index) {
+        if (_selectedIndex != index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        }
+      },
+      leading: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16.0),
+        child: Container(
+          width: 40,
+          height: 40,
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: cs.primaryContainer,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: SvgPicture.asset(
+            'images/select_to_speech_tray_icon.svg',
+            colorFilter:
+                ColorFilter.mode(cs.onPrimaryContainer, BlendMode.srcIn),
+          ),
+        ),
+      ),
+      destinations: [
+        NavigationRailDestination(
+          icon: const Icon(Icons.record_voice_over_outlined),
+          selectedIcon: const Icon(Icons.record_voice_over_rounded),
+          label: Text(t('tab_voice')),
+        ),
+        NavigationRailDestination(
+          icon: const Icon(Icons.volume_up_outlined),
+          selectedIcon: const Icon(Icons.volume_up_rounded),
+          label: Text(t('tab_audio')),
+        ),
+        NavigationRailDestination(
+          icon: const Icon(Icons.document_scanner_outlined),
+          selectedIcon: const Icon(Icons.document_scanner_rounded),
+          label: Text(t('tab_ocr')),
+        ),
+        NavigationRailDestination(
+          icon: const Icon(Icons.keyboard_outlined),
+          selectedIcon: const Icon(Icons.keyboard_rounded),
+          label: Text(t('tab_shortcuts')),
+        ),
+        NavigationRailDestination(
+          icon: const Icon(Icons.tune_outlined),
+          selectedIcon: const Icon(Icons.tune_rounded),
+          label: Text(t('tab_general')),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    if (isLoading) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text(
+                t('app_title'),
+                style:
+                    textTheme.titleMedium?.copyWith(color: cs.onSurfaceVariant),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (config == null) {
+      return Scaffold(
+        body: Center(
+          child: Card(
+            margin: const EdgeInsets.all(24),
+            child: Padding(
+              padding: const EdgeInsets.all(32.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: cs.errorContainer,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.error_outline_rounded,
+                        size: 40, color: cs.onErrorContainer),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    t('failed_connect'),
+                    style: textTheme.titleLarge
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 20),
+                  FilledButton.icon(
+                    onPressed: _fetchData,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: Text(t('retry')),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: cs.surface,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final bool useWideDrawer = constraints.maxWidth >= 740;
+          return Row(
+            children: [
+              if (useWideDrawer)
+                _buildNavigationDrawer(context)
+              else
+                _buildNavigationRail(context),
+              VerticalDivider(
+                width: 1,
+                thickness: 1,
+                color: cs.outlineVariant.withValues(alpha: 0.4),
+              ),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 280),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder:
+                      (Widget child, Animation<double> animation) {
+                    final offsetAnimation = Tween<Offset>(
+                      begin: const Offset(0.0, 0.025),
+                      end: Offset.zero,
+                    ).animate(CurvedAnimation(
+                        parent: animation, curve: Curves.easeOutCubic));
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: offsetAnimation,
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: _buildCenteredTab(_getSelectedTabWidget()),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildM3Card({
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+    int staggerIndex = 0,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return _StaggeredEntrance(
+      delay: Duration(milliseconds: staggerIndex * 70),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 20.0),
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: cs.secondaryContainer,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child:
+                          Icon(icon, size: 22, color: cs.onSecondaryContainer),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                ...children,
               ],
             ),
           ),
@@ -1030,82 +1480,16 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator(color: Color(0xFF7B61FF))));
-    }
-    if (config == null) {
-      return Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.redAccent),
-              const SizedBox(height: 16),
-              Text(t('failed_connect'), style: TextStyle(fontSize: 18, color: textColor)),
-              const SizedBox(height: 16),
-              ElevatedButton(onPressed: _fetchData, child: Text(t('retry')))
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: isDark 
-                ? [const Color(0xFF0F0F1A), const Color(0xFF1A1A2E)]
-                : [const Color(0xFFF5F5FA), const Color(0xFFE8E8F3)],
-          ),
-        ),
-        child: Row(
-          children: [
-            _buildSidebar(context),
-            Expanded(
-              child: _buildCenteredTab(_getSelectedTabWidget()),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGlassCard({required Widget child}) {
+  Widget _buildFieldLabel(String label) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? const Color(0xFF2D2D44).withValues(alpha: 0.4)
-                  : const Color(0xFFFFFFFF).withValues(alpha: 0.7),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.1)
-                    : Colors.black.withValues(alpha: 0.08),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: isDark
-                      ? Colors.black.withValues(alpha: 0.2)
-                      : Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
-                )
-              ]
-            ),
-            child: child,
-          ),
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Text(
+        label,
+        style: textTheme.labelLarge?.copyWith(
+          color: cs.onSurfaceVariant,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
@@ -1114,54 +1498,47 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   Widget _buildLanguageVoiceDropdown(String langCode, String langName) {
     List<String> voices = availableVoices[langCode] ?? [];
     String currentVal = config!['voice']['language_models'][langCode] ?? '';
-    
-    // Ensure currentVal is valid
+
     if (currentVal != '' && !voices.contains(currentVal)) {
       voices = List.from(voices)..add(currentVal);
     }
-    
-    final label = t('voice_lang_template').replaceAll('{lang}', t('lang_$langCode'));
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: TextStyle(color: textColor70)),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            color: inputBgColor,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: inputBorderColor),
+
+    final label =
+        t('voice_lang_template').replaceAll('{lang}', t('lang_$langCode'));
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildFieldLabel(label),
+          DropdownButtonFormField<String>(
+            initialValue: currentVal,
+            isExpanded: true,
+            borderRadius: BorderRadius.circular(14),
+            items: [
+              DropdownMenuItem(value: '', child: Text(t('none_disabled'))),
+              ...voices.map((v) => DropdownMenuItem(value: v, child: Text(v))),
+            ],
+            onChanged: (val) {
+              if (val != null) {
+                setState(() {
+                  config!['voice']['language_models'][langCode] = val;
+                });
+                _scheduleSave();
+              }
+            },
           ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              isExpanded: true,
-              value: currentVal,
-              style: TextStyle(color: textColor, fontFamily: 'Inter'),
-              items: [
-                DropdownMenuItem(value: '', child: Text(t('none_disabled'), style: TextStyle(color: textColor))),
-                ...voices.map((v) => DropdownMenuItem(value: v, child: Text(v, style: TextStyle(color: textColor)))),
-              ],
-              onChanged: (val) {
-                if (val != null) {
-                  setState(() {
-                    config!['voice']['language_models'][langCode] = val;
-                  });
-                  _scheduleSave();
-                }
-              },
-              dropdownColor: dropdownBgColor,
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-      ],
+        ],
+      ),
     );
   }
 
   Widget _buildVoiceTab() {
-    final List<Map<String, String>> allSupportedLanguagesList = const [
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    const List<Map<String, String>> allSupportedLanguagesList = [
       {'code': 'en', 'name': 'English'},
       {'code': 'it', 'name': 'Italian'},
       {'code': 'es', 'name': 'Spanish'},
@@ -1172,9 +1549,10 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
       {'code': 'zh', 'name': 'Chinese'},
     ];
 
-    final selectedModelId = config!['voice']['model'] ?? 'kokoro-multi-lang-v1_0';
+    final selectedModelId =
+        config!['voice']['model'] ?? 'kokoro-multi-lang-v1_0';
     List<String>? supportedCodes;
-    
+
     for (var m in availableModels) {
       if (m['id'] == selectedModelId) {
         if (m['supported_languages'] != null) {
@@ -1186,276 +1564,337 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
 
     List<Map<String, String>> currentLangs = allSupportedLanguagesList;
     if (supportedCodes != null) {
-      currentLangs = allSupportedLanguagesList.where((l) => supportedCodes!.contains(l['code'])).toList();
+      currentLangs = allSupportedLanguagesList
+          .where((l) => supportedCodes!.contains(l['code']))
+          .toList();
     }
 
-    return _buildGlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(t('voice_config'), style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
-          const SizedBox(height: 24),
-          
-          Text(t('voice_model'), style: TextStyle(color: textColor70)),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  initialValue: availableModels.any((m) => m['id'] == selectedModelId) ? selectedModelId : (availableModels.isNotEmpty ? availableModels.first['id'] : 'kokoro-multi-lang-v1_0'),
-                  dropdownColor: dropdownBgColor,
-                  style: TextStyle(color: textColor),
-                  decoration: InputDecoration(
-                    filled: true,
-                    fillColor: inputBgColor,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: inputBorderColor),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: inputBorderColor),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFF00E5FF)),
-                    ),
+    final currentDefaultLang =
+        currentLangs.any((l) => l['code'] == config!['voice']['language'])
+            ? config!['voice']['language'] as String
+            : (currentLangs.isNotEmpty ? currentLangs.first['code']! : 'en');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildM3Card(
+          title: t('voice_config'),
+          icon: Icons.graphic_eq_rounded,
+          staggerIndex: 0,
+          children: [
+            _buildFieldLabel(t('voice_model')),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue:
+                        availableModels.any((m) => m['id'] == selectedModelId)
+                            ? selectedModelId
+                            : (availableModels.isNotEmpty
+                                ? availableModels.first['id']
+                                : 'kokoro-multi-lang-v1_0'),
+                    isExpanded: true,
+                    borderRadius: BorderRadius.circular(14),
+                    items: availableModels.isNotEmpty
+                        ? availableModels.map((m) {
+                            return DropdownMenuItem<String>(
+                              value: m['id'],
+                              child: Text(m['name'] ?? m['id'],
+                                  overflow: TextOverflow.ellipsis),
+                            );
+                          }).toList()
+                        : const [
+                            DropdownMenuItem(
+                              value: 'kokoro-multi-lang-v1_0',
+                              child: Text('Kokoro v1.0 (FP32, ~350 MB)'),
+                            ),
+                          ],
+                    onChanged: (val) async {
+                      if (val != null && val != config!['voice']['model']) {
+                        setState(() {
+                          config!['voice']['model'] = val;
+                          List<String>? newSupportedCodes;
+                          for (var m in availableModels) {
+                            if (m['id'] == val) {
+                              if (m['supported_languages'] != null) {
+                                newSupportedCodes =
+                                    List<String>.from(m['supported_languages']);
+                              }
+                              isModelInstalled = m['installed'] ?? false;
+                              break;
+                            }
+                          }
+                          if (newSupportedCodes != null &&
+                              !newSupportedCodes
+                                  .contains(config!['voice']['language'])) {
+                            if (newSupportedCodes.isNotEmpty) {
+                              config!['voice']['language'] =
+                                  newSupportedCodes.first;
+                            }
+                          }
+                        });
+                        _scheduleSave();
+                        try {
+                          final res = await apiClient.get(Uri.parse(
+                              'http://localhost/model_installed?model_id=$val'));
+                          if (res.statusCode == 200 && mounted) {
+                            setState(() {
+                              isModelInstalled =
+                                  jsonDecode(res.body)['installed'] ?? false;
+                            });
+                          }
+                        } catch (_) {}
+                      }
+                    },
                   ),
-                  items: availableModels.isNotEmpty
-                      ? availableModels.map((m) {
-                          return DropdownMenuItem<String>(
-                            value: m['id'],
-                            child: Text(m['name'] ?? m['id']),
-                          );
-                        }).toList()
-                      : const [
-                          DropdownMenuItem(
-                            value: 'kokoro-multi-lang-v1_0',
-                            child: Text('Kokoro v1.0 (FP32, ~350 MB)'),
+                ),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeOutCubic,
+                  child: (!isModelInstalled || isDownloading)
+                      ? Padding(
+                          padding: const EdgeInsets.only(left: 12.0),
+                          child: FilledButton.icon(
+                            onPressed: isDownloading ? null : _startDownload,
+                            icon: isDownloading
+                                ? SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color:
+                                          cs.onSurface.withValues(alpha: 0.6),
+                                    ),
+                                  )
+                                : const Icon(Icons.download_rounded, size: 18),
+                            label: Text(isDownloading
+                                ? t('downloading')
+                                : t('download')),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ],
+            ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (isDownloading) ...[
+                    const SizedBox(height: 14),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: LinearProgressIndicator(
+                        minHeight: 8,
+                        value: downloadProgress > 0 ? downloadProgress : null,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      downloadProgress > 0
+                          ? '${t('downloading')} ${(downloadProgress * 100).toInt()}%'
+                          : t('preparing_download'),
+                      style: textTheme.bodySmall
+                          ?.copyWith(color: cs.onSurfaceVariant),
+                    ),
+                  ],
+                  if (downloadError != null) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: cs.errorContainer,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.error_outline_rounded,
+                              size: 18, color: cs.onErrorContainer),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '${t('error')}: $downloadError',
+                              style: textTheme.bodySmall
+                                  ?.copyWith(color: cs.onErrorContainer),
+                            ),
                           ),
                         ],
-                  onChanged: (val) async {
-                    if (val != null && val != config!['voice']['model']) {
-                      setState(() {
-                        config!['voice']['model'] = val;
-                        List<String>? newSupportedCodes;
-                        for (var m in availableModels) {
-                          if (m['id'] == val) {
-                            if (m['supported_languages'] != null) {
-                              newSupportedCodes = List<String>.from(m['supported_languages']);
-                            }
-                            isModelInstalled = m['installed'] ?? false;
-                            break;
-                          }
-                        }
-                        if (newSupportedCodes != null && !newSupportedCodes.contains(config!['voice']['language'])) {
-                          if (newSupportedCodes.isNotEmpty) {
-                            config!['voice']['language'] = newSupportedCodes.first;
-                          }
-                        }
-                      });
-                      _scheduleSave();
-                      try {
-                        final res = await apiClient.get(Uri.parse('http://localhost/model_installed?model_id=$val'));
-                        if (res.statusCode == 200) {
-                          setState(() {
-                            isModelInstalled = jsonDecode(res.body)['installed'] ?? false;
-                          });
-                        }
-                      } catch (_) {}
-                    }
-                  },
-                ),
-              ),
-              if (!isModelInstalled || isDownloading) ...[
-                const SizedBox(width: 12),
-                ElevatedButton.icon(
-                  onPressed: isDownloading ? null : _startDownload,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF7B61FF),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
-                  ),
-                  icon: isDownloading
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                        )
-                      : const Icon(Icons.download, size: 18),
-                  label: Text(isDownloading ? t('downloading') : t('download')),
-                ),
-              ],
-            ],
-          ),
-          
-          if (isDownloading) ...[
-            const SizedBox(height: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                LinearProgressIndicator(
-                  value: downloadProgress > 0 ? downloadProgress : null,
-                  backgroundColor: isDark ? Colors.white10 : Colors.black12,
-                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF00E5FF)),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  downloadProgress > 0
-                      ? '${t('downloading')} ${(downloadProgress * 100).toInt()}%'
-                      : t('preparing_download'),
-                  style: TextStyle(fontSize: 12, color: textColor70),
-                ),
-              ],
-            ),
-          ],
-          if (downloadError != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              '${t('error')}: $downloadError',
-              style: const TextStyle(color: Colors.redAccent, fontSize: 13),
-            ),
-          ],
-          
-          const SizedBox(height: 24),
-          Text(t('default_language') == 'default_language' ? 'Default Language' : t('default_language'), style: TextStyle(color: textColor70)),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              color: inputBgColor,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: inputBorderColor),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                isExpanded: true,
-                value: currentLangs.any((l) => l['code'] == config!['voice']['language']) 
-                       ? config!['voice']['language'] 
-                       : (currentLangs.isNotEmpty ? currentLangs.first['code'] : 'en'),
-                style: TextStyle(color: textColor, fontFamily: 'Inter'),
-                items: currentLangs.map((lang) {
-                  return DropdownMenuItem(value: lang['code'], child: Text(t('lang_${lang['code']}'), style: TextStyle(color: textColor)));
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) {
-                    _updateNestedConfig('voice', 'language', val);
-                  }
-                },
-                dropdownColor: dropdownBgColor,
+                  ],
+                ],
               ),
             ),
-          ),
-          
-          const SizedBox(height: 32),
-          Text(t('language_voices'), style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor)),
-          const SizedBox(height: 16),
-          ...currentLangs.map((lang) => _buildLanguageVoiceDropdown(lang['code']!, lang['name']!)),
-        ],
-      ),
+            const SizedBox(height: 20),
+            _buildFieldLabel(t('default_language')),
+            DropdownButtonFormField<String>(
+              key: ValueKey('default_lang_$currentDefaultLang'),
+              initialValue: currentDefaultLang,
+              isExpanded: true,
+              borderRadius: BorderRadius.circular(14),
+              items: currentLangs.map((lang) {
+                return DropdownMenuItem(
+                  value: lang['code'],
+                  child: Text(t('lang_${lang['code']}')),
+                );
+              }).toList(),
+              onChanged: (val) {
+                if (val != null) {
+                  _updateNestedConfig('voice', 'language', val);
+                }
+              },
+            ),
+          ],
+        ),
+        _buildM3Card(
+          title: t('language_voices'),
+          icon: Icons.translate_rounded,
+          staggerIndex: 1,
+          children: [
+            ...currentLangs.map((lang) =>
+                _buildLanguageVoiceDropdown(lang['code']!, lang['name']!)),
+          ],
+        ),
+      ],
     );
   }
 
   Widget _buildAudioTab() {
     List<DropdownMenuItem<int?>> deviceItems = [
-      DropdownMenuItem(value: null, child: Text(t('default_device'), style: TextStyle(color: textColor))),
+      DropdownMenuItem(value: null, child: Text(t('default_device'))),
     ];
     for (var dev in audioDevices) {
-      deviceItems.add(DropdownMenuItem(value: dev['id'], child: Text('${dev['name']} (ID: ${dev['id']})', style: TextStyle(color: textColor))));
+      deviceItems.add(
+        DropdownMenuItem(
+          value: dev['id'],
+          child: Text('${dev['name']} (ID: ${dev['id']})',
+              overflow: TextOverflow.ellipsis),
+        ),
+      );
     }
 
-    return _buildGlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(t('audio_settings'), style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
-          const SizedBox(height: 24),
-          
-          Text(t('output_device'), style: TextStyle(color: textColor70)),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              color: inputBgColor,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: inputBorderColor),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildM3Card(
+          title: t('audio_settings'),
+          icon: Icons.speaker_group_rounded,
+          staggerIndex: 0,
+          children: [
+            _buildFieldLabel(t('output_device')),
+            DropdownButtonFormField<int?>(
+              initialValue: config!['audio']['device_id'],
+              isExpanded: true,
+              borderRadius: BorderRadius.circular(14),
+              items: deviceItems,
+              onChanged: (val) =>
+                  _updateNestedConfig('audio', 'device_id', val),
             ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<int?>(
-                isExpanded: true,
-                value: config!['audio']['device_id'],
-                style: TextStyle(color: textColor, fontFamily: 'Inter'),
-                items: deviceItems,
-                onChanged: (val) => _updateNestedConfig('audio', 'device_id', val),
-                dropdownColor: dropdownBgColor,
-              ),
+            const SizedBox(height: 28),
+            _buildSlider(
+              label: t('speed'),
+              icon: Icons.speed_rounded,
+              section: 'audio',
+              keyName: 'speed',
+              min: 0.5,
+              max: 2.0,
             ),
-          ),
-          const SizedBox(height: 24),
-
-          _buildSlider(t('speed'), 'audio', 'speed', 0.5, 2.0),
-          _buildSlider(t('pitch'), 'audio', 'pitch', 0.5, 2.0),
-          _buildSlider(t('volume'), 'audio', 'volume', 0.0, 2.0),
-          
-          SwitchListTile(
-            title: Text(t('ducking'), style: TextStyle(color: textColor)),
-            subtitle: Text(t('ducking_desc'), style: TextStyle(color: textColor54)),
-            value: config!['audio']['ducking'] ?? true,
-            activeThumbColor: const Color(0xFF7B61FF),
-            onChanged: (val) => _updateNestedConfig('audio', 'ducking', val),
-            contentPadding: EdgeInsets.zero,
-          ),
-        ],
-      ),
+            _buildSlider(
+              label: t('pitch'),
+              icon: Icons.graphic_eq_rounded,
+              section: 'audio',
+              keyName: 'pitch',
+              min: 0.5,
+              max: 2.0,
+            ),
+            _buildSlider(
+              label: t('volume'),
+              icon: Icons.volume_up_rounded,
+              section: 'audio',
+              keyName: 'volume',
+              min: 0.0,
+              max: 2.0,
+            ),
+            const Divider(),
+            _buildM3SwitchTile(
+              title: t('ducking'),
+              subtitle: t('ducking_desc'),
+              icon: Icons.spatial_audio_off_rounded,
+              value: config!['audio']['ducking'] ?? true,
+              onChanged: (val) => _updateNestedConfig('audio', 'ducking', val),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
   Widget _buildOcrTab() {
-    return _buildGlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(t('ocr_settings'), style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
-          const SizedBox(height: 24),
-          if (ocrLanguages.isEmpty)
-            Text(
-              t('no_ocr_langs'),
-              style: const TextStyle(color: Colors.redAccent, fontStyle: FontStyle.italic),
-            )
-          else
-            _buildOcrLanguageMultiSelect(),
-        ],
-      ),
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildM3Card(
+          title: t('ocr_settings'),
+          icon: Icons.document_scanner_rounded,
+          staggerIndex: 0,
+          children: [
+            if (ocrLanguages.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: cs.errorContainer,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded,
+                        color: cs.onErrorContainer),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        t('no_ocr_langs'),
+                        style: textTheme.bodyMedium
+                            ?.copyWith(color: cs.onErrorContainer),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              _buildOcrLanguageMultiSelect(),
+          ],
+        ),
+      ],
     );
   }
 
   Widget _buildOcrLanguageMultiSelect() {
     String currentVal = config!['ocr']['language'] ?? '';
-    List<String> selectedLangs = currentVal.split('+').where((s) => s.isNotEmpty).toList();
+    List<String> selectedLangs =
+        currentVal.split('+').where((s) => s.isNotEmpty).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(t('ocr_language'), style: TextStyle(color: textColor70)),
-        const SizedBox(height: 12),
+        _buildFieldLabel(t('ocr_language')),
+        const SizedBox(height: 6),
         Wrap(
-          spacing: 8.0,
-          runSpacing: 8.0,
+          spacing: 10.0,
+          runSpacing: 10.0,
           children: ocrLanguages.map((lang) {
             final isSelected = selectedLangs.contains(lang);
             return FilterChip(
-              label: Text(lang, style: TextStyle(color: isSelected ? Colors.white : textColor)),
+              label: Text(lang),
               selected: isSelected,
-              selectedColor: const Color(0xFF7B61FF),
-              checkmarkColor: Colors.white,
-              backgroundColor: inputBgColor,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-                side: BorderSide(color: isSelected ? Colors.transparent : inputBorderColor),
-              ),
+              showCheckmark: true,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               onSelected: (bool selected) {
                 setState(() {
                   if (selected) {
@@ -1475,193 +1914,345 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   }
 
   Widget _buildKeyboardTab() {
-    return _buildGlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(t('keyboard_shortcuts'), style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
-          const SizedBox(height: 24),
-          _buildDropdown(t('modifier_key'), 'keyboard', 'modifier_key', ['alt', 'ctrl', 'shift', 'super']),
-          const SizedBox(height: 16),
-          _buildTextField(t('trigger_key'), 'keyboard', 'trigger_key'),
-          const SizedBox(height: 16),
-          _buildTextField(t('pause_key'), 'keyboard', 'pause_key'),
-          const SizedBox(height: 16),
-          _buildTextField(t('stop_key'), 'keyboard', 'stop_key'),
-          const SizedBox(height: 16),
-          _buildTextField(t('ocr_key'), 'keyboard', 'ocr_key'),
-        ],
-      ),
+    final modifierVal =
+        (config!['keyboard']['modifier_key'] ?? 'alt').toString();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildM3Card(
+          title: t('keyboard_shortcuts'),
+          icon: Icons.keyboard_command_key_rounded,
+          staggerIndex: 0,
+          children: [
+            _buildDropdown(
+              t('modifier_key'),
+              'keyboard',
+              'modifier_key',
+              ['alt', 'ctrl', 'shift', 'super'],
+            ),
+            const SizedBox(height: 20),
+            _buildTextField(
+                t('trigger_key'), 'keyboard', 'trigger_key', modifierVal),
+            const SizedBox(height: 16),
+            _buildTextField(
+                t('pause_key'), 'keyboard', 'pause_key', modifierVal),
+            const SizedBox(height: 16),
+            _buildTextField(t('stop_key'), 'keyboard', 'stop_key', modifierVal),
+            const SizedBox(height: 16),
+            _buildTextField(t('ocr_key'), 'keyboard', 'ocr_key', modifierVal),
+          ],
+        ),
+      ],
     );
   }
 
   Widget _buildGeneralTab() {
-    return _buildGlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(t('general_settings'), style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)),
-          const SizedBox(height: 24),
-          _buildDropdown(t('gui_language'), null, 'gui_language', ['auto', 'en', 'it', 'es', 'fr']),
-          const SizedBox(height: 16),
-          _buildDropdown(t('theme'), null, 'theme_mode', ['dark', 'light', 'system']),
-          const SizedBox(height: 24),
-          const Divider(color: Colors.white10),
-          const SizedBox(height: 16),
-          Text(t('hardware_threads'), style: TextStyle(color: textColor70)),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              color: inputBgColor,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: inputBorderColor),
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final currentThemeStr = (config!['theme_mode'] ?? 'system').toString();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildM3Card(
+          title: t('appearance'),
+          icon: Icons.palette_rounded,
+          staggerIndex: 0,
+          children: [
+            _buildDropdown(
+              t('gui_language'),
+              null,
+              'gui_language',
+              ['auto', 'en', 'it', 'es', 'fr'],
             ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<int>(
-                isExpanded: true,
-                value: config!['voice']['num_threads'] ?? 0,
-                style: TextStyle(color: textColor, fontFamily: 'Inter'),
-                items: [
-                  DropdownMenuItem(
-                    value: 0,
-                    child: Text(
-                      t('threads_auto').replaceAll(
-                        '{count}',
-                        '${hardwareInfo?['optimal_threads'] ?? 4}',
-                      ),
-                      style: TextStyle(color: textColor),
-                    ),
+            const SizedBox(height: 22),
+            _buildFieldLabel(t('theme')),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<String>(
+                segments: [
+                  ButtonSegment<String>(
+                    value: 'system',
+                    icon: const Icon(Icons.brightness_auto_rounded),
+                    label: Text(t('theme_system')),
                   ),
-                  for (int tCount in [1, 2, 4, 6, 8, 12, 16])
-                    DropdownMenuItem(
-                      value: tCount,
-                      child: Text('$tCount thread', style: TextStyle(color: textColor)),
-                    ),
+                  ButtonSegment<String>(
+                    value: 'light',
+                    icon: const Icon(Icons.light_mode_rounded),
+                    label: Text(t('theme_light')),
+                  ),
+                  ButtonSegment<String>(
+                    value: 'dark',
+                    icon: const Icon(Icons.dark_mode_rounded),
+                    label: Text(t('theme_dark')),
+                  ),
                 ],
-                onChanged: (val) {
-                  if (val != null) {
-                    _updateNestedConfig('voice', 'num_threads', val);
+                selected: {
+                  ['system', 'light', 'dark'].contains(currentThemeStr)
+                      ? currentThemeStr
+                      : 'system',
+                },
+                onSelectionChanged: (Set<String> selection) {
+                  final val = selection.first;
+                  setState(() {
+                    config!['theme_mode'] = val;
+                  });
+                  _scheduleSave();
+                  if (val == 'light') {
+                    themeModeNotifier.value = ThemeMode.light;
+                  } else if (val == 'dark') {
+                    themeModeNotifier.value = ThemeMode.dark;
+                  } else {
+                    themeModeNotifier.value = ThemeMode.system;
                   }
                 },
-                dropdownColor: dropdownBgColor,
               ),
             ),
-          ),
-          if (hardwareInfo != null && hardwareInfo!['cpu_model'] != null) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.memory, size: 16, color: Color(0xFF00E5FF)),
-                const SizedBox(width: 8),
-                Expanded(
+          ],
+        ),
+        _buildM3Card(
+          title: t('performance'),
+          icon: Icons.memory_rounded,
+          staggerIndex: 1,
+          children: [
+            _buildFieldLabel(t('hardware_threads')),
+            DropdownButtonFormField<int>(
+              initialValue: config!['voice']['num_threads'] ?? 0,
+              isExpanded: true,
+              borderRadius: BorderRadius.circular(14),
+              items: [
+                DropdownMenuItem(
+                  value: 0,
                   child: Text(
-                    t('hardware_cpu_info').replaceAll('{cpu}', hardwareInfo!['cpu_model']),
-                    style: TextStyle(fontSize: 12, color: textColor54),
-                    overflow: TextOverflow.ellipsis,
+                    t('threads_auto').replaceAll(
+                      '{count}',
+                      '${hardwareInfo?['optimal_threads'] ?? 4}',
+                    ),
                   ),
                 ),
+                for (int tCount in [1, 2, 4, 6, 8, 12, 16])
+                  DropdownMenuItem(
+                    value: tCount,
+                    child: Text('$tCount thread'),
+                  ),
               ],
+              onChanged: (val) {
+                if (val != null) {
+                  _updateNestedConfig('voice', 'num_threads', val);
+                }
+              },
             ),
-          ],
-          const SizedBox(height: 16),
-          const Divider(color: Colors.white10),
-          const SizedBox(height: 8),
-          SwitchListTile(
-            title: Text(t('text_normalization'), style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
-            subtitle: Text(t('text_normalization_desc'), style: TextStyle(color: textColor54, fontSize: 13)),
-            value: config!['text_normalization'] ?? true,
-            activeThumbColor: const Color(0xFF7B61FF),
-            onChanged: (val) {
-              setState(() => config!['text_normalization'] = val);
-              _scheduleSave();
-            },
-            contentPadding: EdgeInsets.zero,
-          ),
-          const SizedBox(height: 12),
-          SwitchListTile(
-            title: Text(t('neural_punctuation'), style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 4),
-                Text(t('neural_punctuation_desc'), style: TextStyle(color: textColor54, fontSize: 13)),
-                const SizedBox(height: 8),
-                if (!isPunctInstalled) ...[
-                  if (isPunctDownloading) ...[
-                    Row(
-                      children: [
-                        const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF00E5FF)),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            '${t('punct_downloading')} ${(punctDownloadProgress * 100).toInt()}%',
-                            style: const TextStyle(fontSize: 12, color: Color(0xFF00E5FF)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ] else ...[
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.download, size: 16, color: Color(0xFF00E5FF)),
-                      label: Text(t('punct_download_btn'), style: const TextStyle(fontSize: 12, color: Color(0xFF00E5FF))),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Color(0xFF00E5FF)),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            if (hardwareInfo != null && hardwareInfo!['cpu_model'] != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: cs.secondaryContainer.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.memory_rounded,
+                        size: 16, color: cs.onSecondaryContainer),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        t('hardware_cpu_info')
+                            .replaceAll('{cpu}', hardwareInfo!['cpu_model']),
+                        style: textTheme.labelMedium
+                            ?.copyWith(color: cs.onSecondaryContainer),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      onPressed: _startPunctDownload,
                     ),
                   ],
-                ] else ...[
-                  Row(
-                    children: [
-                      const Icon(Icons.check_circle, size: 14, color: Colors.greenAccent),
-                      const SizedBox(width: 6),
-                      Text(t('punct_installed_badge'), style: const TextStyle(fontSize: 12, color: Colors.greenAccent)),
-                    ],
-                  ),
-                ],
-              ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        _buildM3Card(
+          title: t('text_processing'),
+          icon: Icons.notes_rounded,
+          staggerIndex: 2,
+          children: [
+            _buildM3SwitchTile(
+              title: t('text_normalization'),
+              subtitle: t('text_normalization_desc'),
+              icon: Icons.format_align_left_rounded,
+              value: config!['text_normalization'] ?? true,
+              onChanged: (val) {
+                setState(() => config!['text_normalization'] = val);
+                _scheduleSave();
+              },
             ),
-            value: (config!['neural_punctuation'] ?? false) && isPunctInstalled,
-            activeThumbColor: const Color(0xFF7B61FF),
-            onChanged: isPunctInstalled
-                ? (val) {
-                    setState(() => config!['neural_punctuation'] = val);
-                    _scheduleSave();
-                  }
-                : null,
-            contentPadding: EdgeInsets.zero,
-          ),
-          const SizedBox(height: 16),
-          const Divider(color: Colors.white10),
-          const SizedBox(height: 8),
-          SwitchListTile(
-            title: Text(t('enable_debug'), style: TextStyle(color: textColor)),
-            subtitle: Text(t('check_logs'), style: TextStyle(color: textColor54)),
-            value: config!['debug'] ?? false,
-            activeThumbColor: const Color(0xFF7B61FF),
-            onChanged: (val) {
-              setState(() => config!['debug'] = val);
-              _scheduleSave();
-            },
-            contentPadding: EdgeInsets.zero,
-          ),
-        ],
-      ),
+            const Divider(),
+            _buildM3SwitchTile(
+              title: t('neural_punctuation'),
+              subtitle: t('neural_punctuation_desc'),
+              icon: Icons.auto_fix_high_rounded,
+              value:
+                  (config!['neural_punctuation'] ?? false) && isPunctInstalled,
+              onChanged: isPunctInstalled
+                  ? (val) {
+                      setState(() => config!['neural_punctuation'] = val);
+                      _scheduleSave();
+                    }
+                  : null,
+              footer: AnimatedSize(
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeOutCubic,
+                child: !isPunctInstalled
+                    ? (isPunctDownloading
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(6),
+                                child: LinearProgressIndicator(
+                                  minHeight: 6,
+                                  value: punctDownloadProgress > 0
+                                      ? punctDownloadProgress
+                                      : null,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                '${t('punct_downloading')} ${(punctDownloadProgress * 100).toInt()}%',
+                                style: textTheme.labelSmall
+                                    ?.copyWith(color: cs.primary),
+                              ),
+                            ],
+                          )
+                        : FilledButton.tonalIcon(
+                            icon: const Icon(Icons.download_rounded, size: 16),
+                            label: Text(t('punct_download_btn')),
+                            onPressed: _startPunctDownload,
+                          ))
+                    : Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: cs.primaryContainer,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.check_circle_rounded,
+                                size: 14, color: cs.onPrimaryContainer),
+                            const SizedBox(width: 6),
+                            Text(
+                              t('punct_installed_badge'),
+                              style: textTheme.labelSmall?.copyWith(
+                                color: cs.onPrimaryContainer,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+              ),
+            ),
+          ],
+        ),
+        _buildM3Card(
+          title: t('diagnostics'),
+          icon: Icons.bug_report_rounded,
+          staggerIndex: 3,
+          children: [
+            _buildM3SwitchTile(
+              title: t('enable_debug'),
+              subtitle: t('check_logs'),
+              icon: Icons.bug_report_outlined,
+              value: config!['debug'] ?? false,
+              onChanged: (val) {
+                setState(() => config!['debug'] = val);
+                _scheduleSave();
+              },
+            ),
+          ],
+        ),
+      ],
     );
   }
 
-  Widget _buildDropdown(String label, String? section, String key, List<String> options) {
+  Widget _buildM3SwitchTile({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required bool value,
+    required ValueChanged<bool>? onChanged,
+    Widget? footer,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: cs.secondaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, size: 22, color: cs.onSecondaryContainer),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                title,
+                style:
+                    textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+            Switch(
+              thumbIcon: WidgetStateProperty.resolveWith<Icon?>((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return const Icon(Icons.check_rounded);
+                }
+                return null;
+              }),
+              value: value,
+              onChanged: onChanged,
+            ),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 56.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 6),
+              Text(
+                subtitle,
+                style:
+                    textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+              ),
+              if (footer != null) ...[
+                const SizedBox(height: 12),
+                footer,
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDropdown(
+    String label,
+    String? section,
+    String key,
+    List<String> options,
+  ) {
     String currentVal = section != null ? config![section][key] : config![key];
     if (!options.contains(currentVal)) {
       options = List.from(options)..add(currentVal);
     }
-    
+
     final optionNames = {
       'auto': t('lang_auto'),
       'en': t('lang_en'),
@@ -1680,116 +2271,207 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: TextStyle(color: textColor70)),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            color: inputBgColor,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: inputBorderColor),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              isExpanded: true,
-              value: currentVal,
-              style: TextStyle(color: textColor, fontFamily: 'Inter'),
-              items: options.map((o) {
-                final displayName = optionNames[o] ?? o;
-                return DropdownMenuItem(value: o, child: Text(displayName, style: TextStyle(color: textColor)));
-              }).toList(),
-              onChanged: (val) {
-                if (val != null) {
-                  setState(() {
-                    if (section != null) {
-                      config![section][key] = val;
-                    } else {
-                      config![key] = val;
-                    }
-                  });
-                  _scheduleSave();
-                  if (key == 'gui_language') {
-                    _updateTrayMenu();
-                  } else if (key == 'theme_mode') {
-                    if (val == 'light') {
-                      themeModeNotifier.value = ThemeMode.light;
-                    } else if (val == 'system') {
-                      themeModeNotifier.value = ThemeMode.system;
-                    } else {
-                      themeModeNotifier.value = ThemeMode.dark;
-                    }
-                  }
+        _buildFieldLabel(label),
+        DropdownButtonFormField<String>(
+          key: ValueKey('dropdown_${section ?? 'root'}_${key}_$currentVal'),
+          initialValue: currentVal,
+          isExpanded: true,
+          borderRadius: BorderRadius.circular(14),
+          items: options.map((o) {
+            final displayName = optionNames[o] ?? o;
+            return DropdownMenuItem(value: o, child: Text(displayName));
+          }).toList(),
+          onChanged: (val) {
+            if (val != null) {
+              setState(() {
+                if (section != null) {
+                  config![section][key] = val;
+                } else {
+                  config![key] = val;
                 }
-              },
-              dropdownColor: dropdownBgColor,
-            ),
-          ),
+              });
+              _scheduleSave();
+              if (key == 'gui_language') {
+                _updateTrayMenu();
+              } else if (key == 'theme_mode') {
+                if (val == 'light') {
+                  themeModeNotifier.value = ThemeMode.light;
+                } else if (val == 'system') {
+                  themeModeNotifier.value = ThemeMode.system;
+                } else {
+                  themeModeNotifier.value = ThemeMode.dark;
+                }
+              }
+            }
+          },
         ),
       ],
     );
   }
 
-  Widget _buildTextField(String label, String section, String key) {
+  Widget _buildTextField(
+      String label, String section, String key, String modifierKey) {
     return ShortcutRecorderWidget(
       label: label,
-      initialValue: (config![section][key] ?? (key == 'ocr_key' ? 'r' : '')).toString(),
+      modifierKey: modifierKey,
+      initialValue:
+          (config![section][key] ?? (key == 'ocr_key' ? 'r' : '')).toString(),
       onChanged: (val) => _updateNestedConfig(section, key, val),
-      textColor: textColor,
-      textColor70: textColor70,
-      inputBgColor: inputBgColor,
-      inputBorderColor: inputBorderColor,
       promptText: t('press_a_key'),
     );
   }
 
-  Widget _buildSlider(String label, String section, String key, double min, double max) {
-    double val = config![section][key].toDouble();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: TextStyle(color: textColor70)),
-            Text(val.toStringAsFixed(2), style: const TextStyle(color: Color(0xFF7B61FF), fontWeight: FontWeight.bold)),
-          ],
-        ),
-        Semantics(
-          label: '$label Slider',
-          value: val.toStringAsFixed(2),
-          child: Slider(
-            value: val,
-            min: min,
-            max: max,
-            divisions: ((max - min) * 10).toInt(),
-            onChanged: (newVal) => _updateNestedConfig(section, key, newVal),
+  Widget _buildSlider({
+    required String label,
+    required IconData icon,
+    required String section,
+    required String keyName,
+    required double min,
+    required double max,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final double val = (config![section][keyName] as num).toDouble();
+    final bool isDefault = (val - 1.0).abs() < 0.01;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: cs.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  style: textTheme.labelLarge?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (!isDefault)
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: '1.00x',
+                  onPressed: () => _updateNestedConfig(section, keyName, 1.0),
+                  icon: Icon(Icons.restart_alt_rounded,
+                      size: 18, color: cs.onSurfaceVariant),
+                ),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: cs.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${val.toStringAsFixed(2)}x',
+                  style: textTheme.labelMedium?.copyWith(
+                    color: cs.onPrimaryContainer,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ),
-        const SizedBox(height: 16),
-      ],
+          Semantics(
+            label: '$label Slider',
+            value: val.toStringAsFixed(2),
+            child: Slider(
+              value: val,
+              min: min,
+              max: max,
+              divisions: ((max - min) * 10).toInt(),
+              label: '${val.toStringAsFixed(2)}x',
+              onChanged: (newVal) =>
+                  _updateNestedConfig(section, keyName, newVal),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Staggered fade & vertical slide entrance animation for Material 3 section cards.
+class _StaggeredEntrance extends StatefulWidget {
+  final Widget child;
+  final Duration delay;
+
+  const _StaggeredEntrance({
+    required this.child,
+    this.delay = Duration.zero,
+  });
+
+  @override
+  State<_StaggeredEntrance> createState() => _StaggeredEntranceState();
+}
+
+class _StaggeredEntranceState extends State<_StaggeredEntrance>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _opacity;
+  late final Animation<Offset> _slide;
+  Timer? _delayTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 360),
+    );
+    _opacity = CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.04),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutQuart));
+
+    if (widget.delay == Duration.zero) {
+      _controller.forward();
+    } else {
+      _delayTimer = Timer(widget.delay, () {
+        if (mounted) _controller.forward();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _delayTimer?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: SlideTransition(
+        position: _slide,
+        child: widget.child,
+      ),
     );
   }
 }
 
 class ShortcutRecorderWidget extends StatefulWidget {
   final String label;
+  final String modifierKey;
   final String initialValue;
   final ValueChanged<String> onChanged;
-  final Color textColor;
-  final Color textColor70;
-  final Color inputBgColor;
-  final Color inputBorderColor;
   final String promptText;
 
   const ShortcutRecorderWidget({
     super.key,
     required this.label,
+    required this.modifierKey,
     required this.initialValue,
     required this.onChanged,
-    required this.textColor,
-    required this.textColor70,
-    required this.inputBgColor,
-    required this.inputBorderColor,
     required this.promptText,
   });
 
@@ -1797,35 +2479,66 @@ class ShortcutRecorderWidget extends StatefulWidget {
   State<ShortcutRecorderWidget> createState() => _ShortcutRecorderWidgetState();
 }
 
-class _ShortcutRecorderWidgetState extends State<ShortcutRecorderWidget> {
+class _ShortcutRecorderWidgetState extends State<ShortcutRecorderWidget>
+    with SingleTickerProviderStateMixin {
   late FocusNode _focusNode;
   late String _currentValue;
+  late AnimationController _pulseController;
   bool _isListening = false;
 
   @override
   void initState() {
     super.initState();
     _currentValue = widget.initialValue;
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
     _focusNode = FocusNode();
     _focusNode.addListener(() {
+      if (!mounted) return;
       setState(() {
         _isListening = _focusNode.hasFocus;
+        if (_isListening) {
+          _pulseController.repeat(reverse: true);
+        } else {
+          _pulseController.stop();
+          _pulseController.value = 0.0;
+        }
       });
     });
   }
 
   @override
+  void didUpdateWidget(covariant ShortcutRecorderWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialValue != widget.initialValue && !_isListening) {
+      _currentValue = widget.initialValue;
+    }
+  }
+
+  @override
   void dispose() {
+    _pulseController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(widget.label, style: TextStyle(color: widget.textColor70)),
+        Text(
+          widget.label,
+          style: textTheme.labelLarge?.copyWith(
+            color: cs.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         const SizedBox(height: 8),
         Focus(
           focusNode: _focusNode,
@@ -1845,32 +2558,147 @@ class _ShortcutRecorderWidgetState extends State<ShortcutRecorderWidget> {
             }
             return KeyEventResult.ignored;
           },
-          child: GestureDetector(
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
             onTap: () {
-              _focusNode.requestFocus();
+              if (_isListening) {
+                _focusNode.unfocus();
+              } else {
+                _focusNode.requestFocus();
+              }
             },
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              decoration: BoxDecoration(
-                color: widget.inputBgColor,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: _isListening ? const Color(0xFF00E5FF) : widget.inputBorderColor,
-                  width: _isListening ? 2 : 1,
-                ),
-              ),
-              child: Text(
-                _isListening ? widget.promptText : (_currentValue.isEmpty ? '...' : _currentValue),
-                style: TextStyle(
-                  color: _isListening ? const Color(0xFF00E5FF) : widget.textColor,
-                  fontStyle: _isListening ? FontStyle.italic : FontStyle.normal,
-                ),
-              ),
+            child: AnimatedBuilder(
+              animation: _pulseController,
+              builder: (context, _) {
+                final double pulse = _pulseController.value;
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: _isListening
+                        ? Color.lerp(
+                            cs.primaryContainer.withValues(alpha: 0.35),
+                            cs.primaryContainer.withValues(alpha: 0.65),
+                            pulse,
+                          )
+                        : cs.surfaceContainerHighest.withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: _isListening
+                          ? Color.lerp(cs.primary, cs.tertiary, pulse)!
+                          : cs.outlineVariant.withValues(alpha: 0.7),
+                      width: _isListening ? 2 : 1,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _isListening
+                            ? Icons.fiber_manual_record_rounded
+                            : Icons.keyboard_rounded,
+                        size: 20,
+                        color: _isListening ? cs.primary : cs.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 180),
+                          layoutBuilder: (currentChild, previousChildren) {
+                            return Align(
+                              alignment: Alignment.centerLeft,
+                              child: currentChild,
+                            );
+                          },
+                          child: _isListening
+                              ? Text(
+                                  widget.promptText,
+                                  key: const ValueKey('listening'),
+                                  style: textTheme.bodyMedium?.copyWith(
+                                    color: cs.primary,
+                                    fontWeight: FontWeight.w600,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                )
+                              : Row(
+                                  key: ValueKey('key_$_currentValue'),
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _KeycapBadge(
+                                        label:
+                                            widget.modifierKey.toUpperCase()),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 6.0),
+                                      child: Text(
+                                        '+',
+                                        style: textTheme.labelMedium?.copyWith(
+                                            color: cs.onSurfaceVariant),
+                                      ),
+                                    ),
+                                    _KeycapBadge(
+                                      label: (_currentValue.isEmpty
+                                              ? '...'
+                                              : _currentValue)
+                                          .toUpperCase(),
+                                      isPrimary: true,
+                                    ),
+                                  ],
+                                ),
+                        ),
+                      ),
+                      Icon(
+                        Icons.edit_outlined,
+                        size: 16,
+                        color: _isListening
+                            ? cs.primary
+                            : cs.onSurfaceVariant.withValues(alpha: 0.6),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _KeycapBadge extends StatelessWidget {
+  final String label;
+  final bool isPrimary;
+
+  const _KeycapBadge({
+    required this.label,
+    this.isPrimary = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: isPrimary ? cs.secondaryContainer : cs.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isPrimary
+              ? cs.secondary.withValues(alpha: 0.3)
+              : cs.outlineVariant,
+        ),
+      ),
+      child: Text(
+        label,
+        style: textTheme.labelMedium?.copyWith(
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.5,
+          color: isPrimary ? cs.onSecondaryContainer : cs.onSurface,
+        ),
+      ),
     );
   }
 }

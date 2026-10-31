@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **System Dynamic Color Synchronization**: Integrated `dynamic_color` (`DynamicColorBuilder`) and native Linux XDG Desktop Portal / KDE Plasma (`kdeglobals`) accent color detection with live file-watcher updates to automatically generate harmonized Material 3 light and dark `ColorScheme`s from the operating system's accent color.
+- **UI Animations & Micro-Interactions**:
+  - Added smooth Material 3 tab transitions (`AnimatedSwitcher` with combined fade and vertical slide using `Curves.easeOutCubic`).
+  - Added staggered entrance animations (`_StaggeredEntrance`) for settings cards on tab navigation.
+  - Added pulsing border/glow animations and Material 3 keycap badges (`_KeycapBadge`) to `ShortcutRecorderWidget` when recording keyboard shortcuts, plus animated layout transitions (`AnimatedSize`) for model download progress bars and audio slider reset controls.
+
+### Changed
+- **General Tab Settings Reorganization**: Reorganized the General tab into four focused Material 3 cards — Appearance (GUI language, theme), Performance (inference threads, detected CPU), Text Processing (smart text formatting, neural punctuation restoration with its model download UI), and Diagnostics (debug logging) — instead of the previous two-card layout that mixed unrelated settings.
+- **Settings Tile Icon Alignment**: Refactored switch tiles (`_buildM3SwitchTile`) from `SwitchListTile` to a row-based layout so the leading icon container matches the card header exactly (42px `secondaryContainer` box, radius 12, 22px icon) and stays top-aligned with the title instead of being vertically centered across the whole tile (previously most visible on the tall Neural Punctuation tile).
+- **Dropdown Icon Removal**: Removed the inline `prefixIcon` from all dropdown fields (voice model, default language, per-language voices, output device, modifier key, GUI language, inference threads) for a cleaner, more consistent form layout.
+
+### Fixed
+- **Generic Taskbar Icon**: The running app showed a generic Wayland taskbar icon instead of the app icon because the Flutter Linux binary was still named `ui` from the project template, so the GTK window reported `app_id = "ui"` and no `.desktop` file matched it. Renamed the binary to `select-to-speech-gui` (`BINARY_NAME` in `src/ui/linux/CMakeLists.txt`), set the window title to "Select to Speech", set the GTK window icon name to `select-to-speech`, updated the wrapper scripts (`bin/select-to-speech-gui.sh`, `bin/select-to-speech-settings.sh`), updated `StartupWMClass` in `select-to-speech.desktop`, and changed the Wayland desktop-file symlink from `com.example.ui.desktop` to `select-to-speech-gui.desktop` in `install.sh` / `install-local.sh` (with cleanup of the stale symlink in `uninstall.sh`). Also replaced the placeholder GTK application ID `com.example.ui` with `com.selecttospeech.gui`.
+- **Material 3 UI Refactoring**:
+  - Migrated the entire Flutter settings interface (`src/ui/lib/main.dart`) to canonical Material 3 components and semantic `ColorScheme` / `TextTheme` design tokens.
+  - Replaced the custom glassmorphic sidebar with an adaptive Material 3 `NavigationDrawer` (and `NavigationRail` on compact window widths) featuring stadium indicator pills and distinct selected/unselected icons.
+  - Upgraded the theme selector in the General tab to a Material 3 `SegmentedButton`, replaced legacy buttons with `FilledButton.icon` / `FilledButton.tonalIcon`, and styled switches with Material 3 checkmark `thumbIcon`s.
+
 ## [v0.4.1] - 2026-10-25
 
 ### Fixed

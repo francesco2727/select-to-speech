@@ -9,55 +9,31 @@ Welcome! If you are an AI agent working on this project, please read this guide 
 ### Architecture
 The project is split into two main components:
 1. **Backend / Daemon (Python)**:
-   - Located in the `src/select_to_speech/` directory.
-   - Built with Python 3.14+ and managed via `uv`.
-   - Uses FastAPI for the internal server/daemon logic.
-   - Responsible for hotkey listening, clipboard monitoring (via Wayland), language detection, and audio playback.
+   - Located in the `src/select_to_speech/` directory (tests in `tests/`).
+   - Built with Python 3.12+ and managed via `uv` (`uv run pytest`).
+   - Uses FastAPI over a Unix Domain Socket for IPC with the GUI.
+   - Responsible for hotkey listening, clipboard/OCR capture, language detection, Sherpa-ONNX (Kokoro) TTS synthesis, and audio playback.
 
 2. **Frontend / GUI (Flutter)**:
    - Located in the `src/ui/` directory.
-   - Written in Dart/Flutter.
+   - Written in Dart/Flutter (Material 3).
    - Acts as the settings interface and system tray application.
-   - Communicates with the backend daemon.
 
 ### Dependency Management
-- Python dependencies are managed with `uv`. (See `pyproject.toml` and `uv.lock` in the root).
-- Flutter dependencies are managed with `pubspec.yaml` inside `src/ui/`.
+- Python dependencies are managed with `uv` (`pyproject.toml` and `uv.lock`). Never modify `.venv` manually.
+- Flutter dependencies are managed with `src/ui/pubspec.yaml`.
 
-## Mandatory Rules for AI Agents
+## Mandatory Global Rules
 
-1. **Changelog Updates**: 
-   Whenever you add a new feature, make significant modifications, or fix a bug in the code, you **MUST** update the `CHANGELOG.md` file located in the root of the project.
-   - Add your changes under the `[Unreleased]` or the current draft version section (e.g., `[v0.2.2] - Unreleased`).
-   - Follow the established format (categorizing under `### Added`, `### Changed`, `### Fixed`, etc.).
+1. **Changelog Updates**:
+   Whenever you add a new feature, make significant modifications, or fix a bug, you **MUST** update `CHANGELOG.md` in the root of the project under `[Unreleased]` (or the current draft version section), categorized under `### Added`, `### Changed`, `### Fixed`, etc.
 
-2. **Backend Changes**:
-   Ensure compatibility with FastAPI and `uv`. Avoid modifying `.venv` manually.
+2. **Documentation**:
+   Keep `README.md` and inline documentation updated if you change system requirements, setup scripts (`install.sh`, `install-local.sh`), or default configurations.
 
-3. **Frontend Changes**:
-   Respect the existing Flutter UI architecture and run static analysis checks where possible to maintain clean code.
-
-4. **Documentation**:
-   Keep the `README.md` and inline documentation updated if you change system requirements, setup scripts (`install.sh`), or default configurations.
-
-5. **Flutter Dependencies (tray_manager_patched)**:
-   The UI uses a custom patched version of `tray_manager` located in `src/ui/tray_manager_patched`. This patch is necessary to resolve C++ deprecation warnings on Linux (using `g_object_new` instead of `app_indicator_new`) and support SVG icons. It is overridden via `src/ui/pubspec_overrides.yaml`. Do not remove this override, and ensure the `lib` folder inside `tray_manager_patched` is intact for successful Flutter compilation.
-
-6. **MCP Servers Usage Guidelines (Dart & Material 3/Flutter)**:
-   Antigravity CLI is configured with MCP servers dedicated to Dart and Material 3/Flutter. Use them proactively in the following scenarios:
-   - **`dart` MCP Server**:
-     - Use when working on Dart language features, package management, analyzing code errors, running LSP commands, searching pub.dev packages, or inspecting the Flutter runtime.
-     - Tools include: `analyze_files`, `pub`, `pub_dev_search`, `lsp`, `roots`, `read_package_uris`, `rip_grep_packages`, `hot_reload`, `hot_restart`, `widget_inspector`.
-     - Whenever you modify Dart files in `src/ui/lib/`, use `analyze_files` to verify static analysis without syntax or type errors.
-   - **`material3` MCP Server (`@weppa-cloud/material3-mcp-server`)**:
-     - Use when designing, modifying, or creating UI components in the Flutter frontend (`src/ui/`).
-     - Consult it for canonical Material 3 component structure (Cards, NavigationBars, Dialogs, Switches, Buttons), design tokens, HCT color scheme generation, Material Symbols/Icons, and WCAG accessibility/contrast verification.
-     - Leverage it to avoid hallucinations regarding deprecated Flutter widgets or non-standard Material styling.
-
-7. **Nuitka Compilation Readiness**:
-   Whenever you make substantial modifications to the Python backend, add/remove dependencies in `pyproject.toml`, or change CLI entry points, you **MUST** verify that the code remains ready for standalone `--onefile` compilation with Nuitka (configured in `.github/workflows/release.yml`):
-   - Keep `NUITKA_FLAGS` in `.github/workflows/release.yml` synchronized with `pyproject.toml` dependencies.
-   - Use `--include-package` only for actual packages (directories with `__init__.py` or namespace packages) and `--include-module` for single-file `.py` or C-extension `.so` modules.
-   - Include `--include-package-data` for any new dependency that loads non-code assets at runtime.
-   - Catch `(ImportError, OSError)` when importing optional dependencies that load system C shared libraries via `ctypes`/`cffi` at import time (e.g., `pulsectl`, `pyaudio`), since compiled Nuitka binaries always bundle the Python wrapper even if the host C library is missing.
-   - Keep the multi-call CLI dispatcher in `src/select_to_speech/main.py` and `src/select_to_speech/entrypoint.py` (referenced in `.github/workflows/release.yml`) aligned.
+3. **Domain Skills (Load On-Demand)**:
+   Detailed architectural rules and workflows are modularized into project skills under `.agents/skills/`. Load the matching skill before working on its scope:
+   - **`flutter-material3`**: For any work in `src/ui/` (Material 3 conventions, `dart`/`material3` MCP servers, `analyze_files` checks, `tray_manager_patched`).
+   - **`tts-audio-pipeline`**: For TTS synthesis, text normalization, neural punctuation, language detection, voice management, and audio playback/ducking (`tts_engine.py`, `voice_manager.py`, `audio_player.py`, `text_normalizer.py`, `punctuation_engine.py`, `sound_feedback.py`).
+   - **`backend-daemon-api`**: For the FastAPI UDS server, Pydantic config schema, daemon lifecycle, Wayland selection/hotkeys, OCR capture, and system diagnostics (`api/server.py`, `config.py`, `main.py`, `selection_listener.py`, `keyboard_handler.py`, `screen_capture.py`, `ocr_engine.py`, `system_check.py`).
+   - **`nuitka-release-packaging`**: Whenever modifying `pyproject.toml` dependencies, CLI entry points (`entrypoint.py`, `main.py`), `.github/workflows/release.yml`, or installer scripts (`install.sh`, `install-local.sh`, `uninstall.sh`).
