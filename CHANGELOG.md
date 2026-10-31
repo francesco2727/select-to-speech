@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [v0.5.0] - 2026-10-31
 
 ### Added
 - **System Dynamic Color Synchronization**: Integrated `dynamic_color` (`DynamicColorBuilder`) and native Linux XDG Desktop Portal / KDE Plasma (`kdeglobals`) accent color detection with live file-watcher updates to automatically generate harmonized Material 3 light and dark `ColorScheme`s from the operating system's accent color.
@@ -12,9 +12,13 @@ All notable changes to this project will be documented in this file.
   - Added pulsing border/glow animations and Material 3 keycap badges (`_KeycapBadge`) to `ShortcutRecorderWidget` when recording keyboard shortcuts, plus animated layout transitions (`AnimatedSize`) for model download progress bars and audio slider reset controls.
 
 ### Changed
+- **More Vivid Color Scheme**: `ColorScheme.fromSeed` now uses `DynamicSchemeVariant.content`, which raises the primary accent chroma (48 instead of 36) while keeping the OS accent hue, so switches, sliders, focused fields, and filled buttons render noticeably more saturated in both light and dark themes.
+- **Thicker Slider Tracks**: Raised the slider track height from 4px to 6px so the accent color is more visible on the speed/pitch/volume controls.
+- **Card Header Icon Boxes Removed**: Section titles no longer wrap their icon in a 42px rounded `secondaryContainer` box; the icon is rendered directly next to the card title in the theme's primary color (26px).
 - **xclip Dependency Removed**: X11 PRIMARY/CLIPBOARD selections from non-native XWayland applications are now read directly through python-Xlib (already bundled as a pynput dependency) instead of shelling out to `xclip`. The optional `xclip` system package was removed from `select-to-speech-check`, the README requirements, and the install commands; selections in XWayland apps now work out of the box.
 - **General Tab Settings Reorganization**: Reorganized the General tab into four focused Material 3 cards — Appearance (GUI language, theme), Performance (inference threads, detected CPU), Text Processing (smart text formatting, neural punctuation restoration with its model download UI), and Diagnostics (debug logging) — instead of the previous two-card layout that mixed unrelated settings.
-- **Settings Tile Icon Alignment**: Refactored switch tiles (`_buildM3SwitchTile`) from `SwitchListTile` to a row-based layout so the leading icon container matches the card header exactly (42px `secondaryContainer` box, radius 12, 22px icon) and stays top-aligned with the title instead of being vertically centered across the whole tile (previously most visible on the tall Neural Punctuation tile).
+- **Settings Tile Layout**: Refactored switch tiles (`_buildM3SwitchTile`) from `SwitchListTile` to a row-based layout so the `Switch` stays aligned with the setting title instead of being vertically centered across the whole tile (previously most visible on the tall Neural Punctuation tile).
+- **Per-Setting Icon Removal**: Individual settings inside a card no longer carry their own leading icons — the icon now appears only next to the card section title (e.g. Text Processing). Removed the 42px icon containers from all switch tiles (audio ducking, text normalization, neural punctuation, debug logging) and the small inline leading icons from the audio sliders (speed, pitch, volume). The setting description now renders directly beneath the setting title instead of being indented 56px to the right. Shortcut recorder fields in the Keyboard tab also lost their leading keyboard/recording icon and trailing edit pencil, leaving just the keycap badges.
 - **Dropdown Icon Removal**: Removed the inline `prefixIcon` from all dropdown fields (voice model, default language, per-language voices, output device, modifier key, GUI language, inference threads) for a cleaner, more consistent form layout.
 
 ### Fixed
