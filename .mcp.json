@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "dart": {
+      "type": "stdio",
+      "command": "dart",
+      "args": ["mcp-server"]
+    },
+    "material3": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@weppa-cloud/material3-mcp-server"]
+    }
+  }
+}

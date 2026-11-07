@@ -15,10 +15,10 @@ Scope: everything under `src/ui/` in this repository (Dart/Flutter desktop app, 
 
 ## Mandatory MCP & Analysis Workflow
 
-1. **`dart` MCP Server & Static Analysis**:
-   - Use for Dart language features, package management, analyzing code errors, running LSP commands, searching `pub.dev` packages, or inspecting the Flutter runtime (`analyze_files`, `pub`, `pub_dev_search`, `lsp`, `roots`, `read_package_uris`, `rip_grep_packages`, `hot_reload`, `hot_restart`, `widget_inspector`).
+1. **`dart` MCP Server (`flutter-mcp_dart`) & Static Analysis**:
+   - Configured in `.agents/plugins/flutter-mcp/mcp_config.json`. Use for Dart language features, package management, analyzing code errors, running LSP commands, searching `pub.dev` packages, or inspecting the Flutter runtime (`analyze_files`, `pub`, `pub_dev_search`, `lsp`, `roots`, `read_package_uris`, `rip_grep_packages`, `hot_reload`, `hot_restart`, `widget_inspector`).
    - Whenever you modify any file in `src/ui/lib/`, run `analyze_files` (or `flutter analyze` from `src/ui/` in a shell) and fix all reported errors and warnings before considering the task done.
-2. **`material3` MCP Server (`@weppa-cloud/material3-mcp-server`)**:
+2. **`material3` MCP Server (`flutter-mcp_material3` / `@weppa-cloud/material3-mcp-server`)**:
    - Use proactively when designing, modifying, or creating UI components in `src/ui/`.
    - Consult it for:
      - Canonical Material 3 component structure (Cards, Dialogs, Switches, Buttons, `SegmentedButton`, `NavigationBar`, etc.).

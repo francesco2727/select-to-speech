@@ -1,0 +1,13 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "select-to-speech-flutter-mcp",
+  "version": "1.0.0",
+  "description": "Workspace-scoped Dart and Material 3 MCP servers for the Select-to-Speech Flutter UI.",
+  "extensions": {
+    "ai.mistral.vibe": {
+      "schemaVersion": 1,
+      "displayName": "Flutter & Material 3 MCP",
+      "toolNamespace": "flutterMcp"
+    }
+  }
+}
