@@ -1,0 +1,106 @@
+# nfpm manifest for the native packages (.deb, .rpm, .pkg.tar.zst).
+# Built by packaging/build-packages.sh from dist/backend and dist/gui.
+# Run from the repository root; VERSION is set by the build script.
+name: select-to-speech
+arch: amd64
+platform: linux
+version: ${VERSION}
+version_schema: semver
+release: "1"
+section: sound
+priority: optional
+maintainer: Francesco <francesco2727@users.noreply.github.com>
+description: |
+  Wayland-native text-to-speech: reads the selected text aloud with a keyboard
+  shortcut, with automatic language detection and offline Kokoro neural voices.
+vendor: Select-to-Speech
+homepage: https://github.com/francesco2727/select-to-speech
+
+# Runtime libraries the bundles load from the system (everything else is bundled):
+#   wl-paste                -> selection capture on Wayland
+#   gtk3 + ayatana          -> Flutter GUI and tray icon
+#   libEGL + libGLESv2      -> dlopen()ed by libepoxy for Flutter rendering (invisible to ldd)
+#   portaudio               -> pyaudio/_portaudio.so links libportaudio.so.2
+#   libpulse                -> audio ducking (pulsectl, loaded via ctypes)
+#   libatomic               -> pedalboard_native.so (not in minimal Debian/Ubuntu/Fedora)
+overrides:
+  deb:
+    depends:
+      - wl-clipboard
+      - libgtk-3-0 | libgtk-3-0t64
+      - libegl1
+      - libgles2
+      - libayatana-appindicator3-1
+      - libportaudio2
+      - libpulse0
+      - libatomic1
+    recommends:
+      - tesseract-ocr
+      - tesseract-ocr-eng
+      - tesseract-ocr-ita
+    suggests:
+      - kde-spectacle
+      - grim
+      - slurp
+  rpm:
+    depends:
+      - wl-clipboard
+      - gtk3
+      - libglvnd-egl
+      - libglvnd-gles
+      - libayatana-appindicator-gtk3
+      - portaudio
+      - pulseaudio-libs
+      - libatomic
+    recommends:
+      - tesseract
+      - tesseract-langpack-eng
+      - tesseract-langpack-ita
+    suggests:
+      - spectacle
+      - grim
+      - slurp
+  archlinux:
+    depends:
+      - wl-clipboard
+      - gtk3
+      - libglvnd
+      - libayatana-appindicator
+      - portaudio
+      - libpulse
+      - gcc-libs
+    scripts:
+      postinstall: packaging/arch-postinstall.sh
+
+contents:
+  - src: dist/backend
+    dst: /usr/lib/select-to-speech/backend
+    type: tree
+  - src: dist/gui
+    dst: /usr/lib/select-to-speech/gui
+    type: tree
+
+  - src: /usr/lib/select-to-speech/backend/select-to-speech
+    dst: /usr/bin/select-to-speech
+    type: symlink
+  - src: /usr/lib/select-to-speech/gui/select-to-speech-gui
+    dst: /usr/bin/select-to-speech-gui
+    type: symlink
+
+  # Named after the GUI binary: on Wayland the GTK3 app_id is the program name,
+  # and taskbars match the window to the .desktop file with that name.
+  - src: packaging/select-to-speech-gui.desktop
+    dst: /usr/share/applications/select-to-speech-gui.desktop
+  - src: packaging/select-to-speech-autostart.desktop
+    dst: /etc/xdg/autostart/select-to-speech.desktop
+    type: config|noreplace
+  - src: src/ui/images/select_to_speech_tray_icon.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/select-to-speech.svg
+
+deb:
+  compression: zstd
+rpm:
+  compression: zstd
+  group: Applications/Multimedia
+archlinux:
+  packager: Francesco <francesco2727@users.noreply.github.com>

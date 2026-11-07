@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name=Select to Speech
+GenericName=Text to Speech
+Comment=Read selected text aloud with a keyboard shortcut
+Exec=/usr/bin/select-to-speech-gui
+Icon=select-to-speech
+Categories=Utility;Accessibility;
+Keywords=tts;speech;text;read;voice;
+StartupNotify=false
+StartupWMClass=select-to-speech-gui
+Actions=Settings;
+
+[Desktop Action Settings]
+Name=Open Settings
+Exec=/usr/bin/select-to-speech-gui --settings

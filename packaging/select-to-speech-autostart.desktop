@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Select to Speech
+Comment=Start the Select to Speech tray icon and speech daemon at login
+Exec=/usr/bin/select-to-speech-gui --background
+Icon=select-to-speech
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-KDE-autostart-phase=2
