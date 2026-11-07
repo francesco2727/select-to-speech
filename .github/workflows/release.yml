@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*' # Triggers on tag pushes like v1.0.0, v2.1.3
+  workflow_dispatch: # Manual run: builds and tests the packages without publishing a release
 
 permissions:
   contents: write # Required to upload assets to GitHub Releases
@@ -12,9 +13,11 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
 
+# All jobs build on Ubuntu 22.04 (glibc 2.35, GLib 2.72) so the binaries also run on
+# Debian 12 / Ubuntu 22.04 and newer; Arch and Fedora are newer still.
 jobs:
   build-backend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -22,12 +25,15 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y portaudio19-dev libayatana-appindicator3-dev patchelf libpulse-dev libasound2-dev xvfb
+          sudo apt-get install -y portaudio19-dev libpulse-dev libasound2-dev patchelf
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.23
@@ -36,83 +42,42 @@ jobs:
           restore-keys: |
             nuitka-backend-
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
+      - name: Cache slim lingua build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            build/lingua-rs/target
+          key: lingua-${{ hashFiles('packaging/build-lingua.sh') }}
 
-      - name: Install dependencies
-        run: uv pip install --system . nuitka ordered-set
+      - name: Install locked Python dependencies
+        # Use the setup-python interpreter (not a uv-managed one) for Nuitka
+        env:
+          UV_PYTHON_PREFERENCE: only-system
+        run: uv sync --frozen --no-dev --no-editable --python python3.12
 
-      - name: Build single multi-call binary with Nuitka
+      - name: Build slim lingua (only the languages the app can speak)
+        run: PYTHON=.venv/bin/python packaging/build-lingua.sh
+
+      - name: Compile backend with Nuitka (standalone)
+        run: PYTHON=.venv/bin/python packaging/build-backend.sh
+
+      - name: Smoke test backend
         run: |
-          # Note: ccache is already in PATH via hendrikmuhs/ccache-action symlinks
-          NUITKA_FLAGS=(
-            --onefile
-            --onefile-tempdir-spec="{CACHE_DIR}/select-to-speech/${{ github.ref_name }}"
-            --lto=yes
-            --python-flag=no_site
-            --python-flag=no_docstrings
-            --python-flag=no_asserts
-            --nofollow-import-to=pytest,unittest,doctest,pdb,tkinter,idlelib,pulsectl.tests,sherpa_onnx.cli,pynput.keyboard._darwin,pynput.keyboard._win32,pynput.mouse._darwin,pynput.mouse._win32,pynput._util.darwin,pynput._util.win32
-            --include-package=select_to_speech
-            --include-package=sherpa_onnx
-            --include-package=uvicorn
-            --include-package=fastapi
-            --include-package=pydantic
-            --include-package=pulsectl
-            --include-package=lingua
-            --include-package=pedalboard
-            --include-module=pedalboard_native
-            --include-package=pynput
-            --include-package=Xlib
-            --include-package=pyaudio
-            --include-package=yaml
-            --include-package=emoji
-            --include-package=requests
-            --include-package=urllib3
-            --include-package=certifi
-            --include-package-data=lingua
-            --include-package-data=emoji
-            --include-package-data=certifi
-          )
+          dist/backend/select-to-speech --help
+          dist/backend/select-to-speech --check --lang en || true
 
-          echo "=========================================="
-          echo "Building unified select-to-speech binary"
-          echo "=========================================="
-          python -m nuitka "${NUITKA_FLAGS[@]}" \
-            --output-filename="select-to-speech" \
-            "src/select_to_speech/entrypoint.py"
+      - name: Archive backend
+        run: tar -C dist -czf backend.tar.gz backend
 
-          # Create multi-call symlinks for auxiliary CLI tools
-          ln -sf select-to-speech select-to-speech-check
-          ln -sf select-to-speech select-to-speech-audio
-          ln -sf select-to-speech select-to-speech-download
-
-      - name: Smoke test binaries
-        run: |
-          echo "--- Testing select-to-speech ---"
-          xvfb-run -a ./select-to-speech --help
-          echo "--- Testing select-to-speech-check ---"
-          xvfb-run -a ./select-to-speech-check --help
-          echo "--- Testing select-to-speech-audio ---"
-          xvfb-run -a ./select-to-speech-audio --help
-          echo "--- Testing select-to-speech-download ---"
-          xvfb-run -a ./select-to-speech-download --help
-
-      - name: Package Backend
-        run: |
-          mkdir -p dist
-          cp -P select-to-speech select-to-speech-check select-to-speech-audio select-to-speech-download dist/
-          chmod +x dist/select-to-speech
-          tar -czf select-to-speech-backend-linux.tar.gz -C dist .
-
-      - name: Upload Backend Artifact
+      - name: Upload backend artifact
         uses: actions/upload-artifact@v4
         with:
-          name: backend-linux
-          path: select-to-speech-backend-linux.tar.gz
+          name: backend
+          path: backend.tar.gz
 
-  build-linux:
-    runs-on: ubuntu-latest
+  build-gui:
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -126,57 +91,80 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          flutter-version: '3.47.7'
           cache: true
 
-      - name: Install Flutter dependencies
-        run: |
-          cd src/ui
-          flutter pub get
+      - name: Build GUI bundle
+        run: packaging/build-gui.sh
 
-      - name: Build Flutter Linux Release
-        run: |
-          cd src/ui
-          flutter build linux --release
+      - name: Archive GUI
+        run: tar -C dist -czf gui.tar.gz gui
 
-      - name: Strip unused Ubuntu-specific libraries from tray plugin
-        run: |
-          patchelf --remove-needed libayatana-indicator3.so.7 \
-                   --remove-needed libayatana-ido3-0.4.so.0 \
-                   --set-rpath '$ORIGIN' \
-                   src/ui/build/linux/x64/release/bundle/lib/libtray_manager_plugin.so
-
-      - name: Package GUI Bundle
-        run: |
-          # Package the release bundle
-          tar -czf select-to-speech-gui-linux.tar.gz -C src/ui/build/linux/x64/release/bundle .
-
-      - name: Upload GUI Artifact
+      - name: Upload GUI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gui-linux
-          path: select-to-speech-gui-linux.tar.gz
+          name: gui
+          path: gui.tar.gz
+
+      - name: Upload Dart debug symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-debug-symbols
+          path: build/gui-symbols
+
+  package:
+    needs: [build-backend, build-gui]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # build-packages.sh reads the version from the latest tag
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Unpack bundles
+        run: |
+          mkdir -p dist
+          tar -C dist -xzf artifacts/backend/backend.tar.gz
+          tar -C dist -xzf artifacts/gui/gui.tar.gz
+
+      - name: Build .deb, .rpm and Arch packages
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            packaging/build-packages.sh "${GITHUB_REF_NAME}"
+          else
+            packaging/build-packages.sh
+          fi
+
+      - name: Test packages on Debian, Ubuntu, Fedora and Arch
+        run: packaging/test-packages.sh
+
+      - name: Upload packages artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: dist/packages
 
   release:
-    needs: [build-backend, build-linux]
+    needs: [package]
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
-      - name: Download Backend Artifact
+      - name: Download packages
         uses: actions/download-artifact@v4
         with:
-          name: backend-linux
-          
-      - name: Download GUI Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: gui-linux
-          
+          name: packages
+          path: packages
+
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
           name: "Select-to-Speech ${{ github.ref_name }}"
           generate_release_notes: true
-          files: |
-            select-to-speech-backend-linux.tar.gz
-            select-to-speech-gui-linux.tar.gz
+          files: packages/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
