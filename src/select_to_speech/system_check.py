@@ -54,6 +54,8 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "desc_slurp_grim": "Fallback screen capture and selection tools on wlroots-based Wayland environments (e.g. Sway, Hyprland).",
         "desc_ocr_missing": "Required to draw and capture the rectangular screen region during OCR reading (Alt+R).",
         "desc_ocr_missing_summary": "Screen capture tools (KDE or wlroots).",
+        "legacy_found": '[⚠] Leftovers of an old per-user installation were found:',
+        "legacy_hint": 'They can shadow the installed package and waste disk space. Remove them with:',
     },
     "it": {
         "title": "SELECT-TO-SPEECH - CONTROLLO DIPENDENZE DI SISTEMA",
@@ -87,6 +89,8 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "desc_slurp_grim": "Strumenti di cattura schermo e selezione area di fallback su ambienti Wayland basati su wlroots (es. Sway, Hyprland).",
         "desc_ocr_missing": "Necessario per disegnare e catturare l'area rettangolare dello schermo durante la lettura OCR (Alt+R).",
         "desc_ocr_missing_summary": "Strumenti per la cattura dell'area di schermo (KDE o wlroots).",
+        "legacy_found": '[⚠] Trovati residui di una vecchia installazione per utente:',
+        "legacy_hint": 'Possono prevalere sul pacchetto installato e occupano spazio. Rimuovili con:',
     },
     "fr": {
         "title": "SELECT-TO-SPEECH - VÉRIFICATION DES DÉPENDANCES SYSTÈME",
@@ -120,6 +124,8 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "desc_slurp_grim": "Outils de capture d'écran et de sélection de secours sur les environnements Wayland basés sur wlroots (ex. Sway, Hyprland).",
         "desc_ocr_missing": "Requis pour dessiner et capturer la zone rectangulaire de l'écran lors de la lecture OCR (Alt+R).",
         "desc_ocr_missing_summary": "Outils de capture d'écran (KDE ou wlroots).",
+        "legacy_found": "[⚠] Des restes d'une ancienne installation par utilisateur ont été trouvés :",
+        "legacy_hint": "Ils peuvent masquer le paquet installé et occupent de l'espace disque. Supprimez-les avec :",
     },
     "es": {
         "title": "SELECT-TO-SPEECH - VERIFICACIÓN DE DEPENDENCIAS DEL SISTEMA",
@@ -153,6 +159,8 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "desc_slurp_grim": "Herramientas de captura y selección de pantalla de respaldo en entornos Wayland basados en wlroots (ej. Sway, Hyprland).",
         "desc_ocr_missing": "Requerido para dibujar y capturar el área rectangular de la pantalla durante la lectura OCR (Alt+R).",
         "desc_ocr_missing_summary": "Herramientas para la captura del área de pantalla (KDE o wlroots).",
+        "legacy_found": '[⚠] Se encontraron restos de una antigua instalación por usuario:',
+        "legacy_hint": 'Pueden ocultar el paquete instalado y ocupan espacio en disco. Elimínelos con:',
     },
 }
 
@@ -217,6 +225,28 @@ def _check_pulseaudio() -> bool:
         if Path(path).exists():
             return True
     return False
+
+
+LEGACY_UNINSTALL_URL = "https://raw.githubusercontent.com/francesco2727/select-to-speech/main/uninstall.sh"
+
+
+def find_legacy_install(home: Path | None = None) -> list[Path]:
+    """Return leftovers of the pre-package per-user install (<= v0.5).
+
+    The old install.sh put a onefile binary in ~/.local/share/select-to-speech/bin and a
+    systemd user service in ~/.config, which take precedence over the native package, and
+    every onefile version left a ~520 MB extraction cache in ~/.cache/select-to-speech/.
+    """
+    home = home or Path.home()
+    candidates = [
+        home / ".local/share/select-to-speech/bin",
+        home / ".config/systemd/user/select-to-speech.service",
+    ]
+    found = [p for p in candidates if p.exists()]
+    cache = home / ".cache/select-to-speech"
+    if cache.is_dir():
+        found.extend(sorted(cache.glob("v*")))
+    return found
 
 
 def check_system_dependencies(lang: str | None = None) -> bool:
@@ -385,7 +415,7 @@ def check_system_dependencies(lang: str | None = None) -> bool:
                 logger.warning(f"\n[⚠] {msg['model_label']} {model_id}")
                 logger.warning(f"    └─ {msg['purpose_label']} {desc}")
                 logger.warning(f"  {msg['model_cmd_hint']}")
-                logger.warning(f"     select-to-speech-download --model {model_id}")
+                logger.warning(f"     select-to-speech --download --model {model_id}")
 
         if missing_optional:
             all_opt = []
@@ -399,6 +429,14 @@ def check_system_dependencies(lang: str | None = None) -> bool:
             logger.warning(f"\n  {msg['opt_cmd_hint']}")
             logger.warning(f"     sudo pacman -S {' '.join(all_opt)}")
         logger.info("")
+
+    legacy = find_legacy_install()
+    if legacy:
+        logger.warning(f"\n{msg['legacy_found']}")
+        for path in legacy:
+            logger.warning(f"  • {path}")
+        logger.warning(f"  {msg['legacy_hint']}")
+        logger.warning(f"     curl -fsSL {LEGACY_UNINSTALL_URL} | bash")
 
     if missing_required:
         return False
@@ -493,7 +531,7 @@ def get_hardware_info() -> dict:
 
 
 def main_audio_devices(argv: list[str] | None = None) -> int:
-    """CLI entry point for select-to-speech-audio console script."""
+    """CLI entry point for ``select-to-speech --audio-devices``."""
     import argparse
 
     parser = argparse.ArgumentParser(description="List Select-to-Speech audio output devices")

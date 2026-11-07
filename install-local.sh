@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Development install: runs the backend from the repo's .venv and the GUI from the
+# locally built Flutter bundle. End users should install the native package instead.
 BIN_DIR="$HOME/.local/bin"
 APPS_DIR="$HOME/.local/share/applications"
-SYSTEMD_DIR="$HOME/.config/systemd/user"
-SERVICE_NAME="select-to-speech"
+AUTOSTART_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 info()    { echo -e "${GREEN}[+]${NC} $*"; }
@@ -20,6 +21,14 @@ fi
 
 info "Running in local installation mode using current repository: $INSTALL_DIR"
 
+if [ -x /usr/bin/select-to-speech-gui ]; then
+    warn "The select-to-speech system package is installed too: both would autostart."
+    warn "Remove the package first if you want to run the development build."
+fi
+
+# Remove previous ~/.local installs (legacy install.sh layout, systemd service, old caches)
+"$INSTALL_DIR/uninstall.sh" --quiet
+
 # ── uv install ─────────────────────────────────────────────────────────────────
 if ! command -v uv &> /dev/null; then
     warn "uv is not installed. Attempting to install uv automatically..."
@@ -32,21 +41,21 @@ if ! command -v uv &> /dev/null; then
 fi
 
 info "Setting up virtual environment with system packages..."
-uv venv --allow-existing --system-site-packages "$INSTALL_DIR/.venv"
+# Same Python as the release builds (see .github/workflows/release.yml)
+uv venv --allow-existing --system-site-packages --python 3.12 "$INSTALL_DIR/.venv"
 info "Running uv sync..."
 uv sync --project "$INSTALL_DIR"
 
 # ── Download Kokoro models ─────────────────────────────────────────────────────
 info "Downloading Kokoro TTS model files (~350 MB)..."
-if ! uv run --project "$INSTALL_DIR" select-to-speech-download --model kokoro-multi-lang-v1_0; then
+if ! uv run --project "$INSTALL_DIR" select-to-speech --download --model kokoro-multi-lang-v1_0; then
     warn "Failed to download Kokoro model files during installation."
     warn "You can download them manually later via the settings GUI or by running:"
-    warn "  uv run select-to-speech-download --model kokoro-multi-lang-v1_0"
+    warn "  uv run select-to-speech --download --model kokoro-multi-lang-v1_0"
 fi
 
 # ── Build/Download Flutter UI ───────────────────────────────────────────────────
 info "Setting up Flutter UI..."
-UI_BINARY="$INSTALL_DIR/src/ui/build/linux/x64/release/bundle/ui"
 UI_BUNDLE_DIR="$INSTALL_DIR/src/ui/build/linux/x64/release/bundle"
 
 if ! command -v flutter &> /dev/null; then
@@ -72,63 +81,40 @@ else
     exit 1
 fi
 
-# ── Wrapper symlinks ───────────────────────────────────────────────────────────
-info "Installing wrapper scripts to $BIN_DIR..."
-if [ -d "$BIN_DIR" ] && [ ! -w "$BIN_DIR" ]; then
-    warn "Directory $BIN_DIR is not writable. Fixing ownership..."
-    sudo chown -R "$(id -u):$(id -g)" "$BIN_DIR"
-fi
+# ── Launcher ───────────────────────────────────────────────────────────────────
+# The bundle finds its libraries via RPATH ($ORIGIN/lib) and the backend by walking up
+# to the repo's .venv, so a plain symlink is enough.
+info "Linking $BIN_DIR/select-to-speech-gui to the GUI bundle..."
 mkdir -p "$BIN_DIR"
-chmod +x "$INSTALL_DIR/bin/select-to-speech-gui.sh"
-chmod +x "$INSTALL_DIR/bin/select-to-speech-settings.sh"
-ln -sf "$INSTALL_DIR/bin/select-to-speech-gui.sh"      "$BIN_DIR/select-to-speech-gui"
-ln -sf "$INSTALL_DIR/bin/select-to-speech-settings.sh" "$BIN_DIR/select-to-speech-settings"
+ln -sf "$UI_BUNDLE_DIR/select-to-speech-gui" "$BIN_DIR/select-to-speech-gui"
 
-# ── Desktop file and Icons ─────────────────────────────────────────────────────
-info "Installing icon to ~/.local/share/icons..."
+# ── Desktop entry, autostart and icon ──────────────────────────────────────────
+info "Installing icon, desktop entry and autostart entry..."
 ICONS_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
-mkdir -p "$ICONS_DIR"
+mkdir -p "$ICONS_DIR" "$APPS_DIR" "$AUTOSTART_DIR"
 cp "$INSTALL_DIR/src/ui/images/select_to_speech_tray_icon.svg" "$ICONS_DIR/select-to-speech.svg"
-gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" || true
+gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" &>/dev/null || true
 
-info "Installing .desktop file to $APPS_DIR..."
-if [ -d "$APPS_DIR" ] && [ ! -w "$APPS_DIR" ]; then
-    warn "Directory $APPS_DIR is not writable. Fixing ownership..."
-    sudo chown -R "$(id -u):$(id -g)" "$APPS_DIR"
-fi
-mkdir -p "$APPS_DIR"
-sed "s|%h|$HOME|g" "$INSTALL_DIR/select-to-speech.desktop" > "$APPS_DIR/select-to-speech.desktop"
-# Create a symlink for Wayland to match the GUI binary name (the app_id of a
-# GTK3 window on Wayland is the program name, i.e. select-to-speech-gui)
-ln -sf "$APPS_DIR/select-to-speech.desktop" "$APPS_DIR/select-to-speech-gui.desktop"
-rm -f "$APPS_DIR/com.example.ui.desktop" || true
-update-desktop-database "$APPS_DIR" || true
+# Same files as the native package, pointed at ~/.local/bin instead of /usr/bin.
+# The desktop file is named after the GUI binary for Wayland taskbar matching.
+sed "s|/usr/bin/|$BIN_DIR/|g" "$INSTALL_DIR/packaging/select-to-speech-gui.desktop" > "$APPS_DIR/select-to-speech-gui.desktop"
+sed "s|/usr/bin/|$BIN_DIR/|g" "$INSTALL_DIR/packaging/select-to-speech-autostart.desktop" > "$AUTOSTART_DIR/select-to-speech.desktop"
+update-desktop-database "$APPS_DIR" &>/dev/null || true
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
     kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
-elif command -v kbuildsycoca5 >/dev/null 2>&1; then
-    kbuildsycoca5 --noincremental >/dev/null 2>&1 || true
 fi
 
-# ── Systemd user service ───────────────────────────────────────────────────────
-info "Installing systemd user service..."
-mkdir -p "$SYSTEMD_DIR"
-cp "$INSTALL_DIR/select-to-speech.service" "$SYSTEMD_DIR/$SERVICE_NAME.service"
-systemctl --user daemon-reload
-systemctl --user enable --now "$SERVICE_NAME" || true
+# ── Start now (next logins use the autostart entry) ────────────────────────────
+info "Starting Select-to-Speech in the background..."
+setsid -f "$BIN_DIR/select-to-speech-gui" --background >/dev/null 2>&1 || true
 
-# ── Done ───────────────────────────────────────────────────────────────────────
 echo ""
-info "Installation complete!"
-echo ""
-echo "  Status:    systemctl --user status $SERVICE_NAME"
-echo "  Logs:      journalctl --user -u $SERVICE_NAME -f"
-echo "  Restart:   systemctl --user restart $SERVICE_NAME"
-echo ""
-echo "  To update after 'git pull':"
-echo "    systemctl --user restart $SERVICE_NAME"
-warn "Make sure $BIN_DIR is in your PATH (it usually is on KDE)."
+info "Installation complete! Select-to-Speech starts automatically at login."
+echo "  Logs:    ~/.local/state/select-to-speech/app.log"
+echo "  Update:  git pull && ./install-local.sh"
+case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR is not in your PATH." ;; esac
 
 # ── System Check ───────────────────────────────────────────────────────────────
 echo ""
 info "Running system dependencies check..."
-uv run --project "$INSTALL_DIR" select-to-speech-check || true
+uv run --project "$INSTALL_DIR" select-to-speech --check || true

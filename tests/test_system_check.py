@@ -138,3 +138,17 @@ def test_get_hardware_info():
     assert info["total_threads"] >= 1
     assert 1 <= info["optimal_threads"] <= info["total_threads"]
 
+
+
+def test_find_legacy_install(tmp_path):
+    from select_to_speech.system_check import find_legacy_install
+
+    assert find_legacy_install(tmp_path) == []
+
+    (tmp_path / ".local/share/select-to-speech/bin").mkdir(parents=True)
+    (tmp_path / ".local/share/select-to-speech/voices").mkdir()  # user data: not legacy
+    (tmp_path / ".cache/select-to-speech/v0.5.0").mkdir(parents=True)
+    found = find_legacy_install(tmp_path)
+    assert tmp_path / ".local/share/select-to-speech/bin" in found
+    assert tmp_path / ".cache/select-to-speech/v0.5.0" in found
+    assert tmp_path / ".local/share/select-to-speech/voices" not in found

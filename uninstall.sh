@@ -1,74 +1,82 @@
 #!/usr/bin/env bash
+# Remove a per-user (~/.local) installation of Select-to-Speech:
+#   - the legacy install.sh layout (<= v0.5: onefile binary in ~/.local/share/select-to-speech,
+#     systemd user service, wrapper scripts),
+#   - the development install made by install-local.sh,
+#   - the onefile extraction caches (~/.cache/select-to-speech/v*, ~520 MB each).
+#
+# The native package (.deb/.rpm/Arch) is NOT touched: remove it with your package manager.
+# Config, voice models and logs are kept unless --purge is given.
+#
+# Usage: uninstall.sh [--purge] [--quiet]
 set -euo pipefail
+
+PURGE=0; QUIET=0
+for arg in "$@"; do
+    case "$arg" in
+        --purge) PURGE=1 ;;
+        --quiet) QUIET=1 ;;
+        *) echo "Usage: $0 [--purge] [--quiet]" >&2; exit 2 ;;
+    esac
+done
+
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+info() { [ "$QUIET" = 1 ] || echo -e "${GREEN}[+]${NC} $*"; }
+warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 
 BIN_DIR="$HOME/.local/bin"
 APPS_DIR="$HOME/.local/share/applications"
-SYSTEMD_DIR="$HOME/.config/systemd/user"
-SERVICE_NAME="select-to-speech"
-
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
-info() { echo -e "${GREEN}[+]${NC} $*"; }
-warn() { echo -e "${YELLOW}[!]${NC} $*"; }
-
-# ── Systemd user service ───────────────────────────────────────────────────────
-info "Disabling and stopping systemd service..."
-systemctl --user disable --now "$SERVICE_NAME" &>/dev/null || true
-
-if [ -d "$SYSTEMD_DIR" ] && [ ! -w "$SYSTEMD_DIR" ]; then
-    warn "Directory $SYSTEMD_DIR is not writable. Fixing ownership..."
-    sudo chown -R "$(id -u):$(id -g)" "$SYSTEMD_DIR"
-fi
-rm -f "$SYSTEMD_DIR/$SERVICE_NAME.service" || true
-systemctl --user daemon-reload &>/dev/null || true
-
-# ── Wrapper symlinks ───────────────────────────────────────────────────────────
-info "Removing wrapper scripts..."
-if [ -d "$BIN_DIR" ] && [ ! -w "$BIN_DIR" ]; then
-    warn "Directory $BIN_DIR is not writable. Fixing ownership..."
-    sudo chown -R "$(id -u):$(id -g)" "$BIN_DIR"
-fi
-rm -f "$BIN_DIR/select-to-speech-gui" || true
-rm -f "$BIN_DIR/select-to-speech-settings" || true
-
-# ── Desktop file and Icons ───────────────────────────────────────────────────
-info "Removing .desktop file and icons..."
-if [ -d "$APPS_DIR" ] && [ ! -w "$APPS_DIR" ]; then
-    warn "Directory $APPS_DIR is not writable. Fixing ownership..."
-    sudo chown -R "$(id -u):$(id -g)" "$APPS_DIR"
-fi
-rm -f "$APPS_DIR/select-to-speech.desktop" || true
-rm -f "$APPS_DIR/com.example.ui.desktop" || true
-rm -f "$APPS_DIR/select-to-speech-gui.desktop" || true
-update-desktop-database "$APPS_DIR" || true
-if command -v kbuildsycoca6 >/dev/null 2>&1; then
-    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
-elif command -v kbuildsycoca5 >/dev/null 2>&1; then
-    kbuildsycoca5 --noincremental >/dev/null 2>&1 || true
-fi
-
-ICONS_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
-rm -f "$ICONS_DIR/select-to-speech.svg" || true
-gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" || true
-
-# ── KDE notification config ────────────────────────────────────────────────────
-NOTIFYRC="/usr/share/knotifications6/select-to-speech.notifyrc"
-if [[ -f "$NOTIFYRC" ]]; then
-    warn "Removing KDE notification config (requires sudo)..."
-    sudo rm -f "$NOTIFYRC"
-fi
-
-# ── Application Binaries ───────────────────────────────────────────────────────
-info "Removing application binaries..."
 DATA_DIR="$HOME/.local/share/select-to-speech"
-rm -rf "$DATA_DIR/bin" || true
-rm -rf "$DATA_DIR/src" || true
-rm -rf "$DATA_DIR/.venv" || true
-rm -f "$DATA_DIR/select-to-speech.desktop" || true
-rm -f "$DATA_DIR/select-to-speech.service" || true
+ICON="$HOME/.local/share/icons/hicolor/scalable/apps/select-to-speech.svg"
+AUTOSTART="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/select-to-speech.desktop"
+SERVICE="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/select-to-speech.service"
 
-echo ""
-info "Uninstall complete. Config and voice files are kept in:"
-echo "  ~/.config/select-to-speech/"
-echo "  ~/.local/share/select-to-speech/voices/"
-echo "  ~/.local/state/select-to-speech/"
-warn "Remove those directories manually if you want a full clean."
+# ── Stop running instances started from ~/.local ──────────────────────────────
+if [ -f "$SERVICE" ]; then
+    info "Disabling legacy systemd user service..."
+    systemctl --user disable --now select-to-speech &>/dev/null || true
+    rm -f "$SERVICE"
+    systemctl --user daemon-reload &>/dev/null || true
+fi
+# Legacy onefile backend, dev GUI bundle, dev backend (python .venv/bin/select-to-speech)
+for pattern in "$DATA_DIR/bin/select-to-speech" \
+               "/src/ui/build/linux/x64/release/bundle/select-to-speech-gui" \
+               "/\.venv/bin/select-to-speech( |$)"; do
+    pkill -f "$pattern" 2>/dev/null || true
+done
+
+# ── Launchers, desktop entries, autostart, icon ────────────────────────────────
+info "Removing launchers, desktop entries and autostart entry..."
+for f in "$BIN_DIR/select-to-speech-gui" "$BIN_DIR/select-to-speech-settings"; do
+    # Only remove our own links/wrappers, never an unrelated file with the same name
+    if [ -L "$f" ] || grep -qs "select-to-speech" "$f"; then rm -f "$f"; fi
+done
+rm -f "$APPS_DIR/select-to-speech.desktop" "$APPS_DIR/select-to-speech-gui.desktop" \
+      "$APPS_DIR/com.example.ui.desktop" "$AUTOSTART" "$ICON"
+command -v update-desktop-database >/dev/null && update-desktop-database "$APPS_DIR" &>/dev/null || true
+command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" &>/dev/null || true
+
+# ── Legacy install.sh payload (binaries + downloaded source tree) ──────────────
+if [ -d "$DATA_DIR" ]; then
+    info "Removing legacy application files from $DATA_DIR..."
+    find "$DATA_DIR" -mindepth 1 -maxdepth 1 ! -name voices ! -name punctuation -exec rm -rf {} +
+fi
+
+# ── Onefile extraction caches ──────────────────────────────────────────────────
+if compgen -G "$HOME/.cache/select-to-speech/v*" >/dev/null; then
+    info "Removing onefile extraction caches ($(du -sch "$HOME"/.cache/select-to-speech/v* | tail -1 | cut -f1))..."
+    rm -rf "$HOME"/.cache/select-to-speech/v*
+    rmdir "$HOME/.cache/select-to-speech" 2>/dev/null || true
+fi
+
+if [ "$PURGE" = 1 ]; then
+    info "Purging config, voice models and logs..."
+    rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/select-to-speech" "$DATA_DIR" "$HOME/.local/state/select-to-speech"
+elif [ "$QUIET" = 0 ]; then
+    echo ""
+    info "Done. Config, voice models and logs are kept in:"
+    echo "  ~/.config/select-to-speech/"
+    echo "  ~/.local/share/select-to-speech/{voices,punctuation}/"
+    echo "  ~/.local/state/select-to-speech/"
+    echo "  (run with --purge to remove them too)"
+fi
