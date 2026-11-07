@@ -147,10 +147,12 @@ const Duration _restartWindow = Duration(seconds: 60);
 const Duration _restartDelay = Duration(seconds: 3);
 
 Future<void> startPythonBackend() async {
-  // Check if Python backend is already running on UDS socket (probe with retries up to 3s)
+  // The backend creates its socket only once it is listening: if the file is missing
+  // no backend is running, so skip the probe and launch it right away.
+  // If it exists, probe it (it may be a stale socket left by a crashed backend).
   final client = createUdsClient();
   try {
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; File(udsSocketPath()).existsSync() && i < 3; i++) {
       try {
         final res = await client
             .get(Uri.parse('http://localhost/status'))
@@ -159,10 +161,15 @@ Future<void> startPythonBackend() async {
           debugPrint('Python backend is already running.');
           return;
         }
-      } catch (_) {
+      } on TimeoutException {
+        // Something accepted the connection but is slow to answer: retry.
         if (i < 2) {
           await Future.delayed(const Duration(milliseconds: 500));
         }
+      } catch (_) {
+        // Connection refused (wrapped in http.ClientException): stale socket,
+        // nobody is listening.
+        break;
       }
     }
   } finally {
@@ -170,25 +177,16 @@ Future<void> startPythonBackend() async {
   }
 
   if (_backendPath == null) {
-    final String homeDir = Platform.environment['HOME'] ?? '';
+    // resolvedExecutable has symlinks resolved, so this also works when the GUI is
+    // started via /usr/bin/select-to-speech-gui.
     final String executablePath = Platform.resolvedExecutable;
     final String exeDir = File(executablePath).parent.path;
 
-    final candidatePaths = [
-      // Alongside executable / bundle dir
-      '$exeDir/select-to-speech',
-      '$exeDir/bin/select-to-speech',
-      // User local share install
-      if (homeDir.isNotEmpty)
-        '$homeDir/.local/share/select-to-speech/bin/select-to-speech',
-      if (homeDir.isNotEmpty) '$homeDir/.local/bin/select-to-speech',
-    ];
-
-    for (final path in candidatePaths) {
-      if (File(path).existsSync()) {
-        _backendPath = path;
-        break;
-      }
+    // Native packages: /usr/lib/select-to-speech/{gui,backend}/
+    final packagedBackend =
+        '${File(exeDir).parent.path}/backend/select-to-speech';
+    if (File(packagedBackend).existsSync()) {
+      _backendPath = packagedBackend;
     }
 
     // Traverse upwards to look for .venv or local binary
@@ -273,9 +271,13 @@ Future<void> _launchAndMonitorBackend() async {
   }
 }
 
+String udsSocketPath() {
+  final String homeDir = Platform.environment['HOME'] ?? '';
+  return '$homeDir/.local/state/select-to-speech/ipc.sock';
+}
+
 http.Client createUdsClient() {
-  String homeDir = Platform.environment['HOME'] ?? '';
-  String socketPath = '$homeDir/.local/state/select-to-speech/ipc.sock';
+  final String socketPath = udsSocketPath();
   var ioClient = HttpClient()
     ..connectionFactory = (uri, proxyHost, proxyPort) {
       return Socket.startConnect(
