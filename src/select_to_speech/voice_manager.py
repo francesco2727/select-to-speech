@@ -260,8 +260,11 @@ def delete_kokoro(model_id: str = "kokoro-multi-lang-v1_0") -> bool:
     return False
 
 
-def download_kokoro_cli() -> None:
-    """CLI wrapper to download Kokoro models with terminal progress feedback."""
+def download_kokoro_cli(argv: list[str] | None = None) -> None:
+    """CLI wrapper to download Kokoro models with terminal progress feedback.
+
+    ``argv`` defaults to ``sys.argv[1:]`` (console-script usage).
+    """
     import argparse
     import sys
 
@@ -273,7 +276,7 @@ def download_kokoro_cli() -> None:
         choices=list(KOKORO_MODELS.keys()),
         help="Model to download",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     model_id = args.model
 
     logging.getLogger().setLevel(logging.WARNING)

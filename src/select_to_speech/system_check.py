@@ -502,13 +502,16 @@ def main_audio_devices(argv: list[str] | None = None) -> int:
     return 0
 
 
-def main_check(lang: str | None = None) -> int:
-    """CLI entry point for select-to-speech-check console script."""
+def main_check(lang: str | None = None, argv: list[str] | None = None) -> int:
+    """CLI entry point for ``select-to-speech --check``.
+
+    ``argv`` defaults to ``sys.argv[1:]`` (console-script usage).
+    """
     if lang is None:
         import argparse
         parser = argparse.ArgumentParser(description="Select-to-Speech system checker")
         parser.add_argument("--lang", choices=["en", "it", "fr", "es"], help="Override language for system check output (default: system locale or en)")
-        args, _ = parser.parse_known_args()
+        args, _ = parser.parse_known_args(argv)
         lang = args.lang
     is_ok = check_system_dependencies(lang=lang)
     return 0 if is_ok else 1

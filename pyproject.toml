@@ -32,7 +32,7 @@ dependencies = [
 ]
 
 [project.scripts]
-select-to-speech = "select_to_speech.main:main"
+select-to-speech = "select_to_speech.entrypoint:dispatch"
 select-to-speech-check = "select_to_speech.system_check:main_check"
 select-to-speech-audio = "select_to_speech.system_check:main_audio_devices"
 select-to-speech-download = "select_to_speech.voice_manager:download_kokoro_cli"
