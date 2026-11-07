@@ -92,9 +92,9 @@ class SelectToSpeechApp:
         # Pre-warm TTS engine in background daemon thread
         threading.Thread(target=self.tts_engine.warmup, daemon=True, name="TTS-Warmup").start()
 
-        # Setup signal handlers
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        # Signal handlers are installed only by run() (standalone loop). When embedded in
+        # the FastAPI server, uvicorn owns SIGTERM/SIGINT: overriding them here would make
+        # the daemon ignore SIGTERM (it would only set should_exit, which nobody reads).
 
     def _setup_logging(self) -> None:
         """Setup logging configuration"""
@@ -514,6 +514,8 @@ class SelectToSpeechApp:
         """Run the application"""
         try:
             logger.info("Starting Select-to-Speech application")
+            signal.signal(signal.SIGINT, self._signal_handler)
+            signal.signal(signal.SIGTERM, self._signal_handler)
 
             # Start listeners
             self.selection_listener.start()

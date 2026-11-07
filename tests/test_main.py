@@ -142,3 +142,27 @@ def test_detect_language_confidence_and_default_fallback(mock_app):
 
 
 
+
+
+def test_init_does_not_override_signal_handlers():
+    """Regression: embedded in uvicorn, the app must leave SIGTERM to the server.
+
+    SelectToSpeechApp used to install its own SIGTERM handler in __init__, which only set
+    a flag read by the standalone run() loop, so the daemon ignored SIGTERM.
+    """
+    import signal
+
+    def sentinel(signum, frame):
+        pass
+
+    previous = signal.signal(signal.SIGTERM, sentinel)
+    try:
+        config = AppConfig(voice=VoiceConfig(engine="kokoro"), audio=AudioConfig(), keyboard=KeyboardConfig())
+        with patch('select_to_speech.main.WaylandSelectionListener'), \
+             patch('select_to_speech.main.KeyboardHandler'), \
+             patch('select_to_speech.main.get_tts_engine'), \
+             patch('select_to_speech.main.AudioPlayer'):
+            SelectToSpeechApp(config)
+        assert signal.getsignal(signal.SIGTERM) is sentinel
+    finally:
+        signal.signal(signal.SIGTERM, previous)
