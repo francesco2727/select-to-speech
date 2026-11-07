@@ -15,66 +15,111 @@ Designed specifically for people with visual impairments, reading difficulties, 
 
 ---
 
+## Installation
+
+Select-to-Speech ships as a native package for **Arch Linux**, **Debian/Ubuntu** and **Fedora**
+(x86_64; Debian 12 / Ubuntu 22.04 or newer). The package manager installs the required system
+dependencies, and updates/removal go through it as well.
+
+### Quick install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/francesco2727/select-to-speech/main/install.sh | bash
+```
+
+The script picks the right package for your distribution from the
+[latest release](https://github.com/francesco2727/select-to-speech/releases/latest), verifies its
+checksum, installs it with `pacman`, `apt` or `dnf`, removes leftovers of old per-user installs
+and starts the app.
+
+### Manual install
+
+Download the package for your distribution from the
+[releases page](https://github.com/francesco2727/select-to-speech/releases/latest), then:
+
+```bash
+sudo pacman -U select-to-speech-*.pkg.tar.zst     # Arch Linux and derivatives
+sudo apt install ./select-to-speech_*_amd64.deb   # Debian, Ubuntu and derivatives
+sudo dnf install ./select-to-speech-*.x86_64.rpm  # Fedora
+```
+
+Select-to-Speech then starts automatically at login (XDG autostart; disable it from your
+desktop's autostart settings). To start it right away, launch **Select to Speech** from the
+application menu.
+
+The Kokoro voice model (~350 MB) is downloaded on first use, or from **Settings**. To download it
+in advance:
+
+```bash
+select-to-speech --download
+```
+
+### Uninstall
+
+Remove the `select-to-speech` package with your package manager. Config, voice models and logs
+are kept in `~/.config/select-to-speech/`, `~/.local/share/select-to-speech/` and
+`~/.local/state/select-to-speech/`.
+
+### Upgrading from v0.5 or older
+
+Older versions were installed per user in `~/.local`, with a systemd user service that would
+shadow the package. `install.sh` cleans this up automatically; if you install the package
+manually, run this first (config and voices are kept):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/francesco2727/select-to-speech/main/uninstall.sh | bash
+```
+
+`select-to-speech --check` warns if any leftovers are still present.
+
+---
+
 ## Requirements
 
-### System packages (Arch Linux)
+Installed automatically with the package:
 
-You can check your system's dependency status at any time by running `select-to-speech-check` (or `uv run select-to-speech-check`).
+- **`wl-clipboard`** (`wl-paste`): reads the selected text on Wayland.
+- **GTK 3**, **EGL** and **`libayatana-appindicator`**: settings window and system tray icon.
+- **PortAudio**: audio output.
+- **libpulse**: lowers other applications' volume while reading (PipeWire and PulseAudio).
 
-#### 1. Required Core Dependencies
-These packages are strictly required for Wayland text selection access and system tray functionality:
+> **XWayland compatibility is built in**: selections inside X11 applications running under
+> XWayland are read directly through python-Xlib, so no extra package (e.g. `xclip`) is required.
 
-```bash
-sudo pacman -S wl-clipboard libayatana-appindicator
-```
-- **`wl-clipboard`** (`wl-paste`) — Required for reading selected or copied text in native Wayland environments.
-- **`libayatana-appindicator`** — System library required by the Flutter GUI to show the system tray icon and menu.
+### Optional: screen text recognition (OCR, `Alt + R`)
 
-#### 2. Optional Dependencies: Screen Text Recognition (OCR — `Alt + r`)
-Required if you want to select a rectangular region of your screen and read extracted text aloud:
+| | Arch | Debian / Ubuntu | Fedora |
+|---|---|---|---|
+| OCR engine + languages | `tesseract tesseract-data-eng tesseract-data-ita` | `tesseract-ocr tesseract-ocr-eng tesseract-ocr-ita` | `tesseract tesseract-langpack-eng tesseract-langpack-ita` |
+| Screen capture (KDE) | `spectacle` | `kde-spectacle` | `spectacle` |
+| Screen capture (wlroots: Sway, Hyprland…) | `grim slurp` | `grim slurp` | `grim slurp` |
 
-```bash
-sudo pacman -S tesseract tesseract-data-ita tesseract-data-eng spectacle slurp grim
-```
-- **`tesseract`** — Core OCR engine.
-- **`tesseract-data-ita` / `tesseract-data-eng`** — Language packs for Italian and English character recognition (install additional `tesseract-data-*` packages for other languages).
-- **`spectacle`** (or **`slurp` & `grim`**) — Screen capture tools (Spectacle for KDE Wayland; slurp & grim for wlroots-based environments like Sway or Hyprland).
+On Debian/Ubuntu and Fedora the OCR engine is installed by default as a recommended package.
+Install additional Tesseract language packs for other languages.
 
-> **XWayland compatibility is built in**: selections inside non-native X11 applications running under XWayland are read directly through python-Xlib, so no extra package (e.g. `xclip`) is required.
-
-#### 👉 Install All Dependencies (Required + Optional)
-To install everything and enable all features right away, run:
+Check what is installed at any time with:
 
 ```bash
-sudo pacman -S wl-clipboard libayatana-appindicator tesseract tesseract-data-ita tesseract-data-eng spectacle slurp grim
-```
-
-
-### Python (managed by uv)
-
-Python 3.14 is required.
-
-```bash
-# uv is used for project and dependency management
-# Install uv if you don't have it:
-curl -LsSf https://astral.sh/uv/install.sh | sh
+select-to-speech --check
 ```
 
 ---
 
-## Installation
-
-### Quick Install (Recommended)
-
-The easiest way to install Select-to-Speech is via the automated installation script, which downloads the latest pre-compiled release and configures your system automatically:
+## Command line
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/francesco2727/select-to-speech/main/install.sh | bash
+select-to-speech --check            # check system dependencies, voice models and old installs
+select-to-speech --audio-devices    # list audio output devices (to find device_id)
+select-to-speech --download         # download the Kokoro voice model
+select-to-speech-gui --settings     # open the settings window
 ```
 
-### Local Development Install
+---
 
-If you want to modify the source code or compile the application locally:
+## Development
+
+Requirements: [uv](https://docs.astral.sh/uv/) (Python 3.12+ is managed by it) and the
+[Flutter SDK](https://docs.flutter.dev/get-started/install/linux) with its Linux desktop toolchain.
 
 ```bash
 git clone https://github.com/francesco2727/select-to-speech.git
@@ -82,99 +127,32 @@ cd select-to-speech
 ./install-local.sh
 ```
 
-The script:
-1. Runs `uv sync` (after creating a virtual environment in `.venv/` with system site packages)
-2. Downloads Kokoro TTS model files and sets up the Flutter GUI binary
-3. Creates wrapper scripts in `~/.local/bin/` that run directly using the virtual environment's executables (this ensures they run successfully without requiring `uv` to be in the `$PATH` when launched by systemd or desktop menus)
-4. Adds a `.desktop` entry to the KDE launcher
-5. Registers and starts a systemd user service (`select-to-speech.service`)
-6. Executes `select-to-speech-check` as its final step to display an at-a-glance check of all required and optional system dependencies along with clear purpose explanations and exact installation instructions if any are missing
+`install-local.sh` installs the dependencies with `uv sync`, downloads the Kokoro model, builds the
+Flutter GUI in release mode, links it as `~/.local/bin/select-to-speech-gui`, adds the desktop and
+autostart entries and starts it. The GUI runs the backend from the repository's `.venv`, so Python
+changes only need an app restart (quit from the tray, then relaunch); Dart changes need
+`./install-local.sh` again. `./uninstall.sh` removes the development install.
 
-During installation, the Kokoro model files (~350 MB) are downloaded automatically (with a fallback to downloading on first run or manually if installation download fails or is skipped).
-
-#### After a code update
-
-No reinstallation needed — just restart the service:
+Useful commands:
 
 ```bash
-git pull
-systemctl --user restart select-to-speech
+uv run pytest                         # tests
+uv run select-to-speech               # backend daemon only, in the foreground (Ctrl+C to exit)
+uv run select-to-speech --check       # CLI subcommands, as above
+(cd src/ui && flutter run -d linux)   # GUI in debug mode, with hot reload
 ```
 
-#### Useful service commands
+### Building the packages
+
+The release workflow (`.github/workflows/release.yml`) runs on Ubuntu 22.04 so the binaries also
+work on the oldest supported distributions. The same scripts can be run locally:
 
 ```bash
-systemctl --user status select-to-speech    # check status
-systemctl --user restart select-to-speech   # restart after code changes
-journalctl --user -u select-to-speech -f    # follow logs
-```
-
-#### Uninstall
-
-```bash
-./uninstall.sh
-```
-
-Removes the service, symlinks, and desktop entry. Config and voice files in `~/.config/select-to-speech/` and `~/.local/share/select-to-speech/` are kept.
-
----
-
-### Manual / development mode
-
-```bash
-git clone https://github.com/your-user/select-to-speech.git
-cd select-to-speech
-
-# Create virtual environment with access to system packages, then sync dependencies
-uv venv --system-site-packages
-uv sync
-
-# Copy the KDE notification config (needed for desktop notifications)
-sudo cp select-to-speech.notifyrc /usr/share/knotifications6/
-```
-
----
-
-## Running the app (manual / development)
-
-To run the application manually from the repository:
-
-### Start the GUI (System Tray + Settings window)
-
-Run the GUI wrapper script:
-
-```bash
-./bin/select-to-speech-gui.sh
-```
-
-Starts the app with a system tray icon. Right-click the tray for pause/stop and settings.
-
-### Start the core daemon only (Headless mode)
-
-To run the API server and keyboard shortcut listener without showing a GUI window:
-
-```bash
-uv run select-to-speech
-```
-
-Runs the backend API and hotkey listeners in the foreground. Use keyboard shortcuts to control playback. Exit with `Ctrl+C`.
-
-### Open settings window only
-
-You can launch the GUI specifically into the settings tab by running:
-
-```bash
-./bin/select-to-speech-settings.sh
-```
-
-### Utility commands
-
-```bash
-# Check system dependencies and optional OCR utilities (tesseract, spectacle, slurp, grim)
-uv run select-to-speech-check
-
-# List available audio output devices (to find device_id)
-uv run select-to-speech-audio
+PYTHON=.venv/bin/python packaging/build-lingua.sh   # slim lingua: only the languages the app speaks
+PYTHON=.venv/bin/python packaging/build-backend.sh  # Nuitka standalone -> dist/backend/
+packaging/build-gui.sh                              # Flutter bundle -> dist/gui/
+packaging/build-packages.sh                         # nfpm -> dist/packages/*.{deb,rpm,pkg.tar.zst}
+packaging/test-packages.sh                          # install + smoke test in distro containers (docker)
 ```
 
 ---
@@ -214,7 +192,7 @@ If the file does not exist, defaults are used. You can edit it manually or use t
 
 ### Voice models
 
-**Kokoro**: model files are downloaded automatically during installation (~350 MB) to `~/.local/share/select-to-speech/voices/` (or on first run if missing). Voice names follow the pattern `{lang_prefix}_{name}` (e.g. `if_sara` for Italian female, `af_heart` for American English female).
+**Kokoro**: model files (~350 MB) are downloaded to `~/.local/share/select-to-speech/voices/` on first use, from Settings, or with `select-to-speech --download`. Voice names follow the pattern `{lang_prefix}_{name}` (e.g. `if_sara` for Italian female, `af_heart` for American English female).
 
 ---
 

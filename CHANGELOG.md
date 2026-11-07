@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Native Packages for Arch, Debian/Ubuntu and Fedora**: Releases now ship a `.pkg.tar.zst`, a `.deb` and an `.rpm` (built with nfpm from `packaging/nfpm.yaml`, zstd-compressed, with `SHA256SUMS`) instead of two tarballs plus a per-user installer. The package manager installs the required system libraries (`wl-clipboard`, GTK 3, `libayatana-appindicator`, PortAudio, libpulse, libatomic, EGL/GLES) and handles updates and removal; the OCR tools are recommended/suggested on deb/rpm and listed after installation on Arch. Files go to `/usr/lib/select-to-speech/{backend,gui}` with `/usr/bin/select-to-speech` and `/usr/bin/select-to-speech-gui` links, a `select-to-speech-gui.desktop` menu entry and the icon in the hicolor theme.
+- **Autostart at Login via XDG Autostart**: `/etc/xdg/autostart/select-to-speech.desktop` starts the tray app in the background on every desktop environment, and can be disabled from the desktop's autostart settings. Replaces the systemd user service.
+- **Package Smoke Tests in CI**: `packaging/test-packages.sh` installs each package in clean Debian 12, Ubuntu 22.04/24.04, Fedora and Arch containers and checks that every bundled library resolves, the CLI runs, and the daemon answers `/status` and exits on SIGTERM. The release workflow runs it before publishing and can also be started manually (`workflow_dispatch`) without publishing.
+- **Leftover Detection in `--check`**: `select-to-speech --check` warns about leftovers of the old per-user installation (onefile binary, systemd user service, onefile caches) and prints the cleanup command.
+
+### Changed
+- **Standalone Backend Instead of Onefile**: The Nuitka backend is now built with `--standalone` and installed as a directory. The onefile build unpacked ~520 MB into `~/.cache/select-to-speech/<version>/` (one copy per version, never removed) and took 2.3–3.9 s to answer `/status`; the standalone build answers in ~0.7 s, with about half the memory at idle (~610 MB instead of ~1.1 GB, measured on the same machine).
+- **Slim Language Detector**: The release builds lingua (`packaging/build-lingua.sh`, pinned lingua-rs v1.8.0 = lingua-language-detector 2.2.0) with only the 10 languages the app can speak, instead of the PyPI wheel that embeds the models of all 75 languages (290 MB on disk). The installed backend shrinks from 471 MB to 211 MB and each package is ~85 MB (the previous onefile binary alone was 549 MB). `tests/test_packaging.py` keeps the list in sync with `_LINGUA_LANGUAGES`.
+- **Release Builds on Ubuntu 22.04**: All release jobs run on `ubuntu-22.04` (glibc 2.35) instead of `ubuntu-latest`, so the binaries also run on Debian 12 and Ubuntu 22.04; backend dependencies are installed from `uv.lock` (`uv sync --frozen`) instead of being resolved fresh. Build steps live in `packaging/build-*.sh` and are the same in CI and locally.
+- **Single CLI Entry Point**: Subcommands are flags of the `select-to-speech` command only: `select-to-speech --check`, `--audio-devices` and `--download`. The `select-to-speech-check`, `select-to-speech-audio`, `select-to-speech-download` and `select-to-speech-settings` aliases were removed (use `select-to-speech-gui --settings` for the settings window).
+- **Faster GUI Startup**: The GUI no longer probes the backend socket (up to ~1 s of retries) when the socket file does not exist or the connection is refused, and launches the backend right away.
+- **Installer Scripts**: `install.sh` now detects pacman/apt/dnf, downloads the matching package from the latest release, verifies its checksum and installs it with the package manager. `install-local.sh` (development) uses the same desktop/autostart files as the package and links the locally built GUI bundle. `uninstall.sh` now removes per-user installs (legacy layout, development install, onefile caches) and gained `--purge`.
+- **Dart Debug Symbols Split Out**: The GUI is built with `--split-debug-info`; the symbols are kept as a CI artifact instead of inside `libapp.so`.
+
+### Removed
+- The `select-to-speech-backend-linux.tar.gz` / `select-to-speech-gui-linux.tar.gz` release assets, the systemd user service (`select-to-speech.service`), the root `select-to-speech.desktop` with its `select-to-speech-gui.desktop` symlink, and the `bin/*.sh` wrapper scripts.
+
+### Fixed
+- **Daemon Ignored SIGTERM**: `SelectToSpeechApp` replaced uvicorn's SIGTERM/SIGINT handlers with its own, which only set a flag nobody read while running inside the API server, so the backend never exited on SIGTERM and was left running when the GUI quit. The onefile bootstrap hid the problem by killing its child process. Signal handlers are now installed only by the standalone `run()` loop.
+- **Failing `download_kokoro_cli` Tests**: The CLI subcommands parsed `sys.argv` themselves and choked on pytest's arguments; they now receive their arguments explicitly from the dispatcher.
+- **GUI Build on GLib < 2.74**: `my_application.cc` used `G_APPLICATION_DEFAULT_FLAGS`, which does not exist on Ubuntu 22.04's GLib 2.72; added a compatibility define.
+
 ## [v0.5.0] - 2026-10-31
 
 ### Added

@@ -1,28 +1,63 @@
 ---
 name: nuitka-release-packaging
-description: Load this skill when adding or removing Python dependencies in pyproject.toml, modifying CLI entry points (entrypoint.py, main.py), editing GitHub Actions release workflows (.github/workflows/release.yml), or updating installation/uninstallation scripts (install.sh, install-local.sh, uninstall.sh, systemd/desktop files).
+description: Load this skill when adding or removing Python dependencies in pyproject.toml, modifying the CLI entry point (entrypoint.py, main.py), editing the release workflow (.github/workflows/release.yml), the native packages (packaging/: nfpm.yaml, build-*.sh, test-packages.sh, .desktop files), or the install scripts (install.sh, install-local.sh, uninstall.sh).
 ---
 
-# Nuitka Compilation, Release CI, and Linux Packaging
+# Nuitka Build, Native Packages (.deb/.rpm/Arch), and Release CI
 
-Scope: Python dependency changes in `pyproject.toml`, standalone binary compilation in `.github/workflows/release.yml`, multi-call CLI entry points (`src/select_to_speech/entrypoint.py` and `src/select_to_speech/main.py`), and installer scripts (`install.sh`, `install-local.sh`, `uninstall.sh`, `bin/`).
+Scope: Python dependency changes in `pyproject.toml`, the standalone backend build, the Flutter bundle build, the nfpm packages in `packaging/`, `.github/workflows/release.yml`, the CLI entry point (`src/select_to_speech/entrypoint.py`), and the install scripts.
 
-## 1. Nuitka `--onefile` Synchronization (`pyproject.toml` ↔ `release.yml`)
+## 1. Layout and build pipeline
 
-Whenever you add, remove, or upgrade a package in `pyproject.toml`, verify and update `NUITKA_FLAGS` in `.github/workflows/release.yml`:
+The app ships as native packages built with **nfpm** (`packaging/nfpm.yaml`) from two directories:
 
-- **`--include-package` vs `--include-module`**:
-  - Use `--include-package=<name>` **only** for actual Python packages (directories containing `__init__.py` or namespace packages, e.g., `select_to_speech`, `sherpa_onnx`, `fastapi`, `pulsectl`).
-  - Use `--include-module=<name>` for single-file `.py` modules or compiled C/C++ extension `.so` modules (e.g., `--include-module=pedalboard_native`). Passing a C-extension module to `--include-package` breaks Nuitka compilation.
-- **Runtime data assets (`--include-package-data`)**:
-  - Add `--include-package-data=<pkg>` whenever a dependency loads non-code files at runtime (currently `lingua`, `emoji`, `certifi`).
-- **Excluding unused modules (`--nofollow-import-to`)**:
-  - Keep test suites, GUI toolkits, and non-Linux platform backends (`_darwin`, `_win32`, `pytest`, `unittest`, `sherpa_onnx.cli`) in `--nofollow-import-to` to minimize binary size and compile time.
+```
+/usr/lib/select-to-speech/backend/   Nuitka --standalone (dist/backend)
+/usr/lib/select-to-speech/gui/       Flutter bundle      (dist/gui)
+/usr/bin/select-to-speech      -> ../lib/select-to-speech/backend/select-to-speech
+/usr/bin/select-to-speech-gui  -> ../lib/select-to-speech/gui/select-to-speech-gui
+/usr/share/applications/select-to-speech-gui.desktop
+/etc/xdg/autostart/select-to-speech.desktop
+/usr/share/icons/hicolor/scalable/apps/select-to-speech.svg
+```
 
-## 2. Optional Native / C-Library Dependencies
+Every step is a script, used identically by CI and locally (CI only orchestrates them):
 
-Compiled Nuitka binaries always bundle the Python wrapper even when the target user's Linux distribution lacks the underlying system C shared library.
-- When importing modules that load system C shared libraries at import time via `ctypes` or `cffi` (such as `pulsectl` or `pyaudio`), always catch **both** `(ImportError, OSError)`:
+| Script | Output |
+|---|---|
+| `packaging/build-lingua.sh` | slim lingua wheel installed into `$PYTHON` |
+| `packaging/build-backend.sh` | `dist/backend/` |
+| `packaging/build-gui.sh` | `dist/gui/` (+ `build/gui-symbols/`) |
+| `packaging/build-packages.sh [VERSION]` | `dist/packages/` (.deb, .rpm, .pkg.tar.zst, SHA256SUMS) |
+| `packaging/test-packages.sh [distro...]` | installs each package in docker (Debian 12, Ubuntu 22.04/24.04, Fedora, Arch) and smoke-tests it |
+
+- **Build on Ubuntu 22.04** (glibc 2.35, GLib 2.72) so binaries run on the oldest supported distros. Do not move jobs to `ubuntu-latest`. Native code must compile against GLib 2.72 (see the `G_APPLICATION_DEFAULT_FLAGS` shim in `src/ui/linux/my_application.cc`).
+- `test-packages.sh` treats an `ldd` "not found" as an error only if the library is not shipped inside the bundle (Nuitka/Flutter load bundled libs by soname, which `ldd` does not see).
+- After changing anything in `packaging/`, run `packaging/build-packages.sh && packaging/test-packages.sh` (needs `dist/backend` and `dist/gui`).
+
+## 2. Nuitka `--standalone` (never `--onefile`)
+
+Flags live only in `packaging/build-backend.sh` (`NUITKA_FLAGS`). `--onefile` must not come back: it re-extracts ~500 MB into `~/.cache` per version and slows every start.
+
+Whenever you add, remove, or upgrade a package in `pyproject.toml`, update `NUITKA_FLAGS`:
+- **`--include-package` vs `--include-module`**: `--include-package=<name>` only for real packages (directories, e.g. `sherpa_onnx`, `fastapi`, `pulsectl`); `--include-module=<name>` for single-file modules and C-extension `.so` modules (e.g. `--include-module=pedalboard_native`). Passing a C-extension module to `--include-package` breaks compilation.
+- **Runtime data (`--include-package-data`)**: add it when a dependency loads non-code files at runtime (currently `emoji`, `certifi`). lingua does not need it: its models are compiled into its extension module.
+- **Exclusions (`--nofollow-import-to`)**: keep test suites, GUI toolkits and non-Linux backends (`_darwin`, `_win32`, `pytest`, `unittest`, `sherpa_onnx.cli`) excluded.
+- Dependencies are installed from the lock: `uv sync --frozen --no-dev --no-editable`.
+
+## 3. Slim lingua (`packaging/build-lingua.sh`)
+
+The PyPI lingua wheel embeds the models of all 75 languages (~290 MB). The release builds lingua-rs (pinned tag + commit) with only the Cargo features for the languages in `_LINGUA_LANGUAGES` (`main.py`), ~10x smaller.
+- **Adding a language to `_LINGUA_LANGUAGES` requires adding it to `LANGUAGES=(...)` in `build-lingua.sh`**, otherwise `lingua.Language.<X>` does not exist in the packaged binary and `main.py` fails at import. `tests/test_packaging.py` enforces this.
+- When bumping `lingua-language-detector` in `uv.lock`, update `LINGUA_TAG` / `LINGUA_COMMIT` to the matching lingua-rs release.
+
+## 4. Runtime dependencies of the packages
+
+Libraries loaded from the system (everything else is bundled) are declared per format in `overrides:` of `nfpm.yaml` (names differ per distro):
+- `wl-clipboard`, GTK 3, `libayatana-appindicator` (GUI/tray), **libEGL/libGLESv2** (`dlopen()`ed by libepoxy for Flutter rendering, so neither `ldd` nor GTK's dependencies catch it on minimal Debian/Ubuntu/Fedora), **PortAudio** (`pyaudio/_portaudio.so` links `libportaudio.so.2`, Nuitka does not bundle it), **libpulse** (pulsectl via ctypes), **libatomic** (`pedalboard_native.so`; missing from minimal Debian/Ubuntu/Fedora installs, part of `gcc-libs` on Arch).
+- OCR tools are `recommends`/`suggests` on deb/rpm. nfpm cannot emit pacman `optdepends`, so Arch lists them in `packaging/arch-postinstall.sh`.
+- If you add a new system library or external binary, add it to all three formats in `nfpm.yaml`, to `system_check.py`, and to the README requirements.
+- Modules that load system C libraries at import time via `ctypes`/`cffi` (`pulsectl`, `pyaudio`) must catch **both** `(ImportError, OSError)`:
   ```python
   try:
       import pulsectl
@@ -30,30 +65,24 @@ Compiled Nuitka binaries always bundle the Python wrapper even when the target u
       pulsectl = None
   ```
 
-## 3. Multi-Call Binary Dispatcher Alignment
+## 5. CLI entry point
 
-The release build compiles a single `select-to-speech` binary from `src/select_to_speech/entrypoint.py` and creates symlinks (`select-to-speech-check`, `select-to-speech-audio`, `select-to-speech-download`) alongside flag-based dispatch (`--check`, `--audio-devices`, `--download`).
+The binary is compiled from `src/select_to_speech/entrypoint.py`; `dispatch(argv)` is also the `select-to-speech` console script. Subcommands are **flags only** (`--check`, `--audio-devices`, `--download`); there are no `argv[0]`/symlink aliases. Each branch imports only what it needs (`--check` must not import lingua/sherpa: `tests/test_entrypoint.py`) and passes its remaining `argv` explicitly to the subcommand function. To add a subcommand: add the branch and help line in `entrypoint.py`, a test in `tests/test_entrypoint.py`, the README "Command line" section, and (if it is a cheap smoke check) the CI/`test-packages.sh` checks.
 
-Whenever you add or modify a CLI subcommand or flag, keep all 4 locations synchronized:
-1. `pyproject.toml` under `[project.scripts]`
-2. `src/select_to_speech/entrypoint.py` (`dispatch()`)
-3. `src/select_to_speech/main.py` (`main()`)
-4. `.github/workflows/release.yml` (symlink creation and `xvfb-run` smoke tests)
+## 6. Flutter bundle
 
-Note: In Nuitka `--onefile` mode, `sys.argv[0]` points to the unpacked temporary binary, while the original symlink name is passed in `os.environ.get("NUITKA_ONEFILE_BINARY")`. Always check both.
+- `packaging/build-gui.sh` strips the Ubuntu-only transitive `DT_NEEDED` entries (`libayatana-indicator3.so.7`, `libayatana-ido3-0.4.so.0`) from `libtray_manager_plugin.so` with `patchelf` and sets its RPATH to `$ORIGIN`, so the bundle loads on Arch/Fedora. Keep this step.
+- The GUI finds the backend at `<gui dir>/../backend/select-to-speech` (packages) or by walking up to a `.venv` (development); it uses `Platform.resolvedExecutable`, so the `/usr/bin` symlink works. Keep this in sync if the layout changes.
 
-## 4. Flutter Linux Bundle & Installer Scripts
+## 7. Wayland taskbar identity (GUI binary name)
 
-- **`patchelf` on `libtray_manager_plugin.so`**:
-  - Both `.github/workflows/release.yml` and `install.sh` / `install-local.sh` strip Ubuntu-specific transitive `DT_NEEDED` entries (`libayatana-indicator3.so.7`, `libayatana-ido3-0.4.so.0`) and set `RPATH` to `$ORIGIN` so the pre-compiled GUI bundle runs on Arch, Fedora, and Debian/Ubuntu alike. Preserve this step when modifying release or installer scripts.
-- **Venv symlink compatibility**:
-  - `install.sh` creates `$INSTALL_DIR/.venv/bin/select-to-speech` pointing to `$INSTALL_DIR/bin/select-to-speech` so the Flutter UI can locate the backend binary identically in both local-dev and release installations.
+The Flutter GUI binary is `select-to-speech-gui` (`BINARY_NAME` in `src/ui/linux/CMakeLists.txt`). On Wayland a GTK3 window's `app_id` is the **program name** (not `APPLICATION_ID`, which is only the D-Bus name `com.selecttospeech.gui`), and taskbars match it to the `.desktop` file **with the same name**. Hence the single desktop entry is `select-to-speech-gui.desktop`, with `StartupWMClass=select-to-speech-gui` for X11; the window icon name is set in `my_application.cc`.
 
-## 5. Wayland Taskbar Identity (GUI Binary Name)
+If `BINARY_NAME` changes, update: `packaging/nfpm.yaml` (bundle path, `/usr/bin` symlink, desktop file name), `packaging/select-to-speech-gui.desktop` (file name, `Exec`, `StartupWMClass`), `packaging/select-to-speech-autostart.desktop` (`Exec`), `install-local.sh`, `uninstall.sh`, and `my_application.cc`.
 
-The Flutter Linux GUI binary is named `select-to-speech-gui` (`BINARY_NAME` in `src/ui/linux/CMakeLists.txt`). This name is load-bearing for desktop integration:
+## 8. Install scripts
 
-- On Wayland, a GTK3 window's `app_id` reported to the compositor is the **program (binary) name**, not `APPLICATION_ID` (that is only the D-Bus name, currently `com.selecttospeech.gui`). KDE/GNOME taskbars therefore match the running window to a `.desktop` file **named exactly like the binary**; a mismatch shows a generic taskbar icon.
-- `install.sh` / `install-local.sh` install `select-to-speech.desktop` and symlink it as `select-to-speech-gui.desktop` for Wayland matching; `StartupWMClass=select-to-speech-gui` covers X11; `uninstall.sh` removes the symlink.
-- The window title ("Select to Speech") and `gtk_window_set_icon_name(window, "select-to-speech")` are set in `src/ui/linux/my_application.cc`.
-- If `BINARY_NAME` ever changes, keep ALL of these in sync or the taskbar icon breaks: the two `bin/*.sh` wrappers (`$BUNDLE_DIR/<BINARY_NAME>`), `select-to-speech.desktop` (`StartupWMClass`), the Wayland desktop symlink in `install.sh` / `install-local.sh`, its removal in `uninstall.sh`, and the icon name in `my_application.cc`.
+- `install.sh`: end-user installer. Detects pacman/apt/dnf, downloads the matching package and `SHA256SUMS` from the latest release, verifies, installs with the package manager, and runs `uninstall.sh` if a legacy per-user install is found.
+- `install-local.sh`: development install from the repo (`.venv` backend + locally built bundle, `~/.local/bin/select-to-speech-gui` symlink, desktop + autostart entries in `~/.local`/`~/.config`). Reuses the files in `packaging/` with `/usr/bin/` rewritten to `~/.local/bin/`.
+- `uninstall.sh`: removes per-user installs only (legacy <= v0.5 layout with its systemd user service, the dev install, onefile caches). Never touches the native package. `--purge` also removes config/voices/logs.
+- Autostart is XDG autostart, not a systemd user service; do not reintroduce one (a unit in `~/.config/systemd/user` would also shadow the package's files).
