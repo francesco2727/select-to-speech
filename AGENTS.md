@@ -30,10 +30,3 @@ The project is split into two main components:
 
 2. **Documentation**:
    Keep `README.md` and inline documentation updated if you change system requirements, setup scripts (`install.sh`, `install-local.sh`), or default configurations.
-
-3. **Domain Skills (Load On-Demand)**:
-   Detailed architectural rules and workflows are modularized into project skills under `.agents/skills/`. Load the matching skill before working on its scope:
-   - **`flutter-material3`**: For any work in `src/ui/` (Material 3 conventions, `dart`/`material3` MCP servers, `analyze_files` checks, `tray_manager_patched`).
-   - **`tts-audio-pipeline`**: For TTS synthesis, text normalization, neural punctuation, language detection, voice management, and audio playback/ducking (`tts_engine.py`, `voice_manager.py`, `audio_player.py`, `text_normalizer.py`, `punctuation_engine.py`, `sound_feedback.py`).
-   - **`backend-daemon-api`**: For the FastAPI UDS server, Pydantic config schema, daemon lifecycle, Wayland selection/hotkeys, OCR capture, and system diagnostics (`api/server.py`, `config.py`, `main.py`, `selection_listener.py`, `keyboard_handler.py`, `screen_capture.py`, `ocr_engine.py`, `system_check.py`).
-   - **`nuitka-release-packaging`**: Whenever modifying `pyproject.toml` dependencies, the CLI entry point (`entrypoint.py`, `main.py`), `.github/workflows/release.yml`, the native packages in `packaging/` (nfpm, Nuitka/Flutter/lingua build scripts, `.desktop` files), or the install scripts (`install.sh`, `install-local.sh`, `uninstall.sh`).
