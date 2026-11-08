@@ -28,6 +28,10 @@ patchelf --remove-needed libayatana-indicator3.so.7 \
          --set-rpath '$ORIGIN' \
          "$BUNDLE_DIR/lib/libtray_manager_plugin.so"
 
+# libdartjni.so comes from the `jni` package (transitive, Android-only use via dynamic_color)
+# and needs libjvm.so, which does not exist on desktops. Nothing uses it on Linux.
+rm -f "$BUNDLE_DIR/lib/libdartjni.so"
+
 rm -rf "$OUT_DIR"
 mkdir -p "$(dirname "$OUT_DIR")"
 cp -a "$BUNDLE_DIR" "$OUT_DIR"
