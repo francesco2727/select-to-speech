@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [v0.5.1] - 2026-11-08
 
 ### Added
 - **Native Packages for Arch, Debian/Ubuntu and Fedora**: Releases now ship a `.pkg.tar.zst`, a `.deb` and an `.rpm` (built with nfpm from `packaging/nfpm.yaml`, zstd-compressed, with `SHA256SUMS`) instead of two tarballs plus a per-user installer. The package manager installs the required system libraries (`wl-clipboard`, GTK 3, `libayatana-appindicator`, PortAudio, libpulse, libatomic, EGL/GLES) and handles updates and removal; the OCR tools are recommended/suggested on deb/rpm and listed after installation on Arch. Files go to `/usr/lib/select-to-speech/{backend,gui}` with `/usr/bin/select-to-speech` and `/usr/bin/select-to-speech-gui` links, a `select-to-speech-gui.desktop` menu entry and the icon in the hicolor theme.
