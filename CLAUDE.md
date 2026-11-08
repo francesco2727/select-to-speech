@@ -1,5 +1,3 @@
-# Claude Code instructions
-
-Le linee guida del progetto sono in AGENTS.md, che Claude Code importa qui:
-
+Claude Code reads this file. The guide for every coding agent in this repo is AGENTS.md, imported below.
+    
 @AGENTS.md
