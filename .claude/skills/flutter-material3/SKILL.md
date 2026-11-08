@@ -15,10 +15,10 @@ Scope: everything under `src/ui/` in this repository (Dart/Flutter desktop app, 
 
 ## Mandatory MCP & Analysis Workflow
 
-1. **`dart` MCP Server (`flutter-mcp_dart`) & Static Analysis**:
-   - Configured in `.agents/plugins/flutter-mcp/mcp_config.json`. Use for Dart language features, package management, analyzing code errors, running LSP commands, searching `pub.dev` packages, or inspecting the Flutter runtime (`analyze_files`, `pub`, `pub_dev_search`, `lsp`, `roots`, `read_package_uris`, `rip_grep_packages`, `hot_reload`, `hot_restart`, `widget_inspector`).
+1. **`dart` MCP server & Static Analysis**:
+   - Use for Dart language features, package management, analyzing code errors, running LSP commands, searching `pub.dev` packages, or inspecting the Flutter runtime (`analyze_files`, `pub`, `pub_dev_search`, `lsp`, `roots`, `read_package_uris`, `rip_grep_packages`, `hot_reload`, `hot_restart`, `widget_inspector`).
    - Whenever you modify any file in `src/ui/lib/`, run `analyze_files` (or `flutter analyze` from `src/ui/` in a shell) and fix all reported errors and warnings before considering the task done.
-2. **`material3` MCP Server (`flutter-mcp_material3` / `@weppa-cloud/material3-mcp-server`)**:
+2. **`material3` MCP server**:
    - Use proactively when designing, modifying, or creating UI components in `src/ui/`.
    - Consult it for:
      - Canonical Material 3 component structure (Cards, Dialogs, Switches, Buttons, `SegmentedButton`, `NavigationBar`, etc.).
@@ -53,6 +53,7 @@ These conventions are settled design decisions from the settings UI; do not regr
 - `src/ui/tray_manager_patched` replaces `app_indicator_new` with `g_object_new` (resolving C++ deprecation warnings on Linux) and adds SVG tray icon support.
 - Never remove the `tray_manager` path override in `src/ui/pubspec_overrides.yaml`, and keep the `lib` folder inside `src/ui/tray_manager_patched/` intact.
 - Tray icons: use SVG assets from `src/ui/images/` through the patched package.
+- **Adaptive tray icon (Linux)**: the tray icon is monochrome and follows the system theme. `select_to_speech_tray_icon_light.svg` is the WHITE icon (used on a dark theme) and `select_to_speech_tray_icon_dark.svg` is the BLACK one (used on a light theme). `_trayIconAsset()` in `main.dart` picks the asset; `_SettingsScreenState` is a `WidgetsBindingObserver` and `didChangePlatformBrightness` re-applies it live via `_applyTrayIcon()`. Windows keeps `images/tray_icon.ico`. The colored `select_to_speech_tray_icon.svg` is the application icon (installed as `com.selecttospeech.gui`), not the tray icon.
 
 ## Dependencies and backend integration
 

@@ -10,6 +10,7 @@ Scope: FastAPI server over Unix Domain Socket (`src/select_to_speech/api/server.
 ## 1. FastAPI Daemon & Unix Domain Socket IPC (`api/server.py`)
 
 - **Socket Path**: `~/.local/state/select-to-speech/ipc.sock`.
+- **Signals**: the daemon must not ignore `SIGTERM`; it has to shut down cleanly when terminated (covered by `tests/test_main.py`).
 - **Single-Instance Guard**: `run_server()` probes `is_server_running(socket_path)` (`GET /status`) before binding; if an instance is already responsive, it exits cleanly (`return 0`), otherwise it unlinks any stale socket file.
 - **Core Endpoints**:
   - `GET /status`: health & playback state (`{"status": "ok", "playing": bool}`).
