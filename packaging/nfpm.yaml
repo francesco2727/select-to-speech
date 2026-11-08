@@ -95,7 +95,7 @@ contents:
     dst: /etc/xdg/autostart/select-to-speech.desktop
     type: config|noreplace
   - src: src/ui/images/select_to_speech_tray_icon.svg
-    dst: /usr/share/icons/hicolor/scalable/apps/select-to-speech.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/com.selecttospeech.gui.svg
 
 deb:
   compression: zstd

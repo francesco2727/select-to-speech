@@ -27,7 +27,7 @@ warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 BIN_DIR="$HOME/.local/bin"
 APPS_DIR="$HOME/.local/share/applications"
 DATA_DIR="$HOME/.local/share/select-to-speech"
-ICON="$HOME/.local/share/icons/hicolor/scalable/apps/select-to-speech.svg"
+ICON="$HOME/.local/share/icons/hicolor/scalable/apps/com.selecttospeech.gui.svg"
 AUTOSTART="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/select-to-speech.desktop"
 SERVICE="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/select-to-speech.service"
 
@@ -53,6 +53,8 @@ for f in "$BIN_DIR/select-to-speech-gui" "$BIN_DIR/select-to-speech-settings"; d
 done
 rm -f "$APPS_DIR/select-to-speech.desktop" "$APPS_DIR/select-to-speech-gui.desktop" \
       "$APPS_DIR/com.example.ui.desktop" "$AUTOSTART" "$ICON"
+# Old icon name (clashed with the Breeze "select" icon) and its stale PNGs
+rm -f "$HOME"/.local/share/icons/hicolor/*/apps/select-to-speech.{png,svg}
 command -v update-desktop-database >/dev/null && update-desktop-database "$APPS_DIR" &>/dev/null || true
 command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" &>/dev/null || true
 

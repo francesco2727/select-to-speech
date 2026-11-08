@@ -92,7 +92,7 @@ ln -sf "$UI_BUNDLE_DIR/select-to-speech-gui" "$BIN_DIR/select-to-speech-gui"
 info "Installing icon, desktop entry and autostart entry..."
 ICONS_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
 mkdir -p "$ICONS_DIR" "$APPS_DIR" "$AUTOSTART_DIR"
-cp "$INSTALL_DIR/src/ui/images/select_to_speech_tray_icon.svg" "$ICONS_DIR/select-to-speech.svg"
+cp "$INSTALL_DIR/src/ui/images/select_to_speech_tray_icon.svg" "$ICONS_DIR/com.selecttospeech.gui.svg"
 gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" &>/dev/null || true
 
 # Same files as the native package, pointed at ~/.local/bin instead of /usr/bin.

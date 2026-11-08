@@ -410,7 +410,8 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
+class _SettingsScreenState extends State<SettingsScreen>
+    with TrayListener, WidgetsBindingObserver {
   late http.Client apiClient;
   int _selectedIndex = 0;
 
@@ -783,21 +784,42 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
   void initState() {
     super.initState();
     apiClient = createUdsClient();
+    WidgetsBinding.instance.addObserver(this);
     _initTray();
     _fetchData();
   }
 
+  /// Tray icon asset: white on a dark panel, black on a light one.
+  String _trayIconAsset() {
+    if (Platform.isWindows) return 'images/tray_icon.ico';
+    final dark =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+            Brightness.dark;
+    final name = dark
+        ? 'select_to_speech_tray_icon_light.svg'
+        : 'select_to_speech_tray_icon_dark.svg';
+    if (Platform.isLinux) {
+      final String exeDir = File(Platform.resolvedExecutable).parent.path;
+      return '$exeDir/data/flutter_assets/images/$name';
+    }
+    return 'images/$name';
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    super.didChangePlatformBrightness();
+    unawaited(_applyTrayIcon());
+  }
+
+  Future<void> _applyTrayIcon() async {
+    try {
+      await trayManager.setIcon(_trayIconAsset());
+    } catch (_) {}
+  }
+
   Future<void> _initTray() async {
     try {
-      String iconPath = Platform.isWindows
-          ? 'images/tray_icon.ico'
-          : 'images/select_to_speech_tray_icon.svg';
-      if (Platform.isLinux) {
-        final String exeDir = File(Platform.resolvedExecutable).parent.path;
-        iconPath =
-            '$exeDir/data/flutter_assets/images/select_to_speech_tray_icon.svg';
-      }
-      await trayManager.setIcon(iconPath);
+      await trayManager.setIcon(_trayIconAsset());
       await _updateTrayMenu();
       trayManager.addListener(this);
     } catch (_) {
@@ -1111,6 +1133,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TrayListener {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (_saveTimer?.isActive ?? false) {
       _saveTimer?.cancel();
       _saveConfigSilent();
