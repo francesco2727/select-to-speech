@@ -2,8 +2,6 @@ name: Build and Release
 
 on:
   push:
-    branches:
-      - feat/native-packages # TEMPORARY: remove before merging to main
     tags:
       - 'v*' # Triggers on tag pushes like v1.0.0, v2.1.3
   workflow_dispatch: # Manual run: builds and tests the packages without publishing a release

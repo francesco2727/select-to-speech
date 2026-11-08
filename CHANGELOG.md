@@ -26,6 +26,9 @@ All notable changes to this project will be documented in this file.
 - **Daemon Ignored SIGTERM**: `SelectToSpeechApp` replaced uvicorn's SIGTERM/SIGINT handlers with its own, which only set a flag nobody read while running inside the API server, so the backend never exited on SIGTERM and was left running when the GUI quit. The onefile bootstrap hid the problem by killing its child process. Signal handlers are now installed only by the standalone `run()` loop.
 - **Failing `download_kokoro_cli` Tests**: The CLI subcommands parsed `sys.argv` themselves and choked on pytest's arguments; they now receive their arguments explicitly from the dispatcher.
 - **GUI Build on GLib < 2.74**: `my_application.cc` used `G_APPLICATION_DEFAULT_FLAGS`, which does not exist on Ubuntu 22.04's GLib 2.72; added a compatibility define.
+- **Bundled `libdartjni.so` Broke the Package Check**: The `jni` Dart package (transitive, Android-only via `dynamic_color`) ships `libdartjni.so`, which needs `libjvm.so` and cannot load on a desktop; `packaging/build-gui.sh` now removes it from the GUI bundle.
+- **Slim Lingua Build Failed in CI**: `packaging/build-lingua.sh` now resolves `PYTHON` to an absolute path (it changes directory while building) and no longer fails with `git clone` when only `build/lingua-rs/target` was restored from the CI cache.
+- **Flaky nfpm Download**: `packaging/build-packages.sh` retries the nfpm download on transient errors (e.g. HTTP 504).
 
 ## [v0.5.0] - 2026-10-31
 
