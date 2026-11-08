@@ -25,7 +25,7 @@ if [ -z "$NFPM" ]; then
     if [ ! -x "$NFPM" ]; then
         mkdir -p "$(dirname "$NFPM")"
         tarball="$(dirname "$NFPM")/nfpm.tar.gz"
-        curl -sSfL -o "$tarball" \
+        curl -sSfL --retry 5 --retry-delay 5 --retry-all-errors -o "$tarball" \
             "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
         echo "$NFPM_SHA256  $tarball" | sha256sum -c --quiet
         tar -xzf "$tarball" -C "$(dirname "$NFPM")" nfpm
