@@ -12,6 +12,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="${PYTHON:-python3}"
+# Absolute path (without resolving venv symlinks): the script cd-s into other directories.
+PYTHON="$(realpath -s "$(command -v "$PYTHON")")"
 
 # lingua-rs v1.8.0 == lingua-language-detector 2.2.0 on PyPI (pinned in uv.lock)
 LINGUA_REPO="https://github.com/pemistahl/lingua-rs.git"
