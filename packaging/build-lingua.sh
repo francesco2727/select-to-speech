@@ -27,7 +27,11 @@ SRC_DIR="$ROOT/build/lingua-rs"
 WHEEL_DIR="$ROOT/build/lingua-wheel"
 
 if [ ! -d "$SRC_DIR/.git" ]; then
-    git clone --quiet --depth 1 --branch "$LINGUA_TAG" "$LINGUA_REPO" "$SRC_DIR"
+    # SRC_DIR may already exist with only a restored target/ (CI cache), so no `git clone`.
+    mkdir -p "$SRC_DIR"
+    git -C "$SRC_DIR" init --quiet
+    git -C "$SRC_DIR" fetch --quiet --depth 1 "$LINGUA_REPO" "refs/tags/$LINGUA_TAG"
+    git -C "$SRC_DIR" -c advice.detachedHead=false checkout --quiet --force FETCH_HEAD
 fi
 actual="$(git -C "$SRC_DIR" rev-parse HEAD)"
 if [ "$actual" != "$LINGUA_COMMIT" ]; then
