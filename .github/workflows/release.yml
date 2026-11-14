@@ -154,6 +154,21 @@ jobs:
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout changelog
+        uses: actions/checkout@v4
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          awk -v tag="${GITHUB_REF_NAME}" '
+            index($0, "## [" tag "]") == 1 { capture = 1; next }
+            capture && /^## \[/ { exit }
+            capture
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::warning::No '## [${GITHUB_REF_NAME}]' section found in CHANGELOG.md; publishing only the auto-generated notes."
+            echo "_This tag has no section in CHANGELOG.md._" > release-notes.md
+          fi
+
       - name: Download packages
         uses: actions/download-artifact@v4
         with:
@@ -165,6 +180,7 @@ jobs:
         with:
           name: "Select-to-Speech ${{ github.ref_name }}"
           generate_release_notes: true
+          body_path: release-notes.md
           files: packages/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

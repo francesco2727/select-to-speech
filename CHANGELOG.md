@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - **Adaptive Tray Icon**: On Linux the tray icon is now monochrome: white when the system theme is dark and black when it is light, and it switches live when the theme changes (`select_to_speech_tray_icon_light.svg` / `_dark.svg`). The colored `select_to_speech_tray_icon.svg` remains the application icon.
+- **Release Notes from the Changelog**: The release workflow now copies the tag's `CHANGELOG.md` section into the GitHub release body (`body_path` in `.github/workflows/release.yml`), so the release page shows the formatted changelog entries alongside the auto-generated `Full Changelog` comparison link. Tags without a changelog section still publish, with only the generated notes.
 
 ### Fixed
 - **Application Icon in Menu and Taskbar**: Plasma showed the Breeze "select" (cursor) icon instead of the app icon, because KDE strips dash-separated suffixes from icon names (`select-to-speech` → `select`) and finds the Breeze icon before the hicolor theme. The icon is now named `com.selecttospeech.gui` (matching the application id) and the SVG no longer has the legacy `DOCTYPE` header.
