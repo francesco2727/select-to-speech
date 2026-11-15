@@ -1517,6 +1517,19 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
+  /// Turns a Kokoro voice id (e.g. `af_nova`) into a friendly name
+  /// (`Nova (American)`). Only English voices get the accent suffix.
+  String _voiceDisplayName(String id) {
+    final idx = id.indexOf('_');
+    if (idx < 0) return id;
+    final prefix = id.substring(0, idx);
+    final raw = id.substring(idx + 1);
+    final name = raw.isEmpty ? id : raw[0].toUpperCase() + raw.substring(1);
+    if (prefix.startsWith('a')) return '$name (American)';
+    if (prefix.startsWith('b')) return '$name (British)';
+    return name;
+  }
+
   Widget _buildLanguageVoiceDropdown(String langCode, String langName) {
     List<String> voices = availableVoices[langCode] ?? [];
     String currentVal = config!['voice']['language_models'][langCode] ?? '';
@@ -1540,7 +1553,7 @@ class _SettingsScreenState extends State<SettingsScreen>
             borderRadius: BorderRadius.circular(14),
             items: [
               DropdownMenuItem(value: '', child: Text(t('none_disabled'))),
-              ...voices.map((v) => DropdownMenuItem(value: v, child: Text(v))),
+              ...voices.map((v) => DropdownMenuItem(value: v, child: Text(_voiceDisplayName(v)))),
             ],
             onChanged: (val) {
               if (val != null) {

@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Changed
+- **Friendlier Voice Names**: The voice dropdowns now show just the name (`Sara` instead of `if_sara`); English voices add the accent in parentheses (`Nova (American)`, `Emma (British)`). Stored config values are unchanged.
 - **Adaptive Tray Icon**: On Linux the tray icon is now monochrome: white when the system theme is dark and black when it is light, and it switches live when the theme changes (`select_to_speech_tray_icon_light.svg` / `_dark.svg`). The colored `select_to_speech_tray_icon.svg` remains the application icon.
 - **Release Notes from the Changelog**: The release workflow now copies the tag's `CHANGELOG.md` section into the GitHub release body (`body_path` in `.github/workflows/release.yml`), so the release page shows the formatted changelog entries alongside the auto-generated `Full Changelog` comparison link. Tags without a changelog section still publish, with only the generated notes.
 
