@@ -436,7 +436,7 @@ def check_system_dependencies(lang: str | None = None) -> bool:
         for path in legacy:
             logger.warning(f"  • {path}")
         logger.warning(f"  {msg['legacy_hint']}")
-        logger.warning(f"     curl -fsSL {LEGACY_UNINSTALL_URL} | bash")
+        logger.warning(f"     curl -fsSL {LEGACY_UNINSTALL_URL} | bash -s -- --user-only")
 
     if missing_required:
         return False

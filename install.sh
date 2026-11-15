@@ -49,7 +49,7 @@ curl -fsSL -o "$tmp/SHA256SUMS" "$sums_url"
 if [ -d "$HOME/.local/share/select-to-speech/bin" ] || [ -f "$HOME/.config/systemd/user/select-to-speech.service" ] \
    || compgen -G "$HOME/.cache/select-to-speech/v*" >/dev/null; then
     info "Removing the previous per-user installation (config and voices are kept)..."
-    curl -fsSL "https://raw.githubusercontent.com/$REPO/main/uninstall.sh" | bash -s -- --quiet
+    curl -fsSL "https://raw.githubusercontent.com/$REPO/main/uninstall.sh" | bash -s -- --quiet --user-only
 fi
 
 info "Installing with: ${install_cmd[*]} (sudo password may be required)"

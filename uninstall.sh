@@ -5,18 +5,19 @@
 #   - the development install made by install-local.sh,
 #   - the onefile extraction caches (~/.cache/select-to-speech/v*, ~520 MB each).
 #
-# The native package (.deb/.rpm/Arch) is NOT touched: remove it with your package manager.
-# Config, voice models and logs are kept unless --purge is given.
+# It also removes the native package (.deb/.rpm/Arch) through the package manager (asks for sudo),
+# unless --user-only is given. Config, voice models and logs are kept unless --purge is given.
 #
-# Usage: uninstall.sh [--purge] [--quiet]
+# Usage: uninstall.sh [--purge] [--quiet] [--user-only]
 set -euo pipefail
 
-PURGE=0; QUIET=0
+PURGE=0; QUIET=0; USER_ONLY=0
 for arg in "$@"; do
     case "$arg" in
         --purge) PURGE=1 ;;
         --quiet) QUIET=1 ;;
-        *) echo "Usage: $0 [--purge] [--quiet]" >&2; exit 2 ;;
+        --user-only) USER_ONLY=1 ;;
+        *) echo "Usage: $0 [--purge] [--quiet] [--user-only]" >&2; exit 2 ;;
     esac
 done
 
@@ -30,6 +31,25 @@ DATA_DIR="$HOME/.local/share/select-to-speech"
 ICON="$HOME/.local/share/icons/hicolor/scalable/apps/com.selecttospeech.gui.svg"
 AUTOSTART="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/select-to-speech.desktop"
 SERVICE="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/select-to-speech.service"
+
+# ── Native package (.deb/.rpm/Arch) ─────────────────────────────────────────────
+if [ "$USER_ONLY" = 0 ]; then
+    remove_cmd=()
+    if command -v pacman >/dev/null 2>&1 && pacman -Q select-to-speech &>/dev/null; then
+        remove_cmd=(pacman -R --noconfirm select-to-speech)
+    elif command -v dpkg >/dev/null 2>&1 && dpkg -s select-to-speech &>/dev/null; then
+        remove_cmd=(apt-get remove -y select-to-speech)
+    elif command -v rpm >/dev/null 2>&1 && rpm -q select-to-speech &>/dev/null; then
+        if command -v dnf >/dev/null 2>&1; then remove_cmd=(dnf remove -y select-to-speech)
+        else remove_cmd=(rpm -e select-to-speech); fi
+    fi
+    if [ "${#remove_cmd[@]}" -gt 0 ]; then
+        info "Removing the select-to-speech package: sudo ${remove_cmd[*]}"
+        pkill -f "/usr/bin/select-to-speech" 2>/dev/null || true
+        pkill -f "/usr/lib/select-to-speech/" 2>/dev/null || true
+        sudo "${remove_cmd[@]}" || warn "Could not remove the package; remove it manually with your package manager."
+    fi
+fi
 
 # ── Stop running instances started from ~/.local ──────────────────────────────
 if [ -f "$SERVICE" ]; then

@@ -56,8 +56,13 @@ select-to-speech --download
 
 ### Uninstall
 
-Remove the `select-to-speech` package with your package manager. Config, voice models and logs
-are kept in `~/.config/select-to-speech/`, `~/.local/share/select-to-speech/` and
+```bash
+curl -fsSL https://raw.githubusercontent.com/francesco2727/select-to-speech/main/uninstall.sh | bash
+```
+
+This removes the `select-to-speech` package through your package manager (it asks for `sudo`),
+or you can remove the package yourself. Add `--purge` to also delete config, voice models and
+logs; otherwise they are kept in `~/.config/select-to-speech/`, `~/.local/share/select-to-speech/` and
 `~/.local/state/select-to-speech/`.
 
 ### Upgrading from v0.5 or older
@@ -67,7 +72,7 @@ shadow the package. `install.sh` cleans this up automatically; if you install th
 manually, run this first (config and voices are kept):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/francesco2727/select-to-speech/main/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/francesco2727/select-to-speech/main/uninstall.sh | bash -s -- --user-only
 ```
 
 `select-to-speech --check` warns if any leftovers are still present.
