@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [v0.5.2] - 2026-11-15
 
 ### Changed
 - **Friendlier Voice Names**: The voice dropdowns now show just the name (`Sara` instead of `if_sara`); English voices add the accent in parentheses (`Nova (American)`, `Emma (British)`). Stored config values are unchanged.
