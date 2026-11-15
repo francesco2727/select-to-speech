@@ -26,6 +26,17 @@ if [ -x /usr/bin/select-to-speech-gui ]; then
     warn "Remove the package first if you want to run the development build."
 fi
 
+# ── Build dependencies ─────────────────────────────────────────────────────────
+# pyaudio has no wheel for Linux: uv compiles it, which needs the PortAudio headers.
+if ! { pkg-config --exists portaudio-2.0 2>/dev/null || [ -f /usr/include/portaudio.h ] || [ -f /usr/local/include/portaudio.h ]; }; then
+    error "PortAudio development headers not found (needed to build pyaudio)."
+    error "Install them, then run this script again:"
+    error "  Arch:           sudo pacman -S portaudio"
+    error "  Debian/Ubuntu:  sudo apt install portaudio19-dev"
+    error "  Fedora:         sudo dnf install portaudio-devel"
+    exit 1
+fi
+
 # Remove previous ~/.local installs (legacy install.sh layout, systemd service, old caches)
 "$INSTALL_DIR/uninstall.sh" --quiet
 

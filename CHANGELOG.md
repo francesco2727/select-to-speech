@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - **Release Notes from the Changelog**: The release workflow now copies the tag's `CHANGELOG.md` section into the GitHub release body (`body_path` in `.github/workflows/release.yml`), so the release page shows the formatted changelog entries alongside the auto-generated `Full Changelog` comparison link. Tags without a changelog section still publish, with only the generated notes.
 
 ### Fixed
+- **`install-local.sh` Checks for PortAudio Headers**: `uv sync` failed with `portaudio.h: No such file or directory` when building `pyaudio` without the PortAudio development package. The script now checks for it up front and prints the install command for Arch, Debian/Ubuntu and Fedora; the README documents the build requirements.
 - **Application Icon in Menu and Taskbar**: Plasma showed the Breeze "select" (cursor) icon instead of the app icon, because KDE strips dash-separated suffixes from icon names (`select-to-speech` → `select`) and finds the Breeze icon before the hicolor theme. The icon is now named `com.selecttospeech.gui` (matching the application id) and the SVG no longer has the legacy `DOCTYPE` header.
 - **`uninstall.sh` Now Removes the Installed Package**: it only cleaned per-user leftovers and left the native package installed. It now also removes the `select-to-speech` package via pacman/apt/dnf (with `sudo`); `--user-only` restores the previous behavior and is used by `install.sh` when migrating from an old per-user install.
 

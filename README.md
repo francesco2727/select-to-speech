@@ -91,6 +91,16 @@ Installed automatically with the package:
 > **XWayland compatibility is built in**: selections inside X11 applications running under
 > XWayland are read directly through python-Xlib, so no extra package (e.g. `xclip`) is required.
 
+### Building from source (`install-local.sh`)
+
+The development install compiles `pyaudio`, so it also needs the PortAudio headers and a C compiler:
+
+| Arch | Debian / Ubuntu | Fedora |
+|---|---|---|
+| `sudo pacman -S portaudio base-devel` | `sudo apt install portaudio19-dev build-essential` | `sudo dnf install portaudio-devel gcc` |
+
+`install-local.sh` checks for the headers and prints this hint if they are missing.
+
 ### Optional: screen text recognition (OCR, `Alt + R`)
 
 | | Arch | Debian / Ubuntu | Fedora |
