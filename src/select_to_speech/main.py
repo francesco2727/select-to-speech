@@ -18,7 +18,7 @@ from .keyboard_handler import KeyboardHandler
 from .selection_listener import WaylandSelectionListener
 from .tts_engine import get_tts_engine
 from .audio_player import AudioPlayer
-from .ocr_engine import OcrEngine
+from .ocr_engine import OcrEngine, ocr_missing_message
 from .screen_capture import ScreenCapture
 from .sound_feedback import SoundFeedback
 
@@ -225,13 +225,16 @@ class SelectToSpeechApp:
             logger.warning(f"Language detection failed: {e}")
         return None
 
-    def _on_text_selected(self, text: str, play_feedback: bool = True) -> None:
+    def _on_text_selected(
+        self, text: str, play_feedback: bool = True, language: Optional[str] = None
+    ) -> None:
         """
         Callback when user triggers playback (hotkey press or force-replay).
 
         Args:
             text: Selected text to read
             play_feedback: Whether to play start feedback tone
+            language: Read in this language instead of detecting it
         """
         logger.debug(f"Text selected: {text[:50]}...")
 
@@ -252,6 +255,7 @@ class SelectToSpeechApp:
         self._process_thread = threading.Thread(
             target=self.process_text,
             args=(text, self._stop_event),
+            kwargs={"language": language},
             daemon=True,
         )
         self._process_thread.start()
@@ -327,6 +331,17 @@ class SelectToSpeechApp:
             return
 
         logger.info("OCR screen capture shortcut triggered...")
+        if not self.ocr_engine.is_ready():
+            default_lang = self.config.voice.language
+            logger.warning(
+                "OCR requested but Tesseract or its language packs are not installed; "
+                f"announcing it in the default language '{default_lang}'."
+            )
+            self._on_text_selected(
+                ocr_missing_message(default_lang), play_feedback=False, language=default_lang
+            )
+            return
+
         if getattr(self.config.audio, "sound_feedback", True):
             SoundFeedback.play_ocr_start()
 
@@ -425,11 +440,14 @@ class SelectToSpeechApp:
         finally:
             audio_queue.put(None)  # EOF — always emitted
 
-    def _prepare_synthesis(self, text: str, stop_event: threading.Event):
+    def _prepare_synthesis(
+        self, text: str, stop_event: threading.Event, language: Optional[str] = None
+    ):
         """
         Detect language and segment text. Returns (language, segments) or None if stopped.
+        A given ``language`` skips detection.
         """
-        detected = self._detect_language(text)
+        detected = language or self._detect_language(text)
         if detected and self.config.voice.language_models.get(detected):
             language = detected
             logger.info(f"Detected language: {language}")
@@ -459,13 +477,16 @@ class SelectToSpeechApp:
         segments = [(text, language, None)]
         return language, segments
 
-    def process_text(self, text: str, stop_event: threading.Event) -> bool:
+    def process_text(
+        self, text: str, stop_event: threading.Event, language: Optional[str] = None
+    ) -> bool:
         """
         Process text through TTS and play audio.
 
         Args:
             text: Text to process
             stop_event: Event to signal interruption
+            language: Read in this language instead of detecting it
 
         Returns:
             True if successful, False otherwise
@@ -475,7 +496,7 @@ class SelectToSpeechApp:
         if stop_event.is_set():
             return False
 
-        result = self._prepare_synthesis(text, stop_event)
+        result = self._prepare_synthesis(text, stop_event, language=language)
         if result is None:
             return False
         language, segments = result

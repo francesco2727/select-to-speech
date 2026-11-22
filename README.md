@@ -111,6 +111,7 @@ The development install compiles `pyaudio` and the Flutter GUI, so it also needs
 
 On Debian/Ubuntu and Fedora the OCR engine is installed by default as a recommended package.
 Install additional Tesseract language packs for other languages.
+Without Tesseract, `Alt + R` tells you aloud (in your default voice language) that it needs to be installed, and the OCR tab of the settings says so too.
 
 Check what is installed at any time with:
 

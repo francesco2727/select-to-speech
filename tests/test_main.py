@@ -166,3 +166,31 @@ def test_init_does_not_override_signal_handlers():
         assert signal.getsignal(signal.SIGTERM) is sentinel
     finally:
         signal.signal(signal.SIGTERM, previous)
+
+
+def test_ocr_without_tesseract_speaks_reminder_in_default_language(mock_app):
+    from select_to_speech.ocr_engine import OCR_MISSING_MESSAGES
+
+    mock_app.config.voice.language = "it"
+    with patch.object(mock_app.ocr_engine, 'is_ready', return_value=False), \
+         patch.object(mock_app, '_on_text_selected') as on_text, \
+         patch('select_to_speech.main.ScreenCapture') as capture, \
+         patch('select_to_speech.main.SoundFeedback'):
+        mock_app._on_ocr_pressed()
+
+    capture.capture_region.assert_not_called()
+    on_text.assert_called_once_with(
+        OCR_MISSING_MESSAGES["it"], play_feedback=False, language="it"
+    )
+
+
+def test_forced_language_skips_detection(mock_app):
+    with patch.object(mock_app, '_detect_language') as detect:
+        language, _ = mock_app._prepare_synthesis("Ciao", threading.Event(), language="it")
+    detect.assert_not_called()
+    assert language == "it"
+
+
+def test_ocr_missing_message_falls_back_to_english():
+    from select_to_speech.ocr_engine import ocr_missing_message, OCR_MISSING_MESSAGES
+    assert ocr_missing_message("xx") == OCR_MISSING_MESSAGES["en"]

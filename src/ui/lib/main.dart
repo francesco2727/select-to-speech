@@ -428,6 +428,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   List<dynamic> audioDevices = [];
   Map<String, List<String>> availableVoices = {};
   List<String> ocrLanguages = [];
+  bool ocrInstalled = true;
   List<Map<String, dynamic>> availableModels = [];
   Map<String, dynamic>? hardwareInfo;
 
@@ -511,6 +512,8 @@ class _SettingsScreenState extends State<SettingsScreen>
       'press_a_key': 'Press a key...',
       'no_ocr_langs':
           'No Tesseract languages found. Please install language packages.',
+      'ocr_not_installed':
+          'Tesseract is not installed. To read text from the screen (OCR), install Tesseract and the language packs you need. Run "select-to-speech --check" to see the install command.',
       'ducking': 'Audio Ducking',
       'ducking_desc': 'Lower background volume while reading',
       'hardware_threads': 'Inference Threads',
@@ -591,6 +594,8 @@ class _SettingsScreenState extends State<SettingsScreen>
       'press_a_key': 'Premi un tasto...',
       'no_ocr_langs':
           'Nessuna lingua trovata per Tesseract. Installa i pacchetti lingua.',
+      'ocr_not_installed':
+          'Tesseract non è installato. Per leggere il testo dallo schermo (OCR) installa Tesseract e i pacchetti lingua che ti servono. Esegui "select-to-speech --check" per vedere il comando di installazione.',
       'ducking': 'Ducking Audio',
       'ducking_desc': 'Abbassa il volume di sottofondo durante la lettura',
       'hardware_threads': 'Thread di Calcolo',
@@ -671,6 +676,8 @@ class _SettingsScreenState extends State<SettingsScreen>
       'press_a_key': 'Presiona una tecla...',
       'no_ocr_langs':
           'No se encontraron idiomas de Tesseract. Por favor instala los paquetes de idioma.',
+      'ocr_not_installed':
+          'Tesseract no está instalado. Para leer texto de la pantalla (OCR), instala Tesseract y los paquetes de idioma que necesites. Ejecuta "select-to-speech --check" para ver el comando de instalación.',
       'ducking': 'Atenuación de Audio',
       'ducking_desc': 'Bajar el volumen de fondo durante la lectura',
       'hardware_threads': 'Hilos de Inferencia',
@@ -751,6 +758,8 @@ class _SettingsScreenState extends State<SettingsScreen>
       'press_a_key': 'Appuyez sur une touche...',
       'no_ocr_langs':
           'Aucune langue Tesseract trouvée. Veuillez installer les paquets de langue.',
+      'ocr_not_installed':
+          'Tesseract n\'est pas installé. Pour lire le texte à l\'écran (OCR), installez Tesseract et les paquets de langue nécessaires. Exécutez « select-to-speech --check » pour voir la commande d\'installation.',
       'ducking': 'Atténuation Audio',
       'ducking_desc': 'Baisser le volume d\'arrière-plan pendant la lecture',
       'hardware_threads': 'Threads d\'Inférence',
@@ -1055,8 +1064,8 @@ class _SettingsScreenState extends State<SettingsScreen>
             await apiClient.get(Uri.parse('http://localhost/audio_devices'));
         final voicesRes =
             await apiClient.get(Uri.parse('http://localhost/voices'));
-        final ocrLangsRes =
-            await apiClient.get(Uri.parse('http://localhost/ocr_languages'));
+        final ocrStatusRes =
+            await apiClient.get(Uri.parse('http://localhost/ocr_status'));
         final availableModelsRes =
             await apiClient.get(Uri.parse('http://localhost/available_models'));
         final hardwareRes =
@@ -1100,8 +1109,10 @@ class _SettingsScreenState extends State<SettingsScreen>
               availableVoices = voicesMap
                   .map((key, val) => MapEntry(key, List<String>.from(val)));
             }
-            if (ocrLangsRes.statusCode == 200) {
-              ocrLanguages = List<String>.from(jsonDecode(ocrLangsRes.body));
+            if (ocrStatusRes.statusCode == 200) {
+              final ocrStatus = jsonDecode(ocrStatusRes.body);
+              ocrInstalled = ocrStatus['installed'] == true;
+              ocrLanguages = List<String>.from(ocrStatus['languages'] ?? []);
             }
             if (availableModelsRes.statusCode == 200) {
               List<dynamic> modelsList = jsonDecode(availableModelsRes.body);
@@ -1916,7 +1927,7 @@ class _SettingsScreenState extends State<SettingsScreen>
           icon: Icons.document_scanner_rounded,
           staggerIndex: 0,
           children: [
-            if (ocrLanguages.isEmpty)
+            if (!ocrInstalled || ocrLanguages.isEmpty)
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -1930,7 +1941,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        t('no_ocr_langs'),
+                        t(ocrInstalled ? 'no_ocr_langs' : 'ocr_not_installed'),
                         style: textTheme.bodyMedium
                             ?.copyWith(color: cs.onErrorContainer),
                       ),
