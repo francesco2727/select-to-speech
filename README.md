@@ -84,7 +84,7 @@ curl -fsSL https://raw.githubusercontent.com/francesco2727/select-to-speech/main
 Installed automatically with the package:
 
 - **`wl-clipboard`** (`wl-paste`): reads the selected text on Wayland.
-- **GTK 3**, **EGL** and **`libayatana-appindicator`**: settings window and system tray icon.
+- **GTK 3** and **EGL**: settings window and system tray icon (a StatusNotifierItem over D-Bus, no `libayatana-appindicator` needed).
 - **PortAudio**: audio output.
 - **libpulse**: lowers other applications' volume while reading (PipeWire and PulseAudio).
 
@@ -93,11 +93,11 @@ Installed automatically with the package:
 
 ### Building from source (`install-local.sh`)
 
-The development install compiles `pyaudio`, so it also needs the PortAudio headers and a C compiler:
+The development install compiles `pyaudio` and the Flutter GUI, so it also needs the PortAudio headers, a C compiler and the GTK 3, X11 and Xi development files (plus the [Flutter SDK](https://docs.flutter.dev/get-started/install/linux), 3.50 or later):
 
 | Arch | Debian / Ubuntu | Fedora |
 |---|---|---|
-| `sudo pacman -S portaudio base-devel` | `sudo apt install portaudio19-dev build-essential` | `sudo dnf install portaudio-devel gcc` |
+| `sudo pacman -S portaudio base-devel gtk3 libx11 libxi` | `sudo apt install portaudio19-dev build-essential libgtk-3-dev libx11-dev libxi-dev` | `sudo dnf install portaudio-devel gcc gtk3-devel libX11-devel libXi-devel` |
 
 `install-local.sh` checks for the headers and prints this hint if they are missing.
 
@@ -111,6 +111,7 @@ The development install compiles `pyaudio`, so it also needs the PortAudio heade
 
 On Debian/Ubuntu and Fedora the OCR engine is installed by default as a recommended package.
 Install additional Tesseract language packs for other languages.
+Without Tesseract, `Alt + R` tells you aloud (in your default voice language) that it needs to be installed, and the OCR tab of the settings says so too.
 
 Check what is installed at any time with:
 

@@ -174,6 +174,16 @@ def get_ocr_languages():
         return langs
     return []
 
+@app.get("/ocr_status")
+def get_ocr_status():
+    """Whether Tesseract is installed, and which language packs it has."""
+    if sts_app:
+        engine = sts_app.ocr_engine
+        installed = engine.is_available()
+        langs = sorted(engine.get_available_languages()) if installed else []
+        return {"installed": installed, "languages": langs}
+    return {"installed": False, "languages": []}
+
 @app.get("/model_installed")
 def get_model_installed(model_id: str = "kokoro-multi-lang-v1_0"):
     from select_to_speech.voice_manager import is_kokoro_installed

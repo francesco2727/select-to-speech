@@ -9,6 +9,25 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Spoken when the OCR shortcut is used but Tesseract (or its language packs) is missing.
+# Keyed by the voice language codes Kokoro can speak; falls back to English.
+OCR_MISSING_MESSAGES: dict[str, str] = {
+    "en": "Screen reading is not available. To use it, install Tesseract and its language packs.",
+    "it": "La lettura dallo schermo non è disponibile. Per usarla, installa Tesseract e i relativi pacchetti lingua.",
+    "es": "La lectura de pantalla no está disponible. Para usarla, instala Tesseract y sus paquetes de idioma.",
+    "fr": "La lecture de l'écran n'est pas disponible. Pour l'utiliser, installez Tesseract et ses paquets de langue.",
+    "pt": "A leitura de tela não está disponível. Para usá-la, instale o Tesseract e os seus pacotes de idioma.",
+    "hi": "स्क्रीन से पढ़ना उपलब्ध नहीं है। इसका उपयोग करने के लिए Tesseract और उसके भाषा पैक इंस्टॉल करें।",
+    "ja": "画面の読み上げは利用できません。使用するには、Tesseract と言語パックをインストールしてください。",
+    "ko": "화면 읽기를 사용할 수 없습니다. 사용하려면 Tesseract와 언어 팩을 설치하세요.",
+    "zh": "屏幕朗读不可用。要使用此功能，请安装 Tesseract 及其语言包。",
+}
+
+
+def ocr_missing_message(language: str) -> str:
+    """Return the "install Tesseract" reminder in the given language (English fallback)."""
+    return OCR_MISSING_MESSAGES.get(language, OCR_MISSING_MESSAGES["en"])
+
 
 class OcrEngine:
     """Extracts text from images using native Tesseract CLI (to keep uv environment lightweight)."""
@@ -23,12 +42,13 @@ class OcrEngine:
 
     def get_available_languages(self) -> set[str]:
         """Check available tesseract language data packs."""
-        if self._available_langs is not None:
+        # Only a non-empty result is cached, so installing Tesseract or a language
+        # pack while the daemon runs is picked up without a restart.
+        if self._available_langs:
             return self._available_langs
 
         if not self.is_available():
-            self._available_langs = set()
-            return self._available_langs
+            return set()
 
         try:
             res = subprocess.run(
@@ -44,13 +64,16 @@ class OcrEngine:
                     l for l in lines
                     if not l.lower().startswith("list of") and l.lower() != "osd"
                 }
-                self._available_langs = langs
-                return self._available_langs
+                self._available_langs = langs or None
+                return langs
         except Exception as e:
             logger.debug(f"Could not list tesseract languages: {e}")
 
-        self._available_langs = set()
-        return self._available_langs
+        return set()
+
+    def is_ready(self) -> bool:
+        """True when Tesseract is installed with at least one language pack."""
+        return self.is_available() and bool(self.get_available_languages())
 
     def _resolve_lang_flag(self, requested_langs: str) -> Optional[str]:
         """Resolve valid tesseract language string based on installed packs."""

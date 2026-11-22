@@ -16,7 +16,6 @@ eggs/
 .eggs/
 lib/
 !src/ui/lib/
-!src/ui/tray_manager_patched/lib/
 lib64/
 parts/
 sdist/

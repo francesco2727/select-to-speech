@@ -59,7 +59,10 @@ if [ -f "$SERVICE" ]; then
     systemctl --user daemon-reload &>/dev/null || true
 fi
 # Legacy onefile backend, dev GUI bundle, dev backend (python .venv/bin/select-to-speech)
-for pattern in "$DATA_DIR/bin/select-to-speech" \
+# The GUI is started through the ~/.local/bin symlink, so its cmdline holds that path,
+# not the resolved bundle path: match both. Kill the GUI first so it can't respawn the backend.
+for pattern in "$BIN_DIR/select-to-speech-gui( |$)" \
+               "$DATA_DIR/bin/select-to-speech" \
                "/src/ui/build/linux/x64/release/bundle/select-to-speech-gui" \
                "/\.venv/bin/select-to-speech( |$)"; do
     pkill -f "$pattern" 2>/dev/null || true

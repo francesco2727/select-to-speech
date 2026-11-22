@@ -44,7 +44,6 @@ def test_check_system_dependencies_missing_portaudio_fails():
         return f"/usr/bin/{cmd}"
 
     with patch("select_to_speech.system_check.shutil.which", side_effect=fake_which), \
-         patch("select_to_speech.system_check._check_appindicator", return_value=True), \
          patch("select_to_speech.system_check._check_portaudio", return_value=False):
         assert check_system_dependencies() is False
 
@@ -55,7 +54,6 @@ def test_check_system_dependencies_missing_kokoro_model_warns():
         return f"/usr/bin/{cmd}"
 
     with patch("select_to_speech.system_check.shutil.which", side_effect=fake_which), \
-         patch("select_to_speech.system_check._check_appindicator", return_value=True), \
          patch("select_to_speech.system_check._check_portaudio", return_value=True), \
          patch("select_to_speech.voice_manager.is_kokoro_installed", return_value=False):
         assert check_system_dependencies() is True

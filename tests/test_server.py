@@ -51,3 +51,17 @@ def test_run_server_already_running():
     with patch("select_to_speech.api.server.is_server_running", return_value=True):
         res = run_server()
         assert res == 0
+
+
+@pytest.mark.parametrize("installed,langs,expected", [
+    (False, set(), {"installed": False, "languages": []}),
+    (True, {"ita", "eng"}, {"installed": True, "languages": ["eng", "ita"]}),
+])
+def test_ocr_status(installed, langs, expected):
+    import select_to_speech.api.server as server
+
+    fake_app = MagicMock()
+    fake_app.ocr_engine.is_available.return_value = installed
+    fake_app.ocr_engine.get_available_languages.return_value = langs
+    with patch.object(server, "sts_app", fake_app):
+        assert server.get_ocr_status() == expected
