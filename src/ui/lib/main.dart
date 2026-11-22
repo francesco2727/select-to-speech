@@ -521,9 +521,6 @@ class _SettingsScreenState extends State<SettingsScreen>
       'piper_precision': 'Model Precision',
       'piper_precision_desc':
           'Applies to every Piper voice. Changing it requires downloading the voices again.',
-      'precision_int8': 'INT8 — smallest and fastest (recommended)',
-      'precision_fp16': 'FP16 — balanced',
-      'precision_fp32': 'FP32 — full precision, largest',
       'quality_x_low': 'Very low quality',
       'quality_low': 'Low quality',
       'quality_medium': 'Medium quality',
@@ -628,9 +625,6 @@ class _SettingsScreenState extends State<SettingsScreen>
       'piper_precision': 'Precisione del Modello',
       'piper_precision_desc':
           'Vale per tutte le voci Piper. Se la cambi, le voci vanno scaricate di nuovo.',
-      'precision_int8': 'INT8 — più leggero e veloce (consigliato)',
-      'precision_fp16': 'FP16 — bilanciato',
-      'precision_fp32': 'FP32 — precisione piena, più pesante',
       'quality_x_low': 'Qualità molto bassa',
       'quality_low': 'Qualità bassa',
       'quality_medium': 'Qualità media',
@@ -735,9 +729,6 @@ class _SettingsScreenState extends State<SettingsScreen>
       'piper_precision': 'Precisión del Modelo',
       'piper_precision_desc':
           'Se aplica a todas las voces Piper. Si la cambias, hay que volver a descargar las voces.',
-      'precision_int8': 'INT8 — más ligero y rápido (recomendado)',
-      'precision_fp16': 'FP16 — equilibrado',
-      'precision_fp32': 'FP32 — precisión completa, más pesado',
       'quality_x_low': 'Calidad muy baja',
       'quality_low': 'Calidad baja',
       'quality_medium': 'Calidad media',
@@ -842,9 +833,6 @@ class _SettingsScreenState extends State<SettingsScreen>
       'piper_precision': 'Précision du Modèle',
       'piper_precision_desc':
           'S\'applique à toutes les voix Piper. Si vous la changez, les voix doivent être retéléchargées.',
-      'precision_int8': 'INT8 — le plus léger et rapide (recommandé)',
-      'precision_fp16': 'FP16 — équilibré',
-      'precision_fp32': 'FP32 — précision complète, plus lourd',
       'quality_x_low': 'Qualité très basse',
       'quality_low': 'Qualité basse',
       'quality_medium': 'Qualité moyenne',
@@ -2192,7 +2180,7 @@ class _SettingsScreenState extends State<SettingsScreen>
           borderRadius: BorderRadius.circular(14),
           items: [
             for (final p in const ['int8', 'fp16', 'fp32'])
-              DropdownMenuItem(value: p, child: Text(t('precision_$p'))),
+              DropdownMenuItem(value: p, child: Text(p.toUpperCase())),
           ],
           onChanged: (val) {
             if (val != null) _setPiperPrecision(val);
