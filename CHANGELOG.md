@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - **`install-local.sh` Checks for PortAudio Headers**: `uv sync` failed with `portaudio.h: No such file or directory` when building `pyaudio` without the PortAudio development package. The script now checks for it up front and prints the install command for Arch, Debian/Ubuntu and Fedora; the README documents the build requirements.
 - **Application Icon in Menu and Taskbar**: Plasma showed the Breeze "select" (cursor) icon instead of the app icon, because KDE strips dash-separated suffixes from icon names (`select-to-speech` → `select`) and finds the Breeze icon before the hicolor theme. The icon is now named `com.selecttospeech.gui` (matching the application id) and the SVG no longer has the legacy `DOCTYPE` header.
 - **`uninstall.sh` Now Removes the Installed Package**: it only cleaned per-user leftovers and left the native package installed. It now also removes the `select-to-speech` package via pacman/apt/dnf (with `sudo`); `--user-only` restores the previous behavior and is used by `install.sh` when migrating from an old per-user install.
+- **`uninstall.sh` Stops the Running `install-local.sh` App**: it deleted the launchers and desktop entries but left the tray app running, because the GUI is started through the `~/.local/bin/select-to-speech-gui` symlink and its command line never contained the resolved bundle path the script was matching. It now also matches the launcher path (GUI first, so it can't respawn the backend).
 
 ## [v0.5.1] - 2026-11-08
 
