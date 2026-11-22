@@ -37,7 +37,16 @@ def test_normalize_bullets_and_lists():
     assert lines[1] == "Primo elemento."
     assert lines[2] == "Secondo elemento."
     assert lines[3] == "Terzo elemento."
-    assert lines[4] == "Quarto elemento con punto."
+    assert lines[4] == "1. Quarto elemento con punto."
+
+
+def test_normalize_bullets_keeps_enumerators():
+    raw = "Passi:\n1. Apri il file\n2) Salva\n10. Chiudi\na. Opzione"
+    lines = normalize_bullets_and_lists(raw).splitlines()
+    assert lines[1] == "1. Apri il file."
+    assert lines[2] == "2. Salva."
+    assert lines[3] == "10. Chiudi."
+    assert lines[4] == "a. Opzione."
 
 
 def test_unwrap_lines():

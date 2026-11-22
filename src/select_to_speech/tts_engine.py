@@ -116,6 +116,7 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
         "baht": "baht",
         "lira": "lira",
         "hryvnia": "hryvnia",
+        "at": "at",
     },
     "it": {
         "percent": "percento",
@@ -138,6 +139,7 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
         "baht": "baht",
         "lira": "lire",
         "hryvnia": "grivne",
+        "at": "chiocciola",
     },
     "es": {
         "percent": "por ciento",
@@ -160,6 +162,7 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
         "baht": "baht",
         "lira": "liras",
         "hryvnia": "grivnas",
+        "at": "arroba",
     },
     "fr": {
         "percent": "pour cent",
@@ -182,6 +185,7 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
         "baht": "bahts",
         "lira": "lires",
         "hryvnia": "hryvnias",
+        "at": "arobase",
     },
     "de": {
         "percent": "Prozent",
@@ -204,6 +208,7 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
         "baht": "Baht",
         "lira": "Lira",
         "hryvnia": "Hrywnja",
+        "at": "at",
     },
     "pt": {
         "percent": "por cento",
@@ -226,6 +231,7 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
         "baht": "baht",
         "lira": "liras",
         "hryvnia": "grivnas",
+        "at": "arroba",
     },
     "ja": {
         "percent": "パーセント",
@@ -248,6 +254,7 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
         "baht": "バーツ",
         "lira": "リラ",
         "hryvnia": "フリヴニャ",
+        "at": "アット",
     },
     "zh": {
         "percent": "百分之",
@@ -270,6 +277,7 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
         "baht": "泰铢",
         "lira": "里拉",
         "hryvnia": "格里夫纳",
+        "at": "艾特",
     },
     "hi": {
         "percent": "प्रतिशत",
@@ -292,6 +300,7 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
         "baht": "बात",
         "lira": "लीरा",
         "hryvnia": "रिव्निया",
+        "at": "एट",
     },
     "ko": {
         "percent": "퍼센트",
@@ -314,6 +323,7 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
         "baht": "바트",
         "lira": "리라",
         "hryvnia": "흐리우냐",
+        "at": "골뱅이",
     },
 }
 
@@ -429,6 +439,8 @@ class BaseTTSEngine(ABC):
                 if sym_name:
                     text = text.replace(sym, f" {sym_name} ")
 
+        if "@" in text:
+            text = text.replace("@", f" {words['at']} ")
         if "%" in text:
             text = text.replace("%", f" {words['percent']} ")
         if "+" in text:

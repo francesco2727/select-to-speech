@@ -93,6 +93,16 @@ def test_preprocess_text():
     assert "minus 5" in processed_en
 
 
+def test_preprocess_at_sign():
+    engine = DummyEngine(VoiceConfig())
+    it = engine.preprocess_text("Scrivi a mario@example.com", language="it")
+    assert "mario chiocciola example punto com" in " ".join(it.split())
+    en = engine.preprocess_text("Ping @alice", language="en")
+    assert "at alice" in " ".join(en.split())
+    # Languages without a word table keep the symbol untouched
+    assert "@" in engine.preprocess_text("a@b", language="pl")
+
+
 def test_preprocess_currencies():
     config = VoiceConfig()
     engine = DummyEngine(config)
