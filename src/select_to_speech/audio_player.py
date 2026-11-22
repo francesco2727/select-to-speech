@@ -317,7 +317,7 @@ class AudioPlayer:
                         audio_float = audio_int16.astype(np.float32) / 32768.0
                         semitones = 12 * math.log2(pitch)
                         board = Pedalboard([PitchShift(semitones=semitones)])
-                        processed_audio = board(audio_float, sample_rate=frame_rate, reset=False)
+                        processed_audio = board(audio_float, sample_rate=frame_rate, reset=True)
                         processed_int16 = (processed_audio * 32767.0).astype(np.int16)
                         frames = processed_int16.tobytes()
                     except Exception as e:
@@ -408,7 +408,11 @@ class AudioPlayer:
                         audio_float = np.asarray(audio_data, dtype=np.float32)
                         if board is not None:
                             try:
-                                audio_float = board(audio_float, sample_rate=frame_rate, reset=False)
+                                # reset=True: Pedalboard compensates the ~1 s PitchShift latency and
+                                # returns the whole chunk. With reset=False that second stayed in the
+                                # plugin buffer and the end of every reading was cut off. Chunks are
+                                # whole sentences, so resetting at their boundaries is inaudible.
+                                audio_float = board(audio_float, sample_rate=frame_rate, reset=True)
                             except Exception as e:
                                 logger.error(f"Failed to apply pitch shift: {e}", exc_info=True)
                         frames = (np.clip(audio_float, -1.0, 1.0) * 32767.0).astype(np.int16).tobytes()
@@ -427,7 +431,7 @@ class AudioPlayer:
                             try:
                                 audio_int16 = np.frombuffer(frames, dtype=np.int16)
                                 audio_float = audio_int16.astype(np.float32) / 32768.0
-                                processed_audio = board(audio_float, sample_rate=frame_rate, reset=False)
+                                processed_audio = board(audio_float, sample_rate=frame_rate, reset=True)
                                 processed_int16 = (np.clip(processed_audio, -1.0, 1.0) * 32767.0).astype(np.int16)
                                 frames = processed_int16.tobytes()
                             except Exception as e:

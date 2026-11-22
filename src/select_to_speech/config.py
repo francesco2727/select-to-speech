@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -22,31 +22,35 @@ class AudioConfig(BaseModel):
 class VoiceConfig(BaseModel):
     """Voice configuration"""
 
-    engine: str = Field("kokoro", description="TTS engine to use (always 'kokoro')")
-    model: str = Field("kokoro-multi-lang-v1_0", description="Voice model name")
-    language: str = Field("it", description="Language code")
+    engine: Literal["kokoro", "piper"] = Field("kokoro", description="TTS engine: 'kokoro' or 'piper'")
+    model: str = Field("kokoro-multi-lang-v1_0", description="Kokoro model ID")
+    language: str = Field("it", description="Default language code")
     language_models: dict[str, str] = Field(
         default_factory=lambda: {
-            "ar": "",
-            "de": "",
             "en": "af_heart",
             "es": "",
             "fr": "",
             "hi": "",
             "it": "if_sara",
             "ja": "",
-            "ko": "",
-            "nl": "",
-            "pl": "",
             "pt": "",
-            "ru": "",
-            "tr": "",
             "zh": "",
         },
-        description="Map of language codes to model names"
+        description="Kokoro: map of language codes to speaker names"
+    )
+    piper_language_models: dict[str, str] = Field(
+        default_factory=dict,
+        description="Piper: map of language codes to voice references ('voice_key' or 'voice_key#speaker_id')",
+    )
+    piper_precision: Literal["int8", "fp16", "fp32"] = Field(
+        "int8", description="Piper model precision to download and load"
     )
     num_threads: int = Field(0, ge=0, le=64, description="Threads for neural inference (0 = Auto-detect optimal)")
     provider: str = Field("cpu", description="Execution provider: 'cpu', 'cuda', etc.")
+
+    def active_language_models(self) -> dict[str, str]:
+        """Language → voice map of the active engine."""
+        return self.piper_language_models if self.engine == "piper" else self.language_models
 
 
 class KeyboardConfig(BaseModel):
@@ -107,6 +111,10 @@ def _migrate_config_dict(config_dict: dict) -> dict:
             voice["model"] = "kokoro-multi-lang-v1_0"
         elif model == "kokoro-v1.0-int8":
             voice["model"] = "kokoro-int8-multi-lang-v1_0"
+        if voice.get("engine") not in ("kokoro", "piper"):
+            voice["engine"] = "kokoro"
+        if voice.get("piper_precision") not in (None, "int8", "fp16", "fp32"):
+            voice["piper_precision"] = "int8"
     return config_dict
 
 

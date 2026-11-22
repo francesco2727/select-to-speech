@@ -47,6 +47,7 @@ NUITKA_FLAGS=(
     --include-package=urllib3
     --include-package=certifi
     --include-package-data=emoji
+    --include-package-data=select_to_speech
     --include-package-data=certifi
     --output-dir="$BUILD_DIR"
     --output-filename=select-to-speech

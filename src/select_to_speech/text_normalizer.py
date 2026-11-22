@@ -10,9 +10,10 @@ This module provides heuristics for:
 import re
 from typing import Optional
 
-# Common bullet and list markers
+# Common bullet and list markers. Symbol bullets carry no meaning and are
+# dropped; enumerators ("1.", "2)", "a.") are kept so the number is read aloud.
 _BULLET_PATTERN = re.compile(
-    r"^[\t ]*(?:[•*+\-–—▪►]|(?:\d+|[a-zA-Z])[\.\)])[\t ]+",
+    r"^[\t ]*(?:[•*+\-–—▪►]|(?P<enum>\d+|[a-zA-Z])[\.\)])[\t ]+",
     re.MULTILINE,
 )
 
@@ -73,6 +74,9 @@ def normalize_bullets_and_lists(text: str) -> str:
             # If line doesn't end with punctuation, append a semicolon or period for pause
             if content and content[-1] not in ".!?;:":
                 content = content + "."
+            if content and m.group("enum"):
+                # "2)" becomes "2." so the marker is a short pause of its own.
+                content = f"{m.group('enum')}. {content}"
             processed_lines.append(content)
         else:
             processed_lines.append(line)

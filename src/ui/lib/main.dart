@@ -9,6 +9,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:tray_manager/tray_manager.dart' as tray;
 
+import 'language_names.dart';
+
 final ValueNotifier<ThemeMode> themeModeNotifier =
     ValueNotifier(ThemeMode.system);
 final ValueNotifier<Color?> systemAccentColorNotifier = ValueNotifier(null);
@@ -426,7 +428,10 @@ class _SettingsScreenState extends State<SettingsScreen>
   bool isLoading = true;
   Map<String, dynamic>? config;
   List<dynamic> audioDevices = [];
-  Map<String, List<String>> availableVoices = {};
+
+  /// Voices of the active engine: language code → voice entries from `/voices`.
+  Map<String, List<Map<String, dynamic>>> availableVoices = {};
+  List<Map<String, dynamic>> installedModels = [];
   List<String> ocrLanguages = [];
   bool ocrInstalled = true;
   List<Map<String, dynamic>> availableModels = [];
@@ -438,6 +443,9 @@ class _SettingsScreenState extends State<SettingsScreen>
   double downloadProgress = 0.0;
   String downloadStatus = 'idle';
   String? downloadError;
+  // What is being downloaded: a Kokoro model or a Piper voice
+  String? downloadEngine;
+  String? downloadModelId;
 
   // Neural punctuation state
   bool isPunctInstalled = false;
@@ -505,6 +513,31 @@ class _SettingsScreenState extends State<SettingsScreen>
       'lang_ja': 'Japanese',
       'lang_zh': 'Chinese',
       'voice_lang_template': '{lang} Voice',
+      'tts_engine': 'Speech Engine',
+      'engine_kokoro_desc':
+          'One model (~130–350 MB) with natural voices for 8 languages.',
+      'engine_piper_desc':
+          'Light voices for over 40 languages: each voice is downloaded separately.',
+      'piper_precision': 'Model Precision',
+      'piper_precision_desc':
+          'Applies to every Piper voice. Changing it requires downloading the voices again.',
+      'precision_int8': 'INT8 — smallest and fastest (recommended)',
+      'precision_fp16': 'FP16 — balanced',
+      'precision_fp32': 'FP32 — full precision, largest',
+      'quality_x_low': 'Very low quality',
+      'quality_low': 'Low quality',
+      'quality_medium': 'Medium quality',
+      'quality_high': 'High quality',
+      'speaker': 'Speaker ({count} available)',
+      'downloaded_voices': 'Downloaded Voices',
+      'no_downloaded_voices': 'No voice has been downloaded yet.',
+      'disk_usage': 'Disk space used: {size}',
+      'in_use': 'In use',
+      'delete': 'Delete',
+      'cancel': 'Cancel',
+      'delete_model_title': 'Delete voice?',
+      'delete_model_body':
+          '"{name}" will be removed from disk. If a language still uses it, it will be downloaded again the next time it speaks.',
       'theme': 'Theme',
       'theme_dark': 'Dark',
       'theme_light': 'Light',
@@ -587,6 +620,31 @@ class _SettingsScreenState extends State<SettingsScreen>
       'lang_ja': 'Giapponese',
       'lang_zh': 'Cinese',
       'voice_lang_template': 'Voce {lang}',
+      'tts_engine': 'Motore di Sintesi',
+      'engine_kokoro_desc':
+          'Un unico modello (~130–350 MB) con voci naturali per 8 lingue.',
+      'engine_piper_desc':
+          'Voci leggere per oltre 40 lingue: ogni voce si scarica separatamente.',
+      'piper_precision': 'Precisione del Modello',
+      'piper_precision_desc':
+          'Vale per tutte le voci Piper. Se la cambi, le voci vanno scaricate di nuovo.',
+      'precision_int8': 'INT8 — più leggero e veloce (consigliato)',
+      'precision_fp16': 'FP16 — bilanciato',
+      'precision_fp32': 'FP32 — precisione piena, più pesante',
+      'quality_x_low': 'Qualità molto bassa',
+      'quality_low': 'Qualità bassa',
+      'quality_medium': 'Qualità media',
+      'quality_high': 'Qualità alta',
+      'speaker': 'Speaker ({count} disponibili)',
+      'downloaded_voices': 'Voci Scaricate',
+      'no_downloaded_voices': 'Non hai ancora scaricato nessuna voce.',
+      'disk_usage': 'Spazio occupato: {size}',
+      'in_use': 'In uso',
+      'delete': 'Elimina',
+      'cancel': 'Annulla',
+      'delete_model_title': 'Eliminare la voce?',
+      'delete_model_body':
+          '"{name}" verrà rimossa dal disco. Se una lingua la usa ancora, verrà scaricata di nuovo alla prossima lettura.',
       'theme': 'Tema',
       'theme_dark': 'Scuro',
       'theme_light': 'Chiaro',
@@ -669,6 +727,31 @@ class _SettingsScreenState extends State<SettingsScreen>
       'lang_ja': 'Japonés',
       'lang_zh': 'Chino',
       'voice_lang_template': 'Voz {lang}',
+      'tts_engine': 'Motor de Síntesis',
+      'engine_kokoro_desc':
+          'Un único modelo (~130–350 MB) con voces naturales para 8 idiomas.',
+      'engine_piper_desc':
+          'Voces ligeras para más de 40 idiomas: cada voz se descarga por separado.',
+      'piper_precision': 'Precisión del Modelo',
+      'piper_precision_desc':
+          'Se aplica a todas las voces Piper. Si la cambias, hay que volver a descargar las voces.',
+      'precision_int8': 'INT8 — más ligero y rápido (recomendado)',
+      'precision_fp16': 'FP16 — equilibrado',
+      'precision_fp32': 'FP32 — precisión completa, más pesado',
+      'quality_x_low': 'Calidad muy baja',
+      'quality_low': 'Calidad baja',
+      'quality_medium': 'Calidad media',
+      'quality_high': 'Calidad alta',
+      'speaker': 'Hablante ({count} disponibles)',
+      'downloaded_voices': 'Voces Descargadas',
+      'no_downloaded_voices': 'Todavía no has descargado ninguna voz.',
+      'disk_usage': 'Espacio ocupado: {size}',
+      'in_use': 'En uso',
+      'delete': 'Eliminar',
+      'cancel': 'Cancelar',
+      'delete_model_title': '¿Eliminar la voz?',
+      'delete_model_body':
+          '"{name}" se eliminará del disco. Si un idioma todavía la usa, se volverá a descargar la próxima vez que hable.',
       'theme': 'Tema',
       'theme_dark': 'Oscuro',
       'theme_light': 'Claro',
@@ -751,6 +834,31 @@ class _SettingsScreenState extends State<SettingsScreen>
       'lang_ja': 'Japonais',
       'lang_zh': 'Chinois',
       'voice_lang_template': 'Voix {lang}',
+      'tts_engine': 'Moteur de Synthèse',
+      'engine_kokoro_desc':
+          'Un seul modèle (~130–350 Mo) avec des voix naturelles pour 8 langues.',
+      'engine_piper_desc':
+          'Des voix légères pour plus de 40 langues : chaque voix se télécharge séparément.',
+      'piper_precision': 'Précision du Modèle',
+      'piper_precision_desc':
+          'S\'applique à toutes les voix Piper. Si vous la changez, les voix doivent être retéléchargées.',
+      'precision_int8': 'INT8 — le plus léger et rapide (recommandé)',
+      'precision_fp16': 'FP16 — équilibré',
+      'precision_fp32': 'FP32 — précision complète, plus lourd',
+      'quality_x_low': 'Qualité très basse',
+      'quality_low': 'Qualité basse',
+      'quality_medium': 'Qualité moyenne',
+      'quality_high': 'Haute qualité',
+      'speaker': 'Locuteur ({count} disponibles)',
+      'downloaded_voices': 'Voix Téléchargées',
+      'no_downloaded_voices': 'Aucune voix n\'a encore été téléchargée.',
+      'disk_usage': 'Espace utilisé : {size}',
+      'in_use': 'Utilisée',
+      'delete': 'Supprimer',
+      'cancel': 'Annuler',
+      'delete_model_title': 'Supprimer la voix ?',
+      'delete_model_body':
+          '« {name} » sera supprimée du disque. Si une langue l\'utilise encore, elle sera retéléchargée à la prochaine lecture.',
       'theme': 'Thème',
       'theme_dark': 'Sombre',
       'theme_light': 'Clair',
@@ -910,20 +1018,70 @@ class _SettingsScreenState extends State<SettingsScreen>
     exit(0);
   }
 
-  Future<void> _startDownload() async {
+  Uri _voicesUri(Map<String, dynamic>? voice) {
+    final engine = voice?['engine'] ?? 'kokoro';
+    final precision = voice?['piper_precision'] ?? 'int8';
+    return Uri.parse(
+        'http://localhost/voices?engine=$engine&precision=$precision');
+  }
+
+  Map<String, List<Map<String, dynamic>>> _decodeVoices(String body) {
+    final Map<String, dynamic> voicesMap = jsonDecode(body);
+    return voicesMap.map((lang, list) => MapEntry(
+        lang,
+        (list as List)
+            .map((v) => Map<String, dynamic>.from(v as Map))
+            .toList()));
+  }
+
+  List<Map<String, dynamic>> _decodeModelList(String body) {
+    return (jsonDecode(body) as List)
+        .map((m) => Map<String, dynamic>.from(m as Map))
+        .toList();
+  }
+
+  /// Re-reads the voices of the active engine and the downloaded models.
+  Future<void> _refreshVoices() async {
+    if (config == null) return;
+    try {
+      final voicesRes = await apiClient.get(_voicesUri(config!['voice']));
+      final installedRes =
+          await apiClient.get(Uri.parse('http://localhost/installed_models'));
+      if (!mounted) return;
+      setState(() {
+        if (voicesRes.statusCode == 200) {
+          availableVoices = _decodeVoices(voicesRes.body);
+        }
+        if (installedRes.statusCode == 200) {
+          installedModels = _decodeModelList(installedRes.body);
+        }
+      });
+    } catch (e) {
+      debugPrint('Error refreshing voices: $e');
+    }
+  }
+
+  /// Downloads a Kokoro model (default: the selected one) or a Piper voice.
+  Future<void> _startDownload(
+      {String engine = 'kokoro', String? modelId}) async {
+    final targetId = modelId ??
+        (config?['voice']?['model'] ?? 'kokoro-multi-lang-v1_0') as String;
     setState(() {
       isDownloading = true;
       downloadProgress = 0.0;
       downloadStatus = 'downloading';
       downloadError = null;
+      downloadEngine = engine;
+      downloadModelId = targetId;
     });
 
     try {
-      final selectedModel =
-          config?['voice']?['model'] ?? 'kokoro-multi-lang-v1_0';
+      final precision = config?['voice']?['piper_precision'] ?? 'int8';
       final res = await apiClient.post(Uri.parse(
-          'http://localhost/download_model?model_id=$selectedModel&force=true'));
-      if (res.statusCode == 200) {
+          'http://localhost/download_model?model_id=${Uri.encodeQueryComponent(targetId)}'
+          '&engine=$engine&precision=$precision&force=true'));
+      if (res.statusCode == 200 &&
+          jsonDecode(res.body)['status'] == 'started') {
         _pollDownloadStatus();
       } else {
         setState(() {
@@ -939,6 +1097,45 @@ class _SettingsScreenState extends State<SettingsScreen>
         downloadError = e.toString();
       });
     }
+  }
+
+  Future<void> _deleteInstalledModel(Map<String, dynamic> model) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(t('delete_model_title')),
+        content: Text(t('delete_model_body')
+            .replaceAll('{name}', _installedModelTitle(model))),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(t('cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(t('delete')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      final precision = model['precision'];
+      final res = await apiClient.delete(Uri.parse(
+          'http://localhost/installed_models?engine=${model['engine']}'
+          '&model_id=${Uri.encodeQueryComponent(model['id'])}'
+          '${precision != null ? '&precision=$precision' : ''}'));
+      if (res.statusCode != 200) {
+        debugPrint('Error deleting model: HTTP ${res.statusCode} ${res.body}');
+      }
+      if (model['engine'] == 'kokoro' &&
+          model['id'] == config?['voice']?['model']) {
+        setState(() => isModelInstalled = false);
+      }
+    } catch (e) {
+      debugPrint('Error deleting model: $e');
+    }
+    await _refreshVoices();
   }
 
   void _pollDownloadStatus() async {
@@ -957,7 +1154,11 @@ class _SettingsScreenState extends State<SettingsScreen>
             downloadProgress = (data['progress'] as num).toDouble() / 100.0;
             if (downloadStatus == 'success') {
               isDownloading = false;
-              isModelInstalled = true;
+              if (downloadEngine == 'kokoro' &&
+                  downloadModelId == config?['voice']?['model']) {
+                isModelInstalled = true;
+              }
+              _refreshVoices();
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(t('download_success'),
@@ -1062,8 +1263,6 @@ class _SettingsScreenState extends State<SettingsScreen>
             await apiClient.get(Uri.parse('http://localhost/config'));
         final devicesRes =
             await apiClient.get(Uri.parse('http://localhost/audio_devices'));
-        final voicesRes =
-            await apiClient.get(Uri.parse('http://localhost/voices'));
         final ocrStatusRes =
             await apiClient.get(Uri.parse('http://localhost/ocr_status'));
         final availableModelsRes =
@@ -1079,6 +1278,10 @@ class _SettingsScreenState extends State<SettingsScreen>
               decodedConfig['voice']?['model'] ?? 'kokoro-multi-lang-v1_0';
           final modelInstRes = await apiClient.get(Uri.parse(
               'http://localhost/model_installed?model_id=$selectedModel'));
+          final voicesRes = await apiClient
+              .get(_voicesUri(decodedConfig['voice'] as Map<String, dynamic>?));
+          final installedRes = await apiClient
+              .get(Uri.parse('http://localhost/installed_models'));
 
           if (!mounted) return;
           setState(() {
@@ -1092,6 +1295,10 @@ class _SettingsScreenState extends State<SettingsScreen>
             config!['voice']['language'] ??= 'en';
             config!['voice']['num_threads'] ??= 0;
             config!['voice']['provider'] ??= 'cpu';
+            config!['voice']['engine'] ??= 'kokoro';
+            config!['voice']['piper_precision'] ??= 'int8';
+            config!['voice']['language_models'] ??= <String, dynamic>{};
+            config!['voice']['piper_language_models'] ??= <String, dynamic>{};
 
             final themeStr = config!['theme_mode'];
             if (themeStr == 'light') {
@@ -1105,9 +1312,10 @@ class _SettingsScreenState extends State<SettingsScreen>
               audioDevices = jsonDecode(devicesRes.body);
             }
             if (voicesRes.statusCode == 200) {
-              Map<String, dynamic> voicesMap = jsonDecode(voicesRes.body);
-              availableVoices = voicesMap
-                  .map((key, val) => MapEntry(key, List<String>.from(val)));
+              availableVoices = _decodeVoices(voicesRes.body);
+            }
+            if (installedRes.statusCode == 200) {
+              installedModels = _decodeModelList(installedRes.body);
             }
             if (ocrStatusRes.statusCode == 200) {
               final ocrStatus = jsonDecode(ocrStatusRes.body);
@@ -1261,43 +1469,22 @@ class _SettingsScreenState extends State<SettingsScreen>
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 24, 20, 20),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  padding: const EdgeInsets.all(9),
-                  decoration: BoxDecoration(
-                    color: cs.primaryContainer,
-                    borderRadius: BorderRadius.circular(14),
+                Text(
+                  t('app_title'),
+                  style: textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: cs.onSurface,
                   ),
-                  child: SvgPicture.asset(
-                    'images/select_to_speech_tray_icon.svg',
-                    colorFilter: ColorFilter.mode(
-                        cs.onPrimaryContainer, BlendMode.srcIn),
-                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        t('app_title'),
-                        style: textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: cs.onSurface,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        t('settings'),
-                        style: textTheme.labelSmall?.copyWith(
-                          color: cs.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
+                const SizedBox(height: 2),
+                Text(
+                  t('settings'),
+                  style: textTheme.labelSmall?.copyWith(
+                    color: cs.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -1580,85 +1767,549 @@ class _SettingsScreenState extends State<SettingsScreen>
     return name;
   }
 
-  Widget _buildLanguageVoiceDropdown(String langCode, String langName) {
-    List<String> voices = availableVoices[langCode] ?? [];
-    String currentVal = config!['voice']['language_models'][langCode] ?? '';
+  String get _activeEngine =>
+      (config?['voice']?['engine'] ?? 'kokoro') as String;
 
-    if (currentVal != '' && !voices.contains(currentVal)) {
-      voices = List.from(voices)..add(currentVal);
+  /// Config key of the active engine's language → voice map.
+  String get _languageModelsKey =>
+      _activeEngine == 'piper' ? 'piper_language_models' : 'language_models';
+
+  Map<String, dynamic> get _activeLanguageModels {
+    final voice = config!['voice'] as Map<String, dynamic>;
+    voice[_languageModelsKey] ??= <String, dynamic>{};
+    return voice[_languageModelsKey] as Map<String, dynamic>;
+  }
+
+  String _langName(String code) => languageName(code, getCurrentLanguageCode());
+
+  /// Languages the active engine has voices for, sorted by localized name.
+  List<String> _engineLanguages() {
+    final codes = availableVoices.keys.toList();
+    codes.sort((a, b) => _langName(a).compareTo(_langName(b)));
+    return codes;
+  }
+
+  String _formatBytes(num? bytes) {
+    if (bytes == null || bytes <= 0) return '';
+    const mb = 1024 * 1024;
+    if (bytes >= 1024 * mb) {
+      return '${(bytes / (1024 * mb)).toStringAsFixed(1)} GB';
+    }
+    return '${(bytes / mb).round()} MB';
+  }
+
+  String _prettyVoiceName(String raw) => raw
+      .split(RegExp(r'[_-]'))
+      .where((w) => w.isNotEmpty)
+      .map((w) => w[0].toUpperCase() + w.substring(1))
+      .join(' ');
+
+  String _qualityLabel(String? quality) =>
+      quality == null ? '' : t('quality_$quality');
+
+  /// Piper voice name with the English accent, as for Kokoro: `Amy (American)`.
+  String _piperVoiceName(Map<String, dynamic> v) {
+    final name = _prettyVoiceName(v['name'] ?? v['id']);
+    switch (v['locale']) {
+      case 'en_US':
+        return '$name (American)';
+      case 'en_GB':
+        return '$name (British)';
+    }
+    return name;
+  }
+
+  /// Dropdown labels for a language's Piper voices: `Paola · 21 MB`. Voices that
+  /// would read the same also show what tells them apart: the quality and/or the
+  /// locale (e.g. `Dii · pt_BR · 20 MB` and `Dii · pt_PT · 20 MB`).
+  Map<String, String> _piperVoiceLabels(List<Map<String, dynamic>> voices) {
+    String join(List<String> parts) =>
+        parts.where((p) => p.isNotEmpty).join(' · ');
+    String base(Map<String, dynamic> v) =>
+        join([_piperVoiceName(v), _formatBytes(v['size_bytes'])]);
+
+    final groups = <String, List<Map<String, dynamic>>>{};
+    for (final v in voices) {
+      groups.putIfAbsent(base(v), () => []).add(v);
     }
 
-    final label =
-        t('voice_lang_template').replaceAll('{lang}', t('lang_$langCode'));
+    final labels = <String, String>{};
+    for (final group in groups.values) {
+      final showQuality = group.map((v) => v['quality']).toSet().length > 1;
+      final showLocale = group.map((v) => v['locale']).toSet().length > 1;
+      for (final v in group) {
+        labels[v['id'] as String] = group.length == 1
+            ? base(v)
+            : join([
+                _piperVoiceName(v),
+                if (showQuality) _qualityLabel(v['quality']),
+                if (showLocale) (v['locale'] ?? '') as String,
+                _formatBytes(v['size_bytes']),
+              ]);
+      }
+    }
+    return labels;
+  }
 
+  Future<void> _setEngine(String engine) async {
+    if (engine == _activeEngine) return;
+    setState(() {
+      config!['voice']['engine'] = engine;
+      availableVoices = {};
+    });
+    _scheduleSave();
+    await _refreshVoices();
+    if (!mounted) return;
+    // Keep the default language valid for the new engine
+    final langs = _engineLanguages();
+    if (langs.isNotEmpty && !langs.contains(config!['voice']['language'])) {
+      _updateNestedConfig(
+          'voice', 'language', langs.contains('en') ? 'en' : langs.first);
+    }
+  }
+
+  Future<void> _setPiperPrecision(String precision) async {
+    if (precision == config!['voice']['piper_precision']) return;
+    setState(() => config!['voice']['piper_precision'] = precision);
+    _scheduleSave();
+    await _refreshVoices();
+  }
+
+  void _setLanguageVoice(String langCode, String ref) {
+    setState(() => _activeLanguageModels[langCode] = ref);
+    _scheduleSave();
+  }
+
+  Widget _buildDownloadProgress() {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 14),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: LinearProgressIndicator(
+            minHeight: 8,
+            value: downloadProgress > 0 ? downloadProgress : null,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          downloadProgress > 0
+              ? '${t('downloading')} ${(downloadProgress * 100).toInt()}%'
+              : t('preparing_download'),
+          style: textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDownloadError() {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildFieldLabel(label),
-          DropdownButtonFormField<String>(
-            initialValue: currentVal,
-            isExpanded: true,
-            borderRadius: BorderRadius.circular(14),
-            items: [
-              DropdownMenuItem(value: '', child: Text(t('none_disabled'))),
-              ...voices.map((v) => DropdownMenuItem(
-                  value: v, child: Text(_voiceDisplayName(v)))),
+      padding: const EdgeInsets.only(top: 10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: cs.errorContainer,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline_rounded,
+                size: 18, color: cs.onErrorContainer),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '${t('error')}: $downloadError',
+                style:
+                    textTheme.bodySmall?.copyWith(color: cs.onErrorContainer),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKokoroVoiceDropdown(String langCode) {
+    final voices = (availableVoices[langCode] ?? [])
+        .map((v) => v['id'] as String)
+        .toList();
+    final currentVal = (_activeLanguageModels[langCode] ?? '') as String;
+    if (currentVal != '' && !voices.contains(currentVal)) {
+      voices.add(currentVal);
+    }
+
+    return DropdownButtonFormField<String>(
+      key: ValueKey('kokoro_voice_${langCode}_$currentVal'),
+      initialValue: currentVal,
+      isExpanded: true,
+      borderRadius: BorderRadius.circular(14),
+      items: [
+        DropdownMenuItem(value: '', child: Text(t('none_disabled'))),
+        ...voices.map((v) =>
+            DropdownMenuItem(value: v, child: Text(_voiceDisplayName(v)))),
+      ],
+      onChanged: (val) {
+        if (val != null) _setLanguageVoice(langCode, val);
+      },
+    );
+  }
+
+  Widget _buildPiperVoicePicker(String langCode) {
+    final voices = availableVoices[langCode] ?? [];
+    final ref = (_activeLanguageModels[langCode] ?? '') as String;
+    final hashIdx = ref.indexOf('#');
+    final key = hashIdx >= 0 ? ref.substring(0, hashIdx) : ref;
+    final speakerId =
+        hashIdx >= 0 ? int.tryParse(ref.substring(hashIdx + 1)) ?? 0 : 0;
+
+    Map<String, dynamic>? selected;
+    for (final v in voices) {
+      if (v['id'] == key) selected = v;
+    }
+    final speakers =
+        List<String>.from(selected?['speakers'] as List? ?? const []);
+    final installed = selected?['installed'] == true;
+    final downloadingThis =
+        isDownloading && downloadEngine == 'piper' && downloadModelId == key;
+    final labels = _piperVoiceLabels(voices);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DropdownButtonFormField<String>(
+          key: ValueKey('piper_voice_${langCode}_$key'),
+          initialValue: selected != null ? key : '',
+          isExpanded: true,
+          borderRadius: BorderRadius.circular(14),
+          items: [
+            DropdownMenuItem(value: '', child: Text(t('none_disabled'))),
+            ...voices.map((v) => DropdownMenuItem(
+                value: v['id'] as String,
+                child: Text(labels[v['id']] ?? v['id'],
+                    overflow: TextOverflow.ellipsis))),
+          ],
+          onChanged: (val) {
+            if (val != null) _setLanguageVoice(langCode, val);
+          },
+        ),
+        if (speakers.length > 1) ...[
+          const SizedBox(height: 12),
+          _buildFieldLabel(
+              t('speaker').replaceAll('{count}', speakers.length.toString())),
+          DropdownMenu<int>(
+            key: ValueKey('piper_speaker_${langCode}_$key'),
+            initialSelection: speakerId < speakers.length ? speakerId : 0,
+            expandedInsets: EdgeInsets.zero,
+            enableFilter: speakers.length > 12,
+            requestFocusOnTap: speakers.length > 12,
+            menuHeight: 320,
+            dropdownMenuEntries: [
+              for (var i = 0; i < speakers.length; i++)
+                DropdownMenuEntry<int>(
+                    value: i, label: '${i + 1}. ${speakers[i]}'),
             ],
-            onChanged: (val) {
-              if (val != null) {
-                setState(() {
-                  config!['voice']['language_models'][langCode] = val;
-                });
-                _scheduleSave();
+            onSelected: (sid) {
+              if (sid != null) {
+                _setLanguageVoice(langCode, sid == 0 ? key : '$key#$sid');
               }
             },
           ),
+        ],
+        if (selected != null && !installed) ...[
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.tonalIcon(
+              onPressed: isDownloading
+                  ? null
+                  : () => _startDownload(engine: 'piper', modelId: key),
+              icon: downloadingThis
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.download_rounded, size: 18),
+              label: Text(downloadingThis
+                  ? t('downloading')
+                  : '${t('download')} (${_formatBytes(selected['size_bytes'])})'),
+            ),
+          ),
+          if (downloadingThis) _buildDownloadProgress(),
+          if (!isDownloading &&
+              downloadError != null &&
+              downloadEngine == 'piper' &&
+              downloadModelId == key)
+            _buildDownloadError(),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildLanguageVoiceDropdown(String langCode) {
+    final label =
+        t('voice_lang_template').replaceAll('{lang}', _langName(langCode));
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildFieldLabel(label),
+          _activeEngine == 'piper'
+              ? _buildPiperVoicePicker(langCode)
+              : _buildKokoroVoiceDropdown(langCode),
         ],
       ),
     );
   }
 
-  Widget _buildVoiceTab() {
+  Widget _buildKokoroModelPicker() {
     final cs = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    const List<Map<String, String>> allSupportedLanguagesList = [
-      {'code': 'en', 'name': 'English'},
-      {'code': 'it', 'name': 'Italian'},
-      {'code': 'es', 'name': 'Spanish'},
-      {'code': 'fr', 'name': 'French'},
-      {'code': 'pt', 'name': 'Portuguese'},
-      {'code': 'hi', 'name': 'Hindi'},
-      {'code': 'ja', 'name': 'Japanese'},
-      {'code': 'zh', 'name': 'Chinese'},
-    ];
-
     final selectedModelId =
         config!['voice']['model'] ?? 'kokoro-multi-lang-v1_0';
-    List<String>? supportedCodes;
+    final kokoroDownloading = isDownloading && downloadEngine == 'kokoro';
 
-    for (var m in availableModels) {
-      if (m['id'] == selectedModelId) {
-        if (m['supported_languages'] != null) {
-          supportedCodes = List<String>.from(m['supported_languages']);
-        }
-        break;
-      }
-    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildFieldLabel(t('voice_model')),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                initialValue:
+                    availableModels.any((m) => m['id'] == selectedModelId)
+                        ? selectedModelId
+                        : (availableModels.isNotEmpty
+                            ? availableModels.first['id']
+                            : 'kokoro-multi-lang-v1_0'),
+                isExpanded: true,
+                borderRadius: BorderRadius.circular(14),
+                items: availableModels.isNotEmpty
+                    ? availableModels.map((m) {
+                        return DropdownMenuItem<String>(
+                          value: m['id'],
+                          child: Text(m['name'] ?? m['id'],
+                              overflow: TextOverflow.ellipsis),
+                        );
+                      }).toList()
+                    : const [
+                        DropdownMenuItem(
+                          value: 'kokoro-multi-lang-v1_0',
+                          child: Text('Kokoro v1.0 (FP32, ~350 MB)'),
+                        ),
+                      ],
+                onChanged: (val) async {
+                  if (val != null && val != config!['voice']['model']) {
+                    setState(() {
+                      config!['voice']['model'] = val;
+                      for (var m in availableModels) {
+                        if (m['id'] == val) {
+                          isModelInstalled = m['installed'] ?? false;
+                          break;
+                        }
+                      }
+                    });
+                    _scheduleSave();
+                    try {
+                      final res = await apiClient.get(Uri.parse(
+                          'http://localhost/model_installed?model_id=$val'));
+                      if (res.statusCode == 200 && mounted) {
+                        setState(() {
+                          isModelInstalled =
+                              jsonDecode(res.body)['installed'] ?? false;
+                        });
+                      }
+                    } catch (_) {}
+                  }
+                },
+              ),
+            ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+              child: (!isModelInstalled || kokoroDownloading)
+                  ? Padding(
+                      padding: const EdgeInsets.only(left: 12.0),
+                      child: FilledButton.icon(
+                        onPressed:
+                            isDownloading ? null : () => _startDownload(),
+                        icon: kokoroDownloading
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: cs.onSurface.withValues(alpha: 0.6),
+                                ),
+                              )
+                            : const Icon(Icons.download_rounded, size: 18),
+                        label: Text(kokoroDownloading
+                            ? t('downloading')
+                            : t('download')),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (kokoroDownloading) _buildDownloadProgress(),
+              if (!isDownloading &&
+                  downloadError != null &&
+                  downloadEngine == 'kokoro')
+                _buildDownloadError(),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 
-    List<Map<String, String>> currentLangs = allSupportedLanguagesList;
-    if (supportedCodes != null) {
-      currentLangs = allSupportedLanguagesList
-          .where((l) => supportedCodes!.contains(l['code']))
-          .toList();
-    }
+  Widget _buildPiperPrecisionPicker() {
+    final textTheme = Theme.of(context).textTheme;
+    final cs = Theme.of(context).colorScheme;
+    final precision = config!['voice']['piper_precision'] ?? 'int8';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildFieldLabel(t('piper_precision')),
+        DropdownButtonFormField<String>(
+          key: ValueKey('piper_precision_$precision'),
+          initialValue: precision,
+          isExpanded: true,
+          borderRadius: BorderRadius.circular(14),
+          items: [
+            for (final p in const ['int8', 'fp16', 'fp32'])
+              DropdownMenuItem(value: p, child: Text(t('precision_$p'))),
+          ],
+          onChanged: (val) {
+            if (val != null) _setPiperPrecision(val);
+          },
+        ),
+        const SizedBox(height: 6),
+        Text(
+          t('piper_precision_desc'),
+          style: textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
 
-    final currentDefaultLang =
-        currentLangs.any((l) => l['code'] == config!['voice']['language'])
-            ? config!['voice']['language'] as String
-            : (currentLangs.isNotEmpty ? currentLangs.first['code']! : 'en');
+  String _installedModelTitle(Map<String, dynamic> m) {
+    if (m['engine'] == 'kokoro') return m['name'] ?? m['id'];
+    return _prettyVoiceName(m['name'] ?? m['id']);
+  }
+
+  String _installedModelSubtitle(Map<String, dynamic> m) {
+    final parts = <String>[
+      m['engine'] == 'piper' ? 'Piper' : 'Kokoro',
+      if (m['language'] != null) _langName(m['language']),
+      if (m['engine'] == 'piper') m['id'],
+      if (m['precision'] != null) (m['precision'] as String).toUpperCase(),
+      _formatBytes(m['size_bytes']),
+    ];
+    return parts.where((p) => p.isNotEmpty).join(' · ');
+  }
+
+  Widget _buildInstalledModelsCard() {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final total = installedModels.fold<num>(
+        0, (sum, m) => sum + ((m['size_bytes'] as num?) ?? 0));
+
+    return _buildM3Card(
+      title: t('downloaded_voices'),
+      icon: Icons.folder_rounded,
+      staggerIndex: 2,
+      children: [
+        if (installedModels.isEmpty)
+          Text(t('no_downloaded_voices'),
+              style: textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant))
+        else ...[
+          Text(
+            t('disk_usage').replaceAll('{size}', _formatBytes(total)),
+            style: textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+          ),
+          const SizedBox(height: 8),
+          for (final m in installedModels)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                _installedModelTitle(m),
+                                style: textTheme.titleSmall
+                                    ?.copyWith(color: cs.onSurface),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (m['in_use'] == true) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: cs.secondaryContainer,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  t('in_use'),
+                                  style: textTheme.labelSmall?.copyWith(
+                                      color: cs.onSecondaryContainer),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _installedModelSubtitle(m),
+                          style: textTheme.bodySmall
+                              ?.copyWith(color: cs.onSurfaceVariant),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  TextButton(
+                    onPressed: () => _deleteInstalledModel(m),
+                    child: Text(t('delete')),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildVoiceTab() {
+    final engine = _activeEngine;
+    final langs = _engineLanguages();
+    final configuredDefault = config!['voice']['language'] as String?;
+    final currentDefaultLang = langs.contains(configuredDefault)
+        ? configuredDefault!
+        : (langs.isNotEmpty ? langs.first : 'en');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1668,164 +2319,41 @@ class _SettingsScreenState extends State<SettingsScreen>
           icon: Icons.graphic_eq_rounded,
           staggerIndex: 0,
           children: [
-            _buildFieldLabel(t('voice_model')),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue:
-                        availableModels.any((m) => m['id'] == selectedModelId)
-                            ? selectedModelId
-                            : (availableModels.isNotEmpty
-                                ? availableModels.first['id']
-                                : 'kokoro-multi-lang-v1_0'),
-                    isExpanded: true,
-                    borderRadius: BorderRadius.circular(14),
-                    items: availableModels.isNotEmpty
-                        ? availableModels.map((m) {
-                            return DropdownMenuItem<String>(
-                              value: m['id'],
-                              child: Text(m['name'] ?? m['id'],
-                                  overflow: TextOverflow.ellipsis),
-                            );
-                          }).toList()
-                        : const [
-                            DropdownMenuItem(
-                              value: 'kokoro-multi-lang-v1_0',
-                              child: Text('Kokoro v1.0 (FP32, ~350 MB)'),
-                            ),
-                          ],
-                    onChanged: (val) async {
-                      if (val != null && val != config!['voice']['model']) {
-                        setState(() {
-                          config!['voice']['model'] = val;
-                          List<String>? newSupportedCodes;
-                          for (var m in availableModels) {
-                            if (m['id'] == val) {
-                              if (m['supported_languages'] != null) {
-                                newSupportedCodes =
-                                    List<String>.from(m['supported_languages']);
-                              }
-                              isModelInstalled = m['installed'] ?? false;
-                              break;
-                            }
-                          }
-                          if (newSupportedCodes != null &&
-                              !newSupportedCodes
-                                  .contains(config!['voice']['language'])) {
-                            if (newSupportedCodes.isNotEmpty) {
-                              config!['voice']['language'] =
-                                  newSupportedCodes.first;
-                            }
-                          }
-                        });
-                        _scheduleSave();
-                        try {
-                          final res = await apiClient.get(Uri.parse(
-                              'http://localhost/model_installed?model_id=$val'));
-                          if (res.statusCode == 200 && mounted) {
-                            setState(() {
-                              isModelInstalled =
-                                  jsonDecode(res.body)['installed'] ?? false;
-                            });
-                          }
-                        } catch (_) {}
-                      }
-                    },
-                  ),
-                ),
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 250),
-                  curve: Curves.easeOutCubic,
-                  child: (!isModelInstalled || isDownloading)
-                      ? Padding(
-                          padding: const EdgeInsets.only(left: 12.0),
-                          child: FilledButton.icon(
-                            onPressed: isDownloading ? null : _startDownload,
-                            icon: isDownloading
-                                ? SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color:
-                                          cs.onSurface.withValues(alpha: 0.6),
-                                    ),
-                                  )
-                                : const Icon(Icons.download_rounded, size: 18),
-                            label: Text(isDownloading
-                                ? t('downloading')
-                                : t('download')),
-                          ),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-              ],
-            ),
-            AnimatedSize(
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeOutCubic,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (isDownloading) ...[
-                    const SizedBox(height: 14),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: LinearProgressIndicator(
-                        minHeight: 8,
-                        value: downloadProgress > 0 ? downloadProgress : null,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      downloadProgress > 0
-                          ? '${t('downloading')} ${(downloadProgress * 100).toInt()}%'
-                          : t('preparing_download'),
-                      style: textTheme.bodySmall
-                          ?.copyWith(color: cs.onSurfaceVariant),
-                    ),
-                  ],
-                  if (downloadError != null) ...[
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: cs.errorContainer,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.error_outline_rounded,
-                              size: 18, color: cs.onErrorContainer),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '${t('error')}: $downloadError',
-                              style: textTheme.bodySmall
-                                  ?.copyWith(color: cs.onErrorContainer),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+            _buildFieldLabel(t('tts_engine')),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment<String>(value: 'kokoro', label: Text('Kokoro')),
+                  ButtonSegment<String>(value: 'piper', label: Text('Piper')),
                 ],
+                selected: {engine},
+                onSelectionChanged: (sel) => _setEngine(sel.first),
               ),
             ),
+            const SizedBox(height: 6),
+            Text(
+              t(engine == 'piper' ? 'engine_piper_desc' : 'engine_kokoro_desc'),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 20),
+            engine == 'piper'
+                ? _buildPiperPrecisionPicker()
+                : _buildKokoroModelPicker(),
             const SizedBox(height: 20),
             _buildFieldLabel(t('default_language')),
             DropdownButtonFormField<String>(
-              key: ValueKey('default_lang_$currentDefaultLang'),
-              initialValue: currentDefaultLang,
+              key: ValueKey('default_lang_${engine}_$currentDefaultLang'),
+              initialValue: langs.contains(currentDefaultLang)
+                  ? currentDefaultLang
+                  : null,
               isExpanded: true,
               borderRadius: BorderRadius.circular(14),
-              items: currentLangs.map((lang) {
+              items: langs.map((code) {
                 return DropdownMenuItem(
-                  value: lang['code'],
-                  child: Text(t('lang_${lang['code']}')),
+                  value: code,
+                  child: Text(_langName(code)),
                 );
               }).toList(),
               onChanged: (val) {
@@ -1841,10 +2369,13 @@ class _SettingsScreenState extends State<SettingsScreen>
           icon: Icons.translate_rounded,
           staggerIndex: 1,
           children: [
-            ...currentLangs.map((lang) =>
-                _buildLanguageVoiceDropdown(lang['code']!, lang['name']!)),
+            if (langs.isEmpty)
+              const Center(child: CircularProgressIndicator())
+            else
+              ...langs.map(_buildLanguageVoiceDropdown),
           ],
         ),
+        _buildInstalledModelsCard(),
       ],
     );
   }

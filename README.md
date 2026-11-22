@@ -9,7 +9,7 @@ Designed specifically for people with visual impairments, reading difficulties, 
 - **Screen OCR & read** — draw a screen region (`Alt + r`) with `slurp`/`grim` (or KDE Spectacle) to extract text via Tesseract and read it aloud
 - **Automatic language detection** — switches voice per language segment (e.g. Italian + English in the same paragraph)
 - **Multilingual text normalization** — automatically converts math operators (`+`, `-`, `%`, etc.) and currency symbols (`$`, `€`, `£`, `¥`, etc.) into natural spoken words based on the detected language
-- **TTS engine** — [Sherpa-ONNX](https://github.com/k2-fsa/sherpa-onnx) running Kokoro TTS (high quality, offline, native C++ runtime)
+- **TTS engines** — [Sherpa-ONNX](https://github.com/k2-fsa/sherpa-onnx) running Kokoro (one model, natural voices for 8 languages) or Piper (184 lightweight voices in 42 languages), fully offline with a native C++ runtime
 - **System tray GUI** — native tray icon with settings window
 - **Pause / resume / stop** playback from tray or keyboard
 
@@ -164,7 +164,7 @@ The release workflow (`.github/workflows/release.yml`) runs on Ubuntu 22.04 so t
 work on the oldest supported distributions. The same scripts can be run locally:
 
 ```bash
-PYTHON=.venv/bin/python packaging/build-lingua.sh   # slim lingua: only the languages the app speaks
+PYTHON=.venv/bin/python packaging/build-lingua.sh   # slim lingua: only the languages the app can speak and detect
 PYTHON=.venv/bin/python packaging/build-backend.sh  # Nuitka standalone -> dist/backend/
 packaging/build-gui.sh                              # Flutter bundle -> dist/gui/
 packaging/build-packages.sh                         # nfpm -> dist/packages/*.{deb,rpm,pkg.tar.zst}
@@ -200,7 +200,7 @@ If the file does not exist, defaults are used. You can edit it manually or use t
 
 | Section | Description |
 |---|---|
-| `voice` | TTS engine selection, default language, and per-language voice mapping |
+| `voice` | TTS engine (`kokoro` or `piper`), default language, per-language voice mapping (`language_models` for Kokoro, `piper_language_models` for Piper) and Piper model precision (`piper_precision`) |
 | `audio` | Output device, playback speed, pitch, and volume |
 | `keyboard` | Modifier and trigger keys for all hotkeys |
 | `debug` | Set to `true` to enable verbose logging |
@@ -208,7 +208,15 @@ If the file does not exist, defaults are used. You can edit it manually or use t
 
 ### Voice models
 
-**Kokoro**: model files (~350 MB) are downloaded to `~/.local/share/select-to-speech/voices/` on first use, from Settings, or with `select-to-speech --download`. Voice names follow the pattern `{lang_prefix}_{name}` (e.g. `if_sara` for Italian female, `af_heart` for American English female).
+Choose the engine in **Settings → Voice**. The voice list only shows the languages the selected engine can speak. Models are stored in `~/.local/share/select-to-speech/voices/`, and the **Downloaded Voices** card lists them with their disk usage and lets you delete them.
+
+**Kokoro**: one model (~130 MB INT8 or ~350 MB FP32) with 54 voices for English, Spanish, French, Hindi, Italian, Japanese, Portuguese and Chinese. It is downloaded on first use, from Settings, or with `select-to-speech --download`. Voice names follow the pattern `{lang_prefix}_{name}` (e.g. `if_sara` for Italian female, `af_heart` for American English female).
+
+**Piper**: 184 voices in 42 languages ([sherpa-onnx `tts-models`](https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models)). Every voice is a separate model of 13–115 MB, downloaded from Settings or the first time a language uses it. The **Model Precision** setting (`piper_precision`: `int8`, the default, `fp16` or `fp32`) applies to all Piper voices; voices published only in FP32 use that. Multi-speaker voices (e.g. `en_US-libritts_r-medium`, 904 speakers) let you pick the speaker; the config stores it as `voice_key#speaker_id`. Speed, pitch and volume work with both engines, but Piper voices respond less to the speed slider than Kokoro: 0.5×–2.0× gives roughly 0.6×–1.6× with Piper, because its models cannot shorten or stretch each sound indefinitely.
+
+Kurdish, Luxembourgish, Malayalam and Nepali Piper voices work as the default language but are not detected automatically, because the language detector does not support them.
+
+The Piper voice list ships with the app (`src/select_to_speech/data/piper_voices.json`). To pick up voices published later, regenerate it with `uv run python scripts/update_piper_catalog.py`.
 
 ---
 
