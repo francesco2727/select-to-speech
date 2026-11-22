@@ -1,3 +1,0 @@
-dependency_overrides:
-  tray_manager:
-    path: ./tray_manager_patched

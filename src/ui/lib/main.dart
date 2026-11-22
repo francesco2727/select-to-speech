@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
-import 'package:tray_manager/tray_manager.dart';
+import 'package:tray_manager/tray_manager.dart' as tray;
 
 final ValueNotifier<ThemeMode> themeModeNotifier =
     ValueNotifier(ThemeMode.system);
@@ -411,8 +411,16 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen>
-    with TrayListener, WidgetsBindingObserver {
+    with WidgetsBindingObserver {
   late http.Client apiClient;
+
+  // Tray objects are kept alive here: nativeapi frees them when they are
+  // garbage collected.
+  tray.TrayIcon? _trayIcon;
+  tray.Menu? _trayMenu;
+  tray.MenuItem? _traySettingsItem;
+  tray.MenuItem? _trayQuitItem;
+  DateTime? _lastSettingsOpen;
   int _selectedIndex = 0;
 
   bool isLoading = true;
@@ -790,65 +798,95 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   /// Tray icon asset: white on a dark panel, black on a light one.
+  ///
+  /// A 128 px PNG rendered from the matching SVG: on Linux the icon is sent to
+  /// the panel as a StatusNotifierItem pixmap and the panel scales it.
   String _trayIconAsset() {
-    if (Platform.isWindows) return 'images/tray_icon.ico';
     final dark =
         WidgetsBinding.instance.platformDispatcher.platformBrightness ==
             Brightness.dark;
-    final name = dark
-        ? 'select_to_speech_tray_icon_light.svg'
-        : 'select_to_speech_tray_icon_dark.svg';
-    if (Platform.isLinux) {
-      final String exeDir = File(Platform.resolvedExecutable).parent.path;
-      return '$exeDir/data/flutter_assets/images/$name';
-    }
-    return 'images/$name';
+    return dark
+        ? 'images/select_to_speech_tray_icon_light.png'
+        : 'images/select_to_speech_tray_icon_dark.png';
   }
 
   @override
   void didChangePlatformBrightness() {
     super.didChangePlatformBrightness();
-    unawaited(_applyTrayIcon());
+    _applyTrayIcon();
   }
 
-  Future<void> _applyTrayIcon() async {
+  void _applyTrayIcon() {
     try {
-      await trayManager.setIcon(_trayIconAsset());
+      _trayIcon?.icon = tray.ImageAsset.fromAsset(_trayIconAsset());
     } catch (_) {}
   }
 
-  Future<void> _initTray() async {
+  void _initTray() {
     try {
-      await trayManager.setIcon(_trayIconAsset());
-      await _updateTrayMenu();
-      trayManager.addListener(this);
+      final icon = tray.TrayIcon.create();
+      final menu = tray.Menu.create();
+      final settingsItem = tray.MenuItem.createWithLabelAndType(
+          t('settings'), tray.MenuItemType.normal);
+      final quitItem = tray.MenuItem.createWithLabelAndType(
+          t('quit'), tray.MenuItemType.normal);
+      if (icon == null ||
+          menu == null ||
+          settingsItem == null ||
+          quitItem == null) {
+        return;
+      }
+      settingsItem.addListener((event) {
+        if (event is tray.MenuItemClickedEvent) _openSettingsWindow();
+      });
+      quitItem.addListener((event) {
+        if (event is tray.MenuItemClickedEvent) _quit();
+      });
+      menu.addItem(settingsItem);
+      menu.addSeparator();
+      menu.addItem(quitItem);
+
+      // KDE reports a left click as TrayIconClickedEvent; GNOME's AppIndicator
+      // extension opens the menu on a single click and reports a double click.
+      icon.addListener((event) {
+        if (event is tray.TrayIconClickedEvent ||
+            event is tray.TrayIconDoubleClickedEvent) {
+          _openSettingsWindow();
+        }
+      });
+      icon.setTooltip('Select to Speech');
+      icon.setContextMenu(menu);
+      icon.setContextMenuTrigger(tray.ContextMenuTrigger.rightClicked);
+
+      _trayIcon = icon;
+      _trayMenu = menu;
+      _traySettingsItem = settingsItem;
+      _trayQuitItem = quitItem;
+      _applyTrayIcon();
+      icon.setVisible(true);
     } catch (_) {
       // Ignore tray initialization errors in headless / widget test environments
     }
   }
 
-  Future<void> _updateTrayMenu() async {
+  /// Re-labels the tray menu after a GUI language change.
+  void _updateTrayMenu() {
     try {
-      await trayManager.setContextMenu(Menu(items: [
-        MenuItem(key: 'settings', label: t('settings')),
-        MenuItem.separator(),
-        MenuItem(key: 'quit', label: t('quit')),
-      ]));
+      _traySettingsItem?.label = t('settings');
+      _trayQuitItem?.label = t('quit');
     } catch (_) {}
   }
 
-  @override
-  void onTrayIconMouseDown() {
-    Process.run(Platform.resolvedExecutable, []);
-  }
-
-  @override
-  void onTrayMenuItemClick(MenuItem menuItem) {
-    if (menuItem.key == 'quit') {
-      _quit();
-    } else if (menuItem.key == 'settings') {
-      Process.run(Platform.resolvedExecutable, []);
+  /// Opens the settings window. A double click on KDE arrives as a click
+  /// followed by a double click, so a second request within a second is ignored.
+  void _openSettingsWindow() {
+    final now = DateTime.now();
+    if (_lastSettingsOpen != null &&
+        now.difference(_lastSettingsOpen!) < const Duration(seconds: 1)) {
+      return;
     }
+    _lastSettingsOpen = now;
+    Process.run(Platform.resolvedExecutable, []);
   }
 
   Future<void> _quit() async {
@@ -1141,7 +1179,8 @@ class _SettingsScreenState extends State<SettingsScreen>
       _saveTimer?.cancel();
     }
     try {
-      trayManager.removeListener(this);
+      _trayIcon?.dispose();
+      _trayMenu?.dispose();
     } catch (_) {}
     super.dispose();
   }
@@ -1553,7 +1592,8 @@ class _SettingsScreenState extends State<SettingsScreen>
             borderRadius: BorderRadius.circular(14),
             items: [
               DropdownMenuItem(value: '', child: Text(t('none_disabled'))),
-              ...voices.map((v) => DropdownMenuItem(value: v, child: Text(_voiceDisplayName(v)))),
+              ...voices.map((v) => DropdownMenuItem(
+                  value: v, child: Text(_voiceDisplayName(v)))),
             ],
             onChanged: (val) {
               if (val != null) {

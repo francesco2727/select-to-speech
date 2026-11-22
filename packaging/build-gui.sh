@@ -6,7 +6,7 @@
 # libapp.so into build/gui-symbols/ (smaller bundle; keep them to symbolize crash traces).
 #
 # Requirements: Flutter SDK, clang, cmake, ninja, pkg-config, libgtk-3-dev,
-# libayatana-appindicator3-dev, patchelf.
+# libx11-dev, libxi-dev (the tray icon's native code, built by the cnativeapi hook).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,14 +19,6 @@ mkdir -p "$SYMBOLS_DIR"
 cd "$UI_DIR"
 flutter pub get
 flutter build linux --release --split-debug-info="$SYMBOLS_DIR"
-
-# The tray plugin is linked on Ubuntu against libayatana-indicator3 / libayatana-ido3,
-# which are only transitive dependencies of libayatana-appindicator3 and do not exist
-# under those sonames on Arch/Fedora. Drop them so the bundle loads everywhere.
-patchelf --remove-needed libayatana-indicator3.so.7 \
-         --remove-needed libayatana-ido3-0.4.so.0 \
-         --set-rpath '$ORIGIN' \
-         "$BUNDLE_DIR/lib/libtray_manager_plugin.so"
 
 # libdartjni.so comes from the `jni` package (transitive, Android-only use via dynamic_color)
 # and needs libjvm.so, which does not exist on desktops. Nothing uses it on Linux.

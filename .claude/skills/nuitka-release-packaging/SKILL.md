@@ -56,7 +56,7 @@ The PyPI lingua wheel embeds the models of all 75 languages (~290 MB). The relea
 ## 4. Runtime dependencies of the packages
 
 Libraries loaded from the system (everything else is bundled) are declared per format in `overrides:` of `nfpm.yaml` (names differ per distro):
-- `wl-clipboard`, GTK 3, `libayatana-appindicator` (GUI/tray), **libEGL/libGLESv2** (`dlopen()`ed by libepoxy for Flutter rendering, so neither `ldd` nor GTK's dependencies catch it on minimal Debian/Ubuntu/Fedora), **PortAudio** (`pyaudio/_portaudio.so` links `libportaudio.so.2`, Nuitka does not bundle it), **libpulse** (pulsectl via ctypes), **libatomic** (`pedalboard_native.so`; missing from minimal Debian/Ubuntu/Fedora installs, part of `gcc-libs` on Arch).
+- `wl-clipboard`, GTK 3 (GUI; the tray icon is a StatusNotifierItem over GDBus in the bundled `libcnativeapi.so`, which also links libX11/libXi, both GTK 3 dependencies), **libEGL/libGLESv2** (`dlopen()`ed by libepoxy for Flutter rendering, so neither `ldd` nor GTK's dependencies catch it on minimal Debian/Ubuntu/Fedora), **PortAudio** (`pyaudio/_portaudio.so` links `libportaudio.so.2`, Nuitka does not bundle it), **libpulse** (pulsectl via ctypes), **libatomic** (`pedalboard_native.so`; missing from minimal Debian/Ubuntu/Fedora installs, part of `gcc-libs` on Arch).
 - OCR tools are `recommends`/`suggests` on deb/rpm. nfpm cannot emit pacman `optdepends`, so Arch lists them in `packaging/arch-postinstall.sh`.
 - If you add a new system library or external binary, add it to all three formats in `nfpm.yaml`, to `system_check.py`, and to the README requirements.
 - Modules that load system C libraries at import time via `ctypes`/`cffi` (`pulsectl`, `pyaudio`) must catch **both** `(ImportError, OSError)`:
@@ -73,7 +73,7 @@ The binary is compiled from `src/select_to_speech/entrypoint.py`; `dispatch(argv
 
 ## 6. Flutter bundle
 
-- `packaging/build-gui.sh` strips the Ubuntu-only transitive `DT_NEEDED` entries (`libayatana-indicator3.so.7`, `libayatana-ido3-0.4.so.0`) from `libtray_manager_plugin.so` with `patchelf` and sets its RPATH to `$ORIGIN`, so the bundle loads on Arch/Fedora. Keep this step.
+- Building the bundle needs `libgtk-3-dev`, `libx11-dev` and `libxi-dev` (`cnativeapi`'s build hook resolves them with `pkg-config`) and Flutter 3.50+ (`tray_manager` 0.9). `libayatana-appindicator` and the old `patchelf` step are gone; do not bring them back.
 - `packaging/build-gui.sh` also deletes `lib/libdartjni.so` from the bundle: it comes from the transitive `jni` package (Android-only use via `dynamic_color`) and needs `libjvm.so`, which does not exist on desktops. Keep this step.
 - The GUI finds the backend at `<gui dir>/../backend/select-to-speech` (packages) or by walking up to a `.venv` (development); it uses `Platform.resolvedExecutable`, so the `/usr/bin` symlink works. Keep this in sync if the layout changes.
 

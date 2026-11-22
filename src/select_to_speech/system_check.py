@@ -44,7 +44,6 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "model_cmd_hint": "👉 Download Kokoro TTS voice model files with:",
         "all_ok_msg": "\n✓ All required system dependencies and voice models are correctly installed!\n",
         "desc_wl": "Allows intercepting and reading selected or copied text in native Wayland environments.",
-        "desc_tray": "System library required by the Flutter GUI to display the icon and menu in the Linux system tray.",
         "desc_portaudio": "C audio library required by PyAudio to output synthesized speech to your speakers/headphones.",
         "desc_kokoro_model": "Neural voice model files required by Sherpa-ONNX to generate speech audio offline.",
         "desc_pulse": "PulseAudio/PipeWire system library enabling automatic background audio ducking during speech.",
@@ -79,7 +78,6 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "model_cmd_hint": "👉 Scarica i file del modello vocale Kokoro TTS con:",
         "all_ok_msg": "\n✓ Tutte le dipendenze di sistema richieste e i modelli vocali sono correttamente installati!\n",
         "desc_wl": "Permette l'intercettazione e la lettura del testo selezionato o copiato negli ambienti nativi Wayland.",
-        "desc_tray": "Libreria di sistema necessaria all'interfaccia grafica Flutter per mostrare l'icona e il menu nella system tray di Linux.",
         "desc_portaudio": "Libreria audio C richiesta da PyAudio per riprodurre la voce sintetizzata attraverso gli altoparlanti/cuffie.",
         "desc_kokoro_model": "File del modello vocale neurale necessari a Sherpa-ONNX per generare la voce offline.",
         "desc_pulse": "Libreria di sistema PulseAudio/PipeWire che abilita l'abbassamento automatico del volume (audio ducking) durante la lettura.",
@@ -114,7 +112,6 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "model_cmd_hint": "👉 Téléchargez les fichiers de modèles vocaux Kokoro TTS avec :",
         "all_ok_msg": "\n✓ Toutes les dépendances système requises et les modèles vocaux sont correctement installés !\n",
         "desc_wl": "Permet d'intercepter et de lire le texte sélectionné ou copié dans les environnements Wayland natifs.",
-        "desc_tray": "Bibliothèque système requise par l'interface Flutter pour afficher l'icône et le menu dans la barre d'état système Linux.",
         "desc_portaudio": "Bibliothèque audio C requise par PyAudio pour restituer la voix synthétisée sur vos haut-parleurs/écouteurs.",
         "desc_kokoro_model": "Fichiers de modèle vocal neuronal requis par Sherpa-ONNX pour générer la parole hors ligne.",
         "desc_pulse": "Bibliothèque système PulseAudio/PipeWire permettant l'atténuation automatique du son en arrière-plan pendant la lecture.",
@@ -149,7 +146,6 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "model_cmd_hint": "👉 Descarga los archivos del modelo de voz Kokoro TTS con:",
         "all_ok_msg": "\n✓ ¡Todas las dependencias del sistema requeridas y modelos de voz están correctamente instalados!\n",
         "desc_wl": "Permite interceptar y leer el texto seleccionado o copiado en entornos nativos de Wayland.",
-        "desc_tray": "Librería del sistema requerida por la interfaz gráfica Flutter para mostrar el icono y el menú en la bandeja del sistema de Linux.",
         "desc_portaudio": "Librería de audio en C requerida por PyAudio para reproducir la voz sintetizada en sus altavoces/auriculares.",
         "desc_kokoro_model": "Archivos del modelo de voz neuronal requeridos por Sherpa-ONNX para generar voz sin conexión.",
         "desc_pulse": "Librería de sistema PulseAudio/PipeWire que permite la atenuación automática de volumen durante la lectura.",
@@ -186,21 +182,6 @@ def _detect_language(lang_override: str | None = None) -> str:
     except Exception:
         pass
     return "en"
-
-
-def _check_appindicator() -> bool:
-    """Check if libayatana-appindicator or libappindicator is installed for system tray support."""
-    try:
-        if subprocess.run(["pacman", "-Qi", "libayatana-appindicator"], capture_output=True).returncode == 0:
-            return True
-        if subprocess.run(["pacman", "-Qi", "libappindicator-gtk3"], capture_output=True).returncode == 0:
-            return True
-    except Exception:
-        pass
-    for path in ["/usr/lib/libayatana-appindicator3.so", "/usr/lib/libappindicator3.so", "/lib/x86_64-linux-gnu/libayatana-appindicator3.so"]:
-        if Path(path).exists() or list(Path("/usr/lib").glob("*appindicator*.so*")):
-            return True
-    return False
 
 
 def _check_portaudio() -> bool:
@@ -282,16 +263,6 @@ def check_system_dependencies(lang: str | None = None) -> bool:
         logger.error(f"  ✗ wl-paste ({msg['package_label']} wl-clipboard) {msg['missing_req_tag']}")
         logger.error(f"    └─ {msg['purpose_label']} {desc_wl}")
         missing_required.append(("wl-paste", "wl-clipboard", desc_wl))
-
-    # libayatana-appindicator
-    desc_tray = msg["desc_tray"]
-    if _check_appindicator():
-        logger.info(f"  ✓ libayatana-appindicator ({msg['library_label']})")
-        logger.info(f"    └─ {msg['purpose_label']} {desc_tray}")
-    else:
-        logger.error(f"  ✗ libayatana-appindicator ({msg['package_label']} libayatana-appindicator) {msg['missing_req_tag']}")
-        logger.error(f"    └─ {msg['purpose_label']} {desc_tray}")
-        missing_required.append(("libayatana-appindicator", "libayatana-appindicator", desc_tray))
 
     # 2. Audio System & TTS Models (Required)
     logger.info(msg["req_audio_header"])

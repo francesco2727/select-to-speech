@@ -11,7 +11,6 @@ Scope: everything under `src/ui/` in this repository (Dart/Flutter desktop app, 
 
 - `src/ui/lib/main.dart` is the single app file: theme handling, settings UI, system tray integration, and the launcher/supervisor for the Python backend (FastAPI daemon over a Unix domain socket, probed at `http://localhost/status`).
 - `src/ui/pubspec.yaml` declares dependencies (`http`, `tray_manager`, `path_provider`, `flutter_svg`, `dynamic_color`, `cupertino_icons`) and the `images/` asset directory.
-- `src/ui/tray_manager_patched/` is a local fork of `tray_manager` overridden via `src/ui/pubspec_overrides.yaml`.
 
 ## Mandatory MCP & Analysis Workflow
 
@@ -48,14 +47,15 @@ These conventions are settled design decisions from the settings UI; do not regr
 - **System accent color**: theming seeds `ColorScheme.fromSeed` from the OS accent color detected via `DynamicColorBuilder` plus the Linux watcher (`_initLinuxAccentColorWatcher`, XDG portal / `kdeglobals`). Do not remove either path or hardcode a seed.
 - After editing Dart files, run `dart format` on them and `flutter analyze` (or `analyze_files`); both must be clean.
 
-## tray_manager_patched — do not break
+## System tray (`tray_manager` ^0.9, native API)
 
-- `src/ui/tray_manager_patched` replaces `app_indicator_new` with `g_object_new` (resolving C++ deprecation warnings on Linux) and adds SVG tray icon support.
-- Never remove the `tray_manager` path override in `src/ui/pubspec_overrides.yaml`, and keep the `lib` folder inside `src/ui/tray_manager_patched/` intact.
-- Tray icons: use SVG assets from `src/ui/images/` through the patched package.
-- **Adaptive tray icon (Linux)**: the tray icon is monochrome and follows the system theme. `select_to_speech_tray_icon_light.svg` is the WHITE icon (used on a dark theme) and `select_to_speech_tray_icon_dark.svg` is the BLACK one (used on a light theme). `_trayIconAsset()` in `main.dart` picks the asset; `_SettingsScreenState` is a `WidgetsBindingObserver` and `didChangePlatformBrightness` re-applies it live via `_applyTrayIcon()`. Windows keeps `images/tray_icon.ico`. The colored `select_to_speech_tray_icon.svg` is the application icon (installed as `com.selecttospeech.gui`), not the tray icon.
+- `tray_manager` 0.9 is built on `nativeapi`/`cnativeapi`: on Linux the icon is a StatusNotifierItem + `com.canonical.dbusmenu` exported over GDBus by `libcnativeapi.so` (built by a Dart build hook). No `libayatana-appindicator`, no local fork, no `pubspec_overrides.yaml` — do not reintroduce them.
+- Import it with a prefix (`import 'package:tray_manager/tray_manager.dart' as tray;`): it exports `Image`, `Menu` and `MenuItem`, which clash with Flutter's names. Use the native API (`tray.TrayIcon.create()`, `tray.Menu.create()`, `tray.MenuItem.createWithLabelAndType`, per-item `addListener`), not `legacy.dart`: the legacy bridge reports no tray icon clicks on Linux.
+- Keep the `TrayIcon`, `Menu` and `MenuItem` objects in fields of `_SettingsScreenState`: nativeapi frees them when they are garbage collected. Language changes re-label the existing items (`_updateTrayMenu`).
+- Clicks: KDE sends a left click as `TrayIconClickedEvent`; GNOME's AppIndicator extension opens the menu on a single click and reports only `TrayIconDoubleClickedEvent`. Both open the settings window through `_openSettingsWindow()`, which ignores a second request within a second (a KDE double click is a click + a double click). The menu uses `ContextMenuTrigger.rightClicked`.
+- **Adaptive tray icon**: monochrome, following the system theme. The icon is loaded by the app (gdk-pixbuf) and sent to the panel as a pixmap, which the panel scales, so it is a **128 px PNG**: `select_to_speech_tray_icon_light.png` is WHITE (dark theme), `select_to_speech_tray_icon_dark.png` is BLACK (light theme). The `.svg` files with the same names are their sources: after editing one, re-render the PNG at 128×128. `_trayIconAsset()` picks the asset and `didChangePlatformBrightness` re-applies it via `_applyTrayIcon()`. Do not use SVG for the tray: it would need the librsvg gdk-pixbuf loader at runtime and be sent at its 512 px intrinsic size. The colored `select_to_speech_tray_icon.svg` is the application icon (installed as `com.selecttospeech.gui`), not the tray icon.
 
 ## Dependencies and backend integration
 
-- Add or change Flutter dependencies only through `src/ui/pubspec.yaml`, then run `flutter pub get`. Never edit `pubspec.lock` by hand and never modify the patch fork's internals unless the task is specifically about it.
+- Add or change Flutter dependencies only through `src/ui/pubspec.yaml`, then run `flutter pub get`. Never edit `pubspec.lock` by hand.
 - The UI communicates with the backend over a UDS-based HTTP API. If you change a call to the Python backend, keep it consistent with the FastAPI endpoints in `src/select_to_speech/` (and vice versa).

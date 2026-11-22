@@ -37,6 +37,16 @@ if ! { pkg-config --exists portaudio-2.0 2>/dev/null || [ -f /usr/include/portau
     exit 1
 fi
 
+# The Flutter GUI links GTK 3; the tray icon's native code (cnativeapi) also needs X11 and Xi.
+if ! pkg-config --exists gtk+-3.0 x11 xi 2>/dev/null; then
+    error "GTK 3, X11 or Xi development files not found (needed to build the Flutter GUI)."
+    error "Install them, then run this script again:"
+    error "  Arch:           sudo pacman -S gtk3 libx11 libxi"
+    error "  Debian/Ubuntu:  sudo apt install libgtk-3-dev libx11-dev libxi-dev"
+    error "  Fedora:         sudo dnf install gtk3-devel libX11-devel libXi-devel"
+    exit 1
+fi
+
 # Remove previous ~/.local installs (legacy install.sh layout, systemd service, old caches)
 "$INSTALL_DIR/uninstall.sh" --quiet
 
