@@ -7,6 +7,7 @@ import re
 import threading
 import time
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from pathlib import Path
 from typing import Iterator, Optional, Tuple, Union
 
@@ -16,10 +17,18 @@ import wave
 
 from .config import VoiceConfig, get_data_dir
 from .voice_manager import (
+    DEFAULT_PIPER_PRECISION,
     ID_TO_SPEAKER,
     KOKORO_MODELS,
     SPEAKER_TO_ID,
+    download_piper,
     is_kokoro_installed,
+    is_piper_installed,
+    load_piper_catalog,
+    parse_voice_ref,
+    piper_model_dir,
+    piper_model_file,
+    resolve_piper_precision,
 )
 
 logger = logging.getLogger(__name__)
@@ -369,17 +378,24 @@ class BaseTTSEngine(ABC):
             text = text.replace(q, '"')
         text = text.replace("\u2014", " - ").replace("\u2013", " - ").replace("\u2026", "...")
 
-        lang_key = (language or "").split("-")[0].split("_")[0].lower()
-        if lang_key not in _SYMBOL_WORDS:
-            lang_key = "en"
-        words = _SYMBOL_WORDS[lang_key]
+        lang_key = (language or "").split("-")[0].split("_")[0].lower() or "en"
+        # Languages without a word table (e.g. Polish with a Piper voice) keep their
+        # symbols untouched rather than having them read out in English.
+        words = _SYMBOL_WORDS.get(lang_key)
 
-        # Convert emojis to text in the requested language
-        try:
-            demojized = emoji.demojize(text, language=lang_key)
-        except (KeyError, ValueError, TypeError):
-            demojized = emoji.demojize(text, language="en")
+        # Convert emojis to text in the requested language; drop them when the
+        # language has no emoji names.
+        if lang_key in emoji.LANGUAGES:
+            try:
+                demojized = emoji.demojize(text, language=lang_key)
+            except (KeyError, ValueError, TypeError):
+                demojized = emoji.replace_emoji(text, replace=" ")
+        else:
+            demojized = emoji.replace_emoji(text, replace=" ")
         text = _RE_EMOJI_COLON.sub(lambda m: " " + m.group(1).replace("_", " ") + " ", demojized)
+
+        if words is None:
+            return text
 
         # Mask dates to prevent their separators from being replaced by math operations
         date_placeholders: dict[str, str] = {}
@@ -524,13 +540,27 @@ class BaseTTSEngine(ABC):
 
         return chunks
 
+    def _language_models(self) -> dict:
+        """Language → voice map of the active engine."""
+        active = getattr(self.voice_config, "active_language_models", None)
+        if callable(active):
+            models = active()
+            if isinstance(models, dict):
+                return models
+        return getattr(self.voice_config, "language_models", {}) or {}
+
     def get_model_for_language(self, language: str) -> str:
-        """Get voice name for a specific language."""
-        model = self.voice_config.language_models.get(language)
+        """Get the voice for a language, falling back to the default language's voice."""
+        models = self._language_models()
+        model = models.get(language)
         if model:
             return model
-        logger.warning(f"No voice model configured for language '{language}', using default: {self.voice_config.model}")
-        return self.voice_config.model
+        default_lang = getattr(self.voice_config, "language", None)
+        fallback = models.get(default_lang) if default_lang else None
+        if not fallback:
+            fallback = next((v for v in models.values() if v), "")
+        logger.warning(f"No voice configured for language '{language}', using '{fallback}'")
+        return fallback
 
     def warmup(self) -> bool:
         """Pre-warm TTS model/buffers in background if supported."""
@@ -557,7 +587,214 @@ class BaseTTSEngine(ABC):
         pass
 
 
-class KokoroEngine(BaseTTSEngine):
+def _import_sherpa_onnx():
+    """Import sherpa_onnx, or return None if it is missing or an unsupported version."""
+    try:
+        import sherpa_onnx
+    except ImportError:
+        logger.error(
+            "Failed to import sherpa_onnx. Ensure sherpa-onnx and sherpa-onnx-core are installed.",
+            exc_info=True,
+        )
+        return None
+
+    sherpa_version = getattr(sherpa_onnx, "__version__", "")
+    try:
+        sherpa_major = int(sherpa_version.split(".")[0])
+    except (ValueError, IndexError):
+        sherpa_major = 0
+    if sherpa_major >= 2:
+        logger.error(
+            "sherpa-onnx %s is not supported: starting from v2.0.0 espeak-ng G2P was removed, "
+            "so non-English languages (e.g. Italian) cannot be phonemized and will be garbled. "
+            "Install sherpa-onnx < 2.0.0.", sherpa_version or ">=2"
+        )
+        return None
+    return sherpa_onnx
+
+
+class _SherpaEngine(BaseTTSEngine):
+    """Shared Sherpa-ONNX synthesis (batch and streaming) for Kokoro and Piper.
+
+    Subclasses implement :meth:`_prepare_generation`, returning the loaded
+    ``OfflineTts`` and its ``GenerationConfig`` for a language.
+    """
+
+    def __init__(self, voice_config: VoiceConfig):
+        super().__init__(voice_config)
+        self._lock = threading.Lock()
+
+    def _get_effective_threads(self) -> int:
+        """Resolve effective number of inference threads (0 = auto-detect)."""
+        cfg_threads = getattr(self.voice_config, "num_threads", 0)
+        if cfg_threads > 0:
+            return cfg_threads
+        from .system_check import get_hardware_info
+        return get_hardware_info().get("optimal_threads", 4)
+
+    @abstractmethod
+    def _prepare_generation(
+        self,
+        language: Optional[str],
+        phoneme_lang: Optional[str],
+        speed: float,
+    ) -> Optional[Tuple[object, object, str]]:
+        """Return ``(tts, gen_config, description)``, or None if no model is usable."""
+
+    def synthesize(
+        self,
+        text: str,
+        language: Optional[str] = None,
+        speed: float = 1.0,
+        volume: float = 1.0,
+        phoneme_lang: Optional[str] = None,
+    ) -> Optional[Tuple[bytes, int]]:
+        if not text or not text.strip():
+            return None
+
+        prepared = self._prepare_generation(language, phoneme_lang, speed)
+        if prepared is None:
+            return None
+        tts, gen_config, desc = prepared
+
+        text = self._sanitize_text(text, language=language)
+        if not text:
+            return None
+
+        all_samples = []
+        sample_rate = 24000
+
+        for chunk in self._chunk_text(text, language=language, already_preprocessed=True):
+            if not chunk.strip():
+                continue
+            with self._lock:
+                audio = tts.generate(chunk, gen_config)
+            if audio and len(audio.samples) > 0:
+                all_samples.append(np.array(audio.samples, dtype=np.float32))
+                sample_rate = audio.sample_rate
+
+        if not all_samples:
+            return None
+
+        samples = np.concatenate(all_samples)
+        if volume != 1.0:
+            samples = np.clip(samples * volume, -1.0, 1.0)
+        else:
+            samples = np.clip(samples, -1.0, 1.0)
+
+        pcm16_bytes = (samples * 32767.0).astype(np.int16).tobytes()
+        with io.BytesIO() as output:
+            with wave.open(output, "wb") as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(sample_rate)
+                wav_file.writeframes(pcm16_bytes)
+            audio_bytes = output.getvalue()
+
+        logger.info(f"Synthesized {len(text)} chars to {len(audio_bytes)} bytes at {sample_rate}Hz ({desc})")
+        return audio_bytes, sample_rate
+
+    def synthesize_stream(
+        self,
+        text: str,
+        language: Optional[str] = None,
+        speed: float = 1.0,
+        volume: float = 1.0,
+        phoneme_lang: Optional[str] = None,
+        stop_event: Optional[threading.Event] = None,
+    ) -> Iterator[Tuple[Union[np.ndarray, bytes], int]]:
+        if not text or not text.strip():
+            return
+
+        prepared = self._prepare_generation(language, phoneme_lang, speed)
+        if prepared is None:
+            return
+        tts, gen_config, _desc = prepared
+        sample_rate = tts.sample_rate
+
+        # Queue to pass raw float32 audio chunks produced by Sherpa C++ callback to this generator
+        audio_chunk_queue: queue.Queue[Optional[Tuple[np.ndarray, int]]] = queue.Queue(maxsize=16)
+        synthesis_error: list[Optional[Exception]] = [None]
+
+        def _on_samples(samples: np.ndarray, progress: float) -> int:
+            if stop_event is not None and stop_event.is_set():
+                return 0  # Stop C++ generation immediately
+
+            if len(samples) > 0:
+                s = np.asarray(samples, dtype=np.float32)
+                if volume != 1.0:
+                    s = np.clip(s * volume, -1.0, 1.0)
+                else:
+                    s = s.copy()
+                audio_chunk_queue.put((s, sample_rate))
+
+            return 0 if (stop_event is not None and stop_event.is_set()) else 1
+
+        def _worker():
+            try:
+                # Sanitize text without splitting into artificial small chunks
+                clean_text = self._sanitize_text(text, language=language, already_preprocessed=True)
+                if not clean_text:
+                    return
+
+                with self._lock:
+                    tts.generate(clean_text, gen_config, callback=_on_samples)
+            except Exception as e:
+                synthesis_error[0] = e
+                logger.error(f"Error in Sherpa-ONNX streaming generation: {e}", exc_info=True)
+            finally:
+                audio_chunk_queue.put(None)  # Signal EOF to generator
+
+        worker_thread = threading.Thread(target=_worker, daemon=True)
+        worker_thread.start()
+
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                break
+
+            try:
+                item = audio_chunk_queue.get(timeout=0.1)
+            except queue.Empty:
+                if not worker_thread.is_alive():
+                    break
+                continue
+
+            if item is None:
+                break
+
+            yield item
+
+        if synthesis_error[0] is not None:
+            raise synthesis_error[0]
+
+    def release_model(self, engine: str, model_id: str, precision: Optional[str] = None) -> None:
+        """Drop a loaded model whose files were deleted from disk."""
+
+    def warmup(self) -> bool:
+        """Pre-warm the default-language model so the first request starts fast."""
+        try:
+            if not self._is_default_model_installed():
+                logger.debug("TTS model for the default language not downloaded yet, skipping warmup")
+                return False
+            prepared = self._prepare_generation(self.voice_config.language, None, 1.0)
+            if prepared is None:
+                return False
+            tts, gen_config, desc = prepared
+            with self._lock:
+                logger.info(f"Pre-warming Sherpa-ONNX TTS engine ({desc})...")
+                tts.generate("a", gen_config)
+            logger.info("Sherpa-ONNX TTS engine warmup completed.")
+            return True
+        except Exception as e:
+            logger.warning(f"Sherpa TTS warmup failed (non-fatal): {e}")
+        return False
+
+    @abstractmethod
+    def _is_default_model_installed(self) -> bool:
+        """Whether the model the default language uses is on disk (no download on warmup)."""
+
+
+class KokoroEngine(_SherpaEngine):
     """Text-to-Speech engine wrapper for Kokoro using Sherpa-ONNX."""
 
     def __init__(self, voice_config: VoiceConfig):
@@ -568,15 +805,6 @@ class KokoroEngine(BaseTTSEngine):
 
         self.model_dir = self.voices_dir / KOKORO_MODELS[self.model_id]["dir_name"]
         self.tts = None
-        self._lock = threading.Lock()
-
-    def _get_effective_threads(self) -> int:
-        """Resolve effective number of inference threads (0 = auto-detect)."""
-        cfg_threads = getattr(self.voice_config, "num_threads", 0)
-        if cfg_threads > 0:
-            return cfg_threads
-        from .system_check import get_hardware_info
-        return get_hardware_info().get("optimal_threads", 4)
 
     def update_config(self, voice_config: VoiceConfig) -> None:
         """Update voice configuration and reload Sherpa-ONNX model if changed."""
@@ -626,26 +854,8 @@ class KokoroEngine(BaseTTSEngine):
         if not self.ensure_model_downloaded():
             return False
 
-        try:
-            import sherpa_onnx
-        except ImportError:
-            logger.error(
-                "Failed to import sherpa_onnx. Ensure sherpa-onnx and sherpa-onnx-core are installed.",
-                exc_info=True,
-            )
-            return False
-
-        sherpa_version = getattr(sherpa_onnx, "__version__", "")
-        try:
-            sherpa_major = int(sherpa_version.split(".")[0])
-        except (ValueError, IndexError):
-            sherpa_major = 0
-        if sherpa_major >= 2:
-            logger.error(
-                "sherpa-onnx %s is not supported: starting from v2.0.0 espeak-ng G2P was removed, "
-                "so non-English languages (e.g. Italian) cannot be phonemized and will be garbled. "
-                "Install sherpa-onnx < 2.0.0.", sherpa_version or ">=2"
-            )
+        sherpa_onnx = _import_sherpa_onnx()
+        if sherpa_onnx is None:
             return False
 
         with self._lock:
@@ -701,9 +911,7 @@ class KokoroEngine(BaseTTSEngine):
         phoneme_lang: Optional[str] = None,
     ) -> Tuple[int, str]:
         """Resolve speaker integer ID and language code for sherpa GenerationConfig."""
-        voice_name = self.voice_config.model
-        if language:
-            voice_name = self.get_model_for_language(language)
+        voice_name = self.get_model_for_language(language or getattr(self.voice_config, "language", "en"))
 
         speaker_id = SPEAKER_TO_ID.get(voice_name, 3)  # Default fallback 3 ('af_heart')
 
@@ -712,179 +920,172 @@ class KokoroEngine(BaseTTSEngine):
 
         return speaker_id, lang_code
 
-    def synthesize(
-        self,
-        text: str,
-        language: Optional[str] = None,
-        speed: float = 1.0,
-        volume: float = 1.0,
-        phoneme_lang: Optional[str] = None,
-    ) -> Optional[Tuple[bytes, int]]:
-        if not text or not text.strip():
-            return None
-
+    def _prepare_generation(self, language, phoneme_lang, speed):
         if not self._init_tts():
             return None
-
         import sherpa_onnx
-
-        text = self._sanitize_text(text, language=language)
-        if not text:
-            return None
 
         sid, lang_code = self._resolve_speaker_and_lang(language, phoneme_lang)
         gen_config = sherpa_onnx.GenerationConfig()
         gen_config.sid = sid
         gen_config.speed = speed
         gen_config.extra = {"lang": lang_code}
+        return self.tts, gen_config, f"sid={sid}, lang={lang_code}"
 
-        all_samples = []
-        sample_rate = 24000
+    def _is_default_model_installed(self) -> bool:
+        return is_kokoro_installed(self.model_id)
 
-        for chunk in self._chunk_text(text, language=language, already_preprocessed=True):
-            if not chunk.strip():
-                continue
+    def release_model(self, engine: str, model_id: str, precision: Optional[str] = None) -> None:
+        if engine == "kokoro" and model_id == self.model_id:
             with self._lock:
-                audio = self.tts.generate(chunk, gen_config)
-            if audio and len(audio.samples) > 0:
-                all_samples.append(np.array(audio.samples, dtype=np.float32))
-                sample_rate = audio.sample_rate
-
-        if not all_samples:
-            return None
-
-        samples = np.concatenate(all_samples)
-        if volume != 1.0:
-            samples = np.clip(samples * volume, -1.0, 1.0)
-        else:
-            samples = np.clip(samples, -1.0, 1.0)
-
-        pcm16_bytes = (samples * 32767.0).astype(np.int16).tobytes()
-        with io.BytesIO() as output:
-            with wave.open(output, "wb") as wav_file:
-                wav_file.setnchannels(1)
-                wav_file.setsampwidth(2)
-                wav_file.setframerate(sample_rate)
-                wav_file.writeframes(pcm16_bytes)
-            audio_bytes = output.getvalue()
-
-        logger.info(f"Synthesized {len(text)} chars to {len(audio_bytes)} bytes at {sample_rate}Hz (sid={sid}, lang={lang_code})")
-        return audio_bytes, sample_rate
-
-    def synthesize_stream(
-        self,
-        text: str,
-        language: Optional[str] = None,
-        speed: float = 1.0,
-        volume: float = 1.0,
-        phoneme_lang: Optional[str] = None,
-        stop_event: Optional[threading.Event] = None,
-    ) -> Iterator[Tuple[Union[np.ndarray, bytes], int]]:
-        if not text or not text.strip():
-            return
-
-        if not self._init_tts():
-            return
-
-        import sherpa_onnx
-
-        sid, lang_code = self._resolve_speaker_and_lang(language, phoneme_lang)
-        gen_config = sherpa_onnx.GenerationConfig()
-        gen_config.sid = sid
-        gen_config.speed = speed
-        gen_config.extra = {"lang": lang_code}
-
-        # Queue to pass raw float32 audio chunks produced by Sherpa C++ callback to this generator
-        audio_chunk_queue: queue.Queue[Optional[Tuple[np.ndarray, int]]] = queue.Queue(maxsize=16)
-        synthesis_error: list[Optional[Exception]] = [None]
-
-        def _on_samples(samples: np.ndarray, progress: float) -> int:
-            if stop_event is not None and stop_event.is_set():
-                return 0  # Stop C++ generation immediately
-
-            if len(samples) > 0:
-                s = np.asarray(samples, dtype=np.float32)
-                if volume != 1.0:
-                    s = np.clip(s * volume, -1.0, 1.0)
-                else:
-                    s = s.copy()
-                audio_chunk_queue.put((s, self.tts.sample_rate))
-
-            return 0 if (stop_event is not None and stop_event.is_set()) else 1
-
-        def _worker():
-            try:
-                # Sanitize text without splitting into artificial small chunks
-                clean_text = self._sanitize_text(text, language=language, already_preprocessed=True)
-                if not clean_text:
-                    return
-
-                with self._lock:
-                    if self.tts is None:
-                        return
-                    self.tts.generate(clean_text, gen_config, callback=_on_samples)
-            except Exception as e:
-                synthesis_error[0] = e
-                logger.error(f"Error in Sherpa-ONNX streaming generation: {e}", exc_info=True)
-            finally:
-                audio_chunk_queue.put(None)  # Signal EOF to generator
-
-        worker_thread = threading.Thread(target=_worker, daemon=True)
-        worker_thread.start()
-
-        while True:
-            if stop_event is not None and stop_event.is_set():
-                break
-
-            try:
-                item = audio_chunk_queue.get(timeout=0.1)
-            except queue.Empty:
-                if not worker_thread.is_alive():
-                    break
-                continue
-
-            if item is None:
-                break
-
-            yield item
-
-        if synthesis_error[0] is not None:
-            raise synthesis_error[0]
+                self.tts = None
 
     def stop(self) -> None:
         self.tts = None
         logger.info("Sherpa Kokoro engine stopped")
 
-    def warmup(self) -> bool:
-        """Pre-warm Kokoro model in Sherpa-ONNX."""
-        try:
-            if not is_kokoro_installed(self.model_id):
-                logger.debug("Kokoro model not downloaded yet, skipping warmup")
-                return False
-            if not self._init_tts():
-                return False
 
-            import sherpa_onnx
-            sid, lang_code = self._resolve_speaker_and_lang(self.voice_config.language)
-            gen_config = sherpa_onnx.GenerationConfig()
-            gen_config.sid = sid
-            gen_config.speed = 1.0
-            gen_config.extra = {"lang": lang_code}
+class PiperEngine(_SherpaEngine):
+    """Piper (VITS) voices through Sherpa-ONNX.
 
-            with self._lock:
-                if self.tts is not None:
-                    logger.info("Pre-warming Sherpa-ONNX Kokoro TTS engine...")
-                    self.tts.generate("a", gen_config)
-                    logger.info("Sherpa-ONNX Kokoro TTS engine warmup completed.")
-                    return True
-        except Exception as e:
-            logger.warning(f"Sherpa Kokoro warmup failed (non-fatal): {e}")
-        return False
+    Each Piper voice is its own model, so one ``OfflineTts`` is kept per voice; the
+    least recently used one is dropped once more than ``MAX_LOADED_VOICES`` are loaded
+    (mixed-language text then does not reload a model on every segment).
+    """
+
+    MAX_LOADED_VOICES = 3
+
+    def __init__(self, voice_config: VoiceConfig):
+        super().__init__(voice_config)
+        self._models: "OrderedDict[tuple[str, str], object]" = OrderedDict()
+
+    @property
+    def precision(self) -> str:
+        return getattr(self.voice_config, "piper_precision", DEFAULT_PIPER_PRECISION) or DEFAULT_PIPER_PRECISION
+
+    def update_config(self, voice_config: VoiceConfig) -> None:
+        with self._lock:
+            old = self.voice_config
+            self.voice_config = voice_config
+            changed = (
+                getattr(old, "num_threads", 0) != getattr(voice_config, "num_threads", 0)
+                or getattr(old, "provider", "cpu") != getattr(voice_config, "provider", "cpu")
+                or getattr(old, "piper_precision", None) != getattr(voice_config, "piper_precision", None)
+            )
+            if changed:
+                logger.info("Piper threads/provider/precision changed — unloading cached voices.")
+                self._models.clear()
+
+    def _resolve_voice(self, language: Optional[str]) -> Optional[Tuple[str, int]]:
+        ref = self.get_model_for_language(language or getattr(self.voice_config, "language", "en"))
+        if not ref:
+            return None
+        key, sid = parse_voice_ref(ref)
+        if key not in load_piper_catalog() and not is_piper_installed(key, self.precision):
+            logger.error(f"Unknown Piper voice '{key}'")
+            return None
+        return key, sid
+
+    def _load_voice(self, key: str, precision: str):
+        """Return the loaded ``OfflineTts`` of a voice, downloading it if missing."""
+        precision = resolve_piper_precision(key, precision)
+        cache_key = (key, precision)
+        with self._lock:
+            tts = self._models.get(cache_key)
+            if tts is not None:
+                self._models.move_to_end(cache_key)
+                return tts
+
+        if not is_piper_installed(key, precision):
+            logger.info(f"Piper voice missing — downloading {key} ({precision})...")
+            if not download_piper(key, precision):
+                return None
+
+        sherpa_onnx = _import_sherpa_onnx()
+        if sherpa_onnx is None:
+            return None
+
+        model_dir = piper_model_dir(key, precision)
+        model_file = piper_model_file(model_dir)
+        if model_file is None:
+            logger.error(f"No .onnx model found in {model_dir}")
+            return None
+
+        threads = self._get_effective_threads()
+        provider = getattr(self.voice_config, "provider", "cpu") or "cpu"
+        logger.info(f"Initializing Sherpa-ONNX Piper voice {key} ({precision}, {threads} threads, provider='{provider}')...")
+        vits_config = sherpa_onnx.OfflineTtsVitsModelConfig(
+            model=str(model_file),
+            lexicon="",
+            tokens=str(model_dir / "tokens.txt"),
+            data_dir=str(model_dir / "espeak-ng-data"),
+            dict_dir="",
+        )
+        model_config = sherpa_onnx.OfflineTtsModelConfig(
+            vits=vits_config,
+            num_threads=threads,
+            debug=False,
+            provider=provider,
+        )
+        tts_config = sherpa_onnx.OfflineTtsConfig(
+            model=model_config,
+            max_num_sentences=1,
+            silence_scale=0.2,
+        )
+        tts = sherpa_onnx.OfflineTts(tts_config)
+
+        with self._lock:
+            self._models[cache_key] = tts
+            self._models.move_to_end(cache_key)
+            while len(self._models) > self.MAX_LOADED_VOICES:
+                evicted, _ = self._models.popitem(last=False)
+                logger.info(f"Unloaded Piper voice {evicted[0]} ({evicted[1]})")
+        return tts
+
+    def _prepare_generation(self, language, phoneme_lang, speed):
+        resolved = self._resolve_voice(language)
+        if resolved is None:
+            logger.error(f"No Piper voice configured for language '{language}'")
+            return None
+        key, sid = resolved
+        tts = self._load_voice(key, self.precision)
+        if tts is None:
+            return None
+        import sherpa_onnx
+
+        num_speakers = getattr(tts, "num_speakers", 1) or 1
+        if not 0 <= sid < num_speakers:
+            sid = 0
+        gen_config = sherpa_onnx.GenerationConfig()
+        gen_config.sid = sid
+        gen_config.speed = speed
+        return tts, gen_config, f"piper={key}, sid={sid}"
+
+    def _is_default_model_installed(self) -> bool:
+        resolved = self._resolve_voice(self.voice_config.language)
+        return resolved is not None and is_piper_installed(resolved[0], self.precision)
+
+    def release_model(self, engine: str, model_id: str, precision: Optional[str] = None) -> None:
+        if engine != "piper":
+            return
+        with self._lock:
+            for cache_key in [k for k in self._models if k[0] == model_id and (precision is None or k[1] == precision)]:
+                del self._models[cache_key]
+
+    def stop(self) -> None:
+        with self._lock:
+            self._models.clear()
+        logger.info("Sherpa Piper engine stopped")
+
+
+def tts_engine_class(config: VoiceConfig) -> type[BaseTTSEngine]:
+    """Engine class for the configured ``voice.engine``."""
+    return PiperEngine if getattr(config, "engine", "kokoro") == "piper" else KokoroEngine
 
 
 def get_tts_engine(config: VoiceConfig) -> BaseTTSEngine:
     """Factory function to get the configured TTS engine"""
-    return KokoroEngine(config)
+    return tts_engine_class(config)(config)
 
 
 def get_available_models(engine: str = "kokoro") -> list[str]:
@@ -916,6 +1117,14 @@ def get_kokoro_voices(language: str | None = None) -> list[str]:
     return [v for v in all_voices if any(v.startswith(p) for p in prefixes)]
 
 
+def kokoro_languages() -> list[str]:
+    """Languages with at least one Kokoro voice."""
+    return [lang for lang in _KOKORO_LANG_PREFIXES if get_kokoro_voices(lang)]
+
+
 def get_voices_for_language(engine: str, language: str) -> list[str]:
-    """Return the voice/model names available for *language*."""
+    """Return the voice names (Kokoro speakers or Piper voice keys) available for *language*."""
+    if engine == "piper":
+        from .voice_manager import get_piper_voices
+        return [v["id"] for v in get_piper_voices(language)]
     return get_kokoro_voices(language)

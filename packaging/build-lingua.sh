@@ -21,7 +21,12 @@ LINGUA_TAG="v1.8.0"
 LINGUA_COMMIT="77e94d1a2a8e49bed873a7c502bcb51ba803ef0f"
 MATURIN_VERSION="1.15.0"
 
-LANGUAGES=(english italian spanish french german portuguese hindi japanese korean chinese)
+LANGUAGES=(
+    albanian arabic basque bokmal catalan chinese czech danish dutch english finnish
+    french georgian german greek hindi hungarian icelandic indonesian italian japanese
+    kazakh latvian persian polish portuguese romanian russian serbian slovak slovene
+    spanish swahili swedish turkish ukrainian urdu vietnamese welsh
+)
 
 SRC_DIR="$ROOT/build/lingua-rs"
 WHEEL_DIR="$ROOT/build/lingua-wheel"

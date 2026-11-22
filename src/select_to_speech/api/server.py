@@ -96,21 +96,34 @@ def get_hardware_endpoint():
         logger.error(f"Error getting hardware info: {e}")
         return {"cpu_model": "Unknown CPU", "total_threads": 1, "optimal_threads": 1}
 
-# Download state variables
+# Download state variables (one download at a time, Kokoro model or Piper voice)
 download_status = "idle"
 download_progress = 0
 download_total_bytes = -1
 download_downloaded_bytes = 0
 download_error = None
+download_engine = None
+download_model_id = None
+download_precision = None
 
-def run_download_thread(model_id: str, force: bool):
+
+def _piper_precision(precision: str | None) -> str:
+    from select_to_speech.voice_manager import DEFAULT_PIPER_PRECISION, PIPER_PRECISIONS
+    if precision in PIPER_PRECISIONS:
+        return precision
+    if sts_app:
+        return sts_app.config.voice.piper_precision
+    return DEFAULT_PIPER_PRECISION
+
+
+def run_download_thread(model_id: str, force: bool, engine: str = "kokoro", precision: str | None = None):
     global download_status, download_progress, download_total_bytes, download_downloaded_bytes, download_error
     download_status = "downloading"
     download_progress = 0
     download_error = None
-    
-    from select_to_speech.voice_manager import download_kokoro
-    
+
+    from select_to_speech.voice_manager import download_kokoro, download_piper
+
     def progress_cb(downloaded: int, total: int):
         global download_progress, download_total_bytes, download_downloaded_bytes
         download_downloaded_bytes = downloaded
@@ -119,9 +132,12 @@ def run_download_thread(model_id: str, force: bool):
             download_progress = int((downloaded / total) * 100)
         else:
             download_progress = 0
-            
+
     try:
-        success = download_kokoro(model_id=model_id, force=force, progress_cb=progress_cb)
+        if engine == "piper":
+            success = download_piper(model_id, precision or "int8", force=force, progress_cb=progress_cb)
+        else:
+            success = download_kokoro(model_id=model_id, force=force, progress_cb=progress_cb)
         if success:
             download_status = "success"
             download_progress = 100
@@ -133,38 +149,82 @@ def run_download_thread(model_id: str, force: bool):
         download_error = str(e)
 
 @app.post("/download_model")
-def start_download(model_id: str = "kokoro-multi-lang-v1_0", force: bool = True):
-    global download_status
+def start_download(
+    model_id: str = "kokoro-multi-lang-v1_0",
+    force: bool = True,
+    engine: str = "kokoro",
+    precision: str | None = None,
+):
+    global download_status, download_engine, download_model_id, download_precision
     if download_status == "downloading":
         return {"status": "already_downloading"}
-    
+    if engine not in ("kokoro", "piper"):
+        raise HTTPException(status_code=400, detail=f"Unknown engine '{engine}'")
+
+    from select_to_speech.voice_manager import parse_voice_ref, resolve_piper_precision
+    if engine == "piper":
+        model_id, _ = parse_voice_ref(model_id)
+        precision = resolve_piper_precision(model_id, _piper_precision(precision))
+    else:
+        precision = None
+
+    download_engine, download_model_id, download_precision = engine, model_id, precision
+    # Set before the thread starts so an immediate /download_status poll sees it
+    download_status = "downloading"
     import threading
-    thread = threading.Thread(target=run_download_thread, args=(model_id, force), daemon=True)
+    thread = threading.Thread(
+        target=run_download_thread, args=(model_id, force, engine, precision), daemon=True
+    )
     thread.start()
     return {"status": "started"}
 
 @app.get("/download_status")
 def get_download_status():
-    global download_status, download_progress, download_total_bytes, download_downloaded_bytes, download_error
     return {
         "status": download_status,
         "progress": download_progress,
         "downloaded_bytes": download_downloaded_bytes,
         "total_bytes": download_total_bytes,
-        "error": download_error
+        "error": download_error,
+        "engine": download_engine,
+        "model_id": download_model_id,
+        "precision": download_precision,
     }
 
+@app.get("/engines")
+def get_engines():
+    from select_to_speech.voice_manager import DEFAULT_PIPER_PRECISION, PIPER_PRECISIONS
+    return [
+        {"id": "kokoro", "name": "Kokoro"},
+        {
+            "id": "piper",
+            "name": "Piper",
+            "precisions": list(PIPER_PRECISIONS),
+            "default_precision": DEFAULT_PIPER_PRECISION,
+        },
+    ]
+
 @app.get("/voices")
-def get_voices():
-    from select_to_speech.tts_engine import _KOKORO_LANG_PREFIXES, get_kokoro_voices
-    
-    dynamic_voices = {}
-    for lang in _KOKORO_LANG_PREFIXES.keys():
-        voices = get_kokoro_voices(lang)
-        if voices:
-            dynamic_voices[lang] = voices
-            
-    return dynamic_voices
+def get_voices(engine: str = "kokoro", precision: str | None = None):
+    """Voices per language for an engine; languages without voices are omitted.
+
+    Shape: ``{lang: [{"id", "name", "quality", "precision", "size_bytes", "installed", "speakers"}]}``.
+    Kokoro voices are speakers of one model, so their size/installed fields are null.
+    """
+    if engine == "piper":
+        from select_to_speech.voice_manager import get_piper_languages, get_piper_voices
+        precision = _piper_precision(precision)
+        return {lang: get_piper_voices(lang, precision) for lang in get_piper_languages()}
+
+    from select_to_speech.tts_engine import kokoro_languages, get_kokoro_voices
+    return {
+        lang: [
+            {"id": v, "name": v, "quality": None, "precision": None,
+             "size_bytes": None, "installed": None, "speakers": []}
+            for v in get_kokoro_voices(lang)
+        ]
+        for lang in kokoro_languages()
+    }
 
 @app.get("/ocr_languages")
 def get_ocr_languages():
@@ -185,18 +245,21 @@ def get_ocr_status():
     return {"installed": False, "languages": []}
 
 @app.get("/model_installed")
-def get_model_installed(model_id: str = "kokoro-multi-lang-v1_0"):
-    from select_to_speech.voice_manager import is_kokoro_installed
+def get_model_installed(model_id: str = "kokoro-multi-lang-v1_0", engine: str = "kokoro", precision: str | None = None):
+    from select_to_speech.voice_manager import is_kokoro_installed, is_piper_installed, parse_voice_ref
+    if engine == "piper":
+        key, _ = parse_voice_ref(model_id)
+        return {"installed": is_piper_installed(key, _piper_precision(precision))}
     return {"installed": is_kokoro_installed(model_id)}
 
 @app.get("/available_models")
 def get_available_models():
     from select_to_speech.voice_manager import KOKORO_MODELS, is_kokoro_installed
-    from select_to_speech.tts_engine import _KOKORO_LANG_PREFIXES
-    
+    from select_to_speech.tts_engine import kokoro_languages
+
     models = []
-    supported_langs = list(_KOKORO_LANG_PREFIXES.keys())
-    
+    supported_langs = kokoro_languages()
+
     for mid, info in KOKORO_MODELS.items():
         models.append({
             "id": mid,
@@ -205,8 +268,42 @@ def get_available_models():
             "installed": is_kokoro_installed(mid),
             "supported_languages": supported_langs
         })
-        
+
     return models
+
+@app.get("/installed_models")
+def get_installed_models():
+    """Downloaded Kokoro models and Piper voices, with disk usage and whether they are in use."""
+    from select_to_speech.voice_manager import list_installed_models, parse_voice_ref
+    in_use: set[tuple[str, str, str | None]] = set()
+    if sts_app:
+        voice = sts_app.config.voice
+        in_use.add(("kokoro", voice.model, None))
+        for ref in voice.piper_language_models.values():
+            if ref:
+                in_use.add(("piper", parse_voice_ref(ref)[0], voice.piper_precision))
+    models = list_installed_models()
+    for m in models:
+        m["in_use"] = (m["engine"], m["id"], m["precision"]) in in_use
+    return models
+
+@app.delete("/installed_models")
+def delete_installed_model(engine: str, model_id: str, precision: str | None = None):
+    from select_to_speech.voice_manager import delete_kokoro, delete_piper
+    if download_status == "downloading" and (download_engine, download_model_id) == (engine, model_id):
+        raise HTTPException(status_code=409, detail="This model is being downloaded")
+    if engine == "piper":
+        precision = _piper_precision(precision)
+        deleted = delete_piper(model_id, precision)
+    elif engine == "kokoro":
+        deleted = delete_kokoro(model_id)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown engine '{engine}'")
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Model not installed")
+    if sts_app:
+        sts_app.tts_engine.release_model(engine, model_id, precision)
+    return {"status": "deleted"}
 
 
 # Punctuation download state variables

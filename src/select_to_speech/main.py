@@ -24,19 +24,53 @@ from .sound_feedback import SoundFeedback
 
 
 
-# ISO 639-1 code → lingua Language enum
+# ISO 639-1 code → lingua Language enum, for every language Kokoro or Piper can speak
+# that lingua can detect. Piper's Kurdish, Luxembourgish, Malayalam and Nepali are
+# not in lingua: they work as the default language only. Packaged builds embed only
+# these models (packaging/build-lingua.sh, kept in sync by tests/test_packaging.py).
 _LINGUA_LANGUAGES: dict[str, Language] = {
-    "en": Language.ENGLISH,
-    "it": Language.ITALIAN,
-    "es": Language.SPANISH,
-    "fr": Language.FRENCH,
+    "ar": Language.ARABIC,
+    "ca": Language.CATALAN,
+    "cs": Language.CZECH,
+    "cy": Language.WELSH,
+    "da": Language.DANISH,
     "de": Language.GERMAN,
-    "pt": Language.PORTUGUESE,
+    "el": Language.GREEK,
+    "en": Language.ENGLISH,
+    "es": Language.SPANISH,
+    "eu": Language.BASQUE,
+    "fa": Language.PERSIAN,
+    "fi": Language.FINNISH,
+    "fr": Language.FRENCH,
     "hi": Language.HINDI,
+    "hu": Language.HUNGARIAN,
+    "id": Language.INDONESIAN,
+    "is": Language.ICELANDIC,
+    "it": Language.ITALIAN,
     "ja": Language.JAPANESE,
-    "ko": Language.KOREAN,
+    "ka": Language.GEORGIAN,
+    "kk": Language.KAZAKH,
+    "lv": Language.LATVIAN,
+    "nl": Language.DUTCH,
+    "no": Language.BOKMAL,  # Piper's Norwegian voices are Bokmål ("nb" in lingua)
+    "pl": Language.POLISH,
+    "pt": Language.PORTUGUESE,
+    "ro": Language.ROMANIAN,
+    "ru": Language.RUSSIAN,
+    "sk": Language.SLOVAK,
+    "sl": Language.SLOVENE,
+    "sq": Language.ALBANIAN,
+    "sr": Language.SERBIAN,
+    "sv": Language.SWEDISH,
+    "sw": Language.SWAHILI,
+    "tr": Language.TURKISH,
+    "uk": Language.UKRAINIAN,
+    "ur": Language.URDU,
+    "vi": Language.VIETNAMESE,
     "zh": Language.CHINESE,
 }
+# lingua Language → our language code (inverse of the map above, e.g. BOKMAL → "no")
+_LINGUA_TO_CODE: dict[Language, str] = {lang: code for code, lang in _LINGUA_LANGUAGES.items()}
 
 logger = logging.getLogger(__name__)
 
@@ -132,10 +166,17 @@ class SelectToSpeechApp:
     def reload_config(self, config: AppConfig) -> None:
         """Reload configuration and update running handlers/components"""
         logger.info("Reloading configuration...")
+        old_engine = getattr(self.config.voice, "engine", "kokoro")
         self.config = config
 
-        # 1. Update TTS engine config
-        self.tts_engine.update_config(config.voice)
+        # 1. Update TTS engine config (a new engine when switching Kokoro <-> Piper)
+        if config.voice.engine != old_engine:
+            logger.info(f"Switching TTS engine: {old_engine} -> {config.voice.engine}")
+            self.tts_engine.stop()
+            self.tts_engine = get_tts_engine(config.voice)
+            threading.Thread(target=self.tts_engine.warmup, daemon=True, name="TTS-Warmup").start()
+        else:
+            self.tts_engine.update_config(config.voice)
         threads = getattr(config.voice, "num_threads", 0) or 2
         provider = getattr(config.voice, "provider", "cpu") or "cpu"
         self.punctuation_engine.update_config(num_threads=threads, provider=provider)
@@ -172,7 +213,7 @@ class SelectToSpeechApp:
         """Build a lingua detector only for languages with a configured voice model."""
         configured_langs = [
             _LINGUA_LANGUAGES[code]
-            for code, model in self.config.voice.language_models.items()
+            for code, model in self.config.voice.active_language_models().items()
             if model and code in _LINGUA_LANGUAGES
         ]
         default_lang = getattr(self.config.voice, "language", "en")
@@ -196,7 +237,7 @@ class SelectToSpeechApp:
                 return None
 
             top = confidences[0]
-            top_code = top.language.iso_code_639_1.name.lower()
+            top_code = _LINGUA_TO_CODE.get(top.language, top.language.iso_code_639_1.name.lower())
             default_code = getattr(self.config.voice, "language", "en")
 
             # If top language matches the user's default language, accept it directly
@@ -207,7 +248,7 @@ class SelectToSpeechApp:
             # Find confidence for default language
             default_conf = 0.0
             for c in confidences:
-                if c.language.iso_code_639_1.name.lower() == default_code:
+                if _LINGUA_TO_CODE.get(c.language) == default_code:
                     default_conf = c.value
                     break
 
@@ -448,7 +489,7 @@ class SelectToSpeechApp:
         A given ``language`` skips detection.
         """
         detected = language or self._detect_language(text)
-        if detected and self.config.voice.language_models.get(detected):
+        if detected and self.config.voice.active_language_models().get(detected):
             language = detected
             logger.info(f"Detected language: {language}")
         else:
