@@ -212,6 +212,38 @@ class TestAudioPlayerPlayback:
         mock_stream.stop_stream.assert_called_once()
         mock_stream.close.assert_called_once()
 
+    @pytest.mark.parametrize("sample_rate", [24000, 16000, 22050])  # Kokoro, Piper x_low, Piper medium
+    @patch('select_to_speech.audio_player.pyaudio.PyAudio')
+    def test_play_stream_pitch_keeps_end_of_audio(self, mock_pyaudio_class, sample_rate):
+        """Pitch shifting must not swallow the last ~1 s (PitchShift latency) of a reading."""
+        import queue
+        import numpy as np
+        written = []
+        mock_pyaudio = MagicMock()
+        mock_stream = MagicMock()
+        mock_stream.write.side_effect = written.append
+        mock_stream.get_output_latency.return_value = 0.0
+        mock_pyaudio.open.return_value = mock_stream
+        mock_pyaudio.get_format_from_width.return_value = 8
+        mock_pyaudio_class.return_value = mock_pyaudio
+
+        player = AudioPlayer()
+        player._find_output_devices = lambda force_refresh=False: [None]
+        t = np.arange(sample_rate * 2) / sample_rate
+        sentence = (0.5 * np.sin(2 * np.pi * 200 * t)).astype(np.float32)
+
+        q = queue.Queue()
+        for _ in range(3):  # three "sentences", as sherpa streams them
+            q.put((sentence, sample_rate))
+        q.put(None)
+
+        assert player.play_stream(q, pitch=1.5) is True
+        out = np.frombuffer(b"".join(written), dtype=np.int16).astype(np.float32) / 32768.0
+        n_in = 3 * len(sentence)
+        assert len(out) >= n_in
+        last_second = out[n_in - sample_rate:n_in]
+        assert np.sqrt(np.mean(last_second ** 2)) > 0.1
+
 
 class TestAudioPlayerDeviceHandling:
     """Test device handling and fallback mechanisms"""
