@@ -94,12 +94,16 @@ class KeyboardHandler:
             return
 
         if keyboard is None:
-            logger.error("Cannot start keyboard listener: pynput keyboard backend is not available (no display server found)")
+            logger.error(
+                "Cannot start keyboard listener: pynput keyboard backend is not available (no display server found)"
+            )
             return
 
         self.listener = keyboard.GlobalHotKeys(self.hotkeys)
         self.listener.start()
-        logger.info(f"Keyboard listener started with hotkeys: {list(self.hotkeys.keys())}")
+        logger.info(
+            f"Keyboard listener started with hotkeys: {list(self.hotkeys.keys())}"
+        )
 
     def stop(self) -> None:
         """Stop listening for keyboard shortcuts"""
@@ -111,9 +115,15 @@ class KeyboardHandler:
             self.listener.stop()
             # On Linux X11/XWayland, pynput's _stop_platform calls record_disable_context
             # but doesn't flush the display_stop connection, leaving the listener thread blocked.
-            if hasattr(self.listener, "_display_stop") and self.listener._display_stop and hasattr(self.listener, "_context"):
+            if (
+                hasattr(self.listener, "_display_stop")
+                and self.listener._display_stop
+                and hasattr(self.listener, "_context")
+            ):
                 try:
-                    self.listener._display_stop.record_disable_context(self.listener._context)
+                    self.listener._display_stop.record_disable_context(
+                        self.listener._context
+                    )
                     self.listener._display_stop.flush()
                 except Exception:
                     pass

@@ -19,7 +19,12 @@ def test_audio_devices_flag():
 
 def test_download_flag_forwards_model():
     with patch("select_to_speech.voice_manager.download_kokoro_cli") as m:
-        assert entrypoint.dispatch(["--download", "--model", "kokoro-int8-multi-lang-v1_0"]) == 0
+        assert (
+            entrypoint.dispatch(
+                ["--download", "--model", "kokoro-int8-multi-lang-v1_0"]
+            )
+            == 0
+        )
     m.assert_called_once_with(["--model", "kokoro-int8-multi-lang-v1_0"])
 
 

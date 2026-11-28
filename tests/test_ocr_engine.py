@@ -14,8 +14,15 @@ def test_empty_result_is_not_cached():
     engine = OcrEngine()
     with patch("select_to_speech.ocr_engine.shutil.which", return_value=None):
         engine.get_available_languages()
-    listing = MagicMock(returncode=0, stdout="List of available languages (3):\neng\nita\nosd\n")
-    with patch("select_to_speech.ocr_engine.shutil.which", return_value="/usr/bin/tesseract"), \
-         patch("select_to_speech.ocr_engine.subprocess.run", return_value=listing):
+    listing = MagicMock(
+        returncode=0, stdout="List of available languages (3):\neng\nita\nosd\n"
+    )
+    with (
+        patch(
+            "select_to_speech.ocr_engine.shutil.which",
+            return_value="/usr/bin/tesseract",
+        ),
+        patch("select_to_speech.ocr_engine.subprocess.run", return_value=listing),
+    ):
         assert engine.get_available_languages() == {"eng", "ita"}
         assert engine.is_ready()

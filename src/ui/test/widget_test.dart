@@ -4,12 +4,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/main.dart';
 
 void main() {
-  testWidgets('ShortcutRecorderWidget displays M3 keycaps and records key press', (WidgetTester tester) async {
+  testWidgets(
+      'ShortcutRecorderWidget displays M3 keycaps and records key press',
+      (WidgetTester tester) async {
     String? recordedKey;
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: ThemeData(useMaterial3: true, colorSchemeSeed: kDefaultSeedColor),
+        theme:
+            ThemeData(useMaterial3: true, colorSchemeSeed: kDefaultSeedColor),
         home: Scaffold(
           body: ShortcutRecorderWidget(
             label: 'Trigger Key',

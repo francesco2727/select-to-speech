@@ -8,7 +8,6 @@ This module provides heuristics for:
 """
 
 import re
-from typing import Optional
 
 # Common bullet and list markers. Symbol bullets carry no meaning and are
 # dropped; enumerators ("1.", "2)", "a.") are kept so the number is read aloud.
@@ -70,7 +69,7 @@ def normalize_bullets_and_lists(text: str) -> str:
         # Check if line starts with a bullet point
         m = _BULLET_PATTERN.match(line)
         if m:
-            content = line[m.end():].strip()
+            content = line[m.end() :].strip()
             # If line doesn't end with punctuation, append a semicolon or period for pause
             if content and content[-1] not in ".!?;:":
                 content = content + "."
@@ -102,7 +101,7 @@ def unwrap_lines(text: str) -> str:
         if not p_str:
             continue
 
-        lines = [l.strip() for l in p_str.splitlines() if l.strip()]
+        lines = [line.strip() for line in p_str.splitlines() if line.strip()]
         if not lines:
             continue
 
@@ -114,7 +113,12 @@ def unwrap_lines(text: str) -> str:
         for i, line in enumerate(lines):
             if i < len(lines) - 1:
                 next_line = lines[i + 1]
-                if line and line[-1] not in ".!?;:" and next_line and (next_line[0].isupper() or next_line[0].isdigit()):
+                if (
+                    line
+                    and line[-1] not in ".!?;:"
+                    and next_line
+                    and (next_line[0].isupper() or next_line[0].isdigit())
+                ):
                     joined_pieces.append(line + ".")
                 else:
                     joined_pieces.append(line)

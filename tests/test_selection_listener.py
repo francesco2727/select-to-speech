@@ -2,7 +2,6 @@ import subprocess
 import time
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from select_to_speech.selection_listener import (
     _SOURCE_PRIORITY,
@@ -10,13 +9,13 @@ from select_to_speech.selection_listener import (
 )
 
 
-def _make_listener(**kwargs) -> WaylandSelectionListener:
+def _make_listener() -> WaylandSelectionListener:
     """Create a listener wired for unit tests.
 
     No watch processes are spawned (``start()`` is not called unless a test
     explicitly needs the baseline seeding), and X11 reads are mocked away.
     """
-    return WaylandSelectionListener(on_selection_change=kwargs.get("callback", MagicMock()))
+    return WaylandSelectionListener()
 
 
 def _result(text: str = "", returncode: int = 0) -> MagicMock:
@@ -36,7 +35,9 @@ def _fake_run(primary: str = "", clipboard: str = "", rc: int = 0):
     return run
 
 
-def _patch_sources(primary="", clipboard="", x11_primary=None, x11_clipboard=None, rc=0):
+def _patch_sources(
+    primary="", clipboard="", x11_primary=None, x11_clipboard=None, rc=0
+):
     """Patch wl-paste subprocess calls and Xlib reads at the same time."""
 
     def x11_read(selection, timeout_s=0.5):
@@ -66,6 +67,7 @@ def _baseline(listener: WaylandSelectionListener, **sources) -> None:
 
 
 # ---- Freshness-based selection --------------------------------------
+
 
 @patch("select_to_speech.selection_listener._read_x11_selection", return_value=None)
 @patch("select_to_speech.selection_listener.subprocess.run")
@@ -107,7 +109,9 @@ def test_watch_event_detects_recopy_of_same_text(mock_run, mock_x11):
 
     now = time.monotonic()
     listener._last_gather_ts = now - 10
-    listener._watches["wayland_clipboard"].last_event_ts = now - 5  # event after last gather
+    listener._watches["wayland_clipboard"].last_event_ts = (
+        now - 5
+    )  # event after last gather
 
     selected = listener.get_primary_selection()
     assert selected == "same text"
@@ -134,13 +138,16 @@ def test_priority_breaks_timestamp_ties(mock_run, mock_x11):
     mock_run.side_effect = _fake_run(primary="primary text", clipboard="clipboard text")
     listener = _make_listener()
     # Both baselined at startup (ts 0.0) and unchanged: tie -> primary wins.
-    _baseline(listener, wayland_primary="primary text", wayland_clipboard="clipboard text")
+    _baseline(
+        listener, wayland_primary="primary text", wayland_clipboard="clipboard text"
+    )
 
     selected = listener.get_primary_selection()
     assert selected == "primary text"
 
 
 # ---- X11 / XWayland support (python-Xlib, no xclip) ------------------
+
 
 @patch("select_to_speech.selection_listener.subprocess.run")
 def test_x11_primary_used_for_xwayland_apps(mock_run):
@@ -151,7 +158,9 @@ def test_x11_primary_used_for_xwayland_apps(mock_run):
 
     with patch(
         "select_to_speech.selection_listener._read_x11_selection",
-        side_effect=lambda sel, timeout_s=0.5: "xwayland selection" if sel == "PRIMARY" else None,
+        side_effect=lambda sel, timeout_s=0.5: (
+            "xwayland selection" if sel == "PRIMARY" else None
+        ),
     ):
         selected = listener.get_primary_selection()
     assert selected == "xwayland selection"
@@ -190,6 +199,7 @@ def test_no_x_server_degrades_gracefully(mock_run):
 
 # ---- Error handling ---------------------------------------------------
 
+
 @patch("select_to_speech.selection_listener._read_x11_selection", return_value=None)
 @patch("select_to_speech.selection_listener.subprocess.run")
 def test_wl_paste_timeout_returns_none(mock_run, mock_x11):
@@ -210,55 +220,13 @@ def test_wl_paste_missing_returns_none(mock_run, mock_x11):
     assert selected is None
 
 
-# ---- on_trigger dispatch ---------------------------------------------
-
-@patch("select_to_speech.selection_listener._read_x11_selection", return_value=None)
-@patch("select_to_speech.selection_listener.subprocess.run")
-def test_selection_listener_triggers_callback(mock_run, mock_x11):
-    mock_run.side_effect = _fake_run(primary="new selection")
-    callback = MagicMock()
-    listener = _make_listener(callback=callback)
-
-    listener.on_trigger(force=False)
-    for _ in range(50):
-        if callback.call_count:
-            break
-        time.sleep(0.02)
-
-    callback.assert_called_once_with("new selection")
-
-
-@patch("select_to_speech.selection_listener._read_x11_selection", return_value=None)
-@patch("select_to_speech.selection_listener.subprocess.run")
-def test_selection_listener_ignores_unchanged(mock_run, mock_x11):
-    # All sources return text identical to last_selection.
-    mock_run.side_effect = _fake_run(primary="same text")
-
-    callback = MagicMock()
-    listener = _make_listener(callback=callback)
-    listener.last_selection = "same text"
-    _baseline(listener, wayland_primary="same text")
-
-    listener.on_trigger(force=False)
-    time.sleep(0.2)
-    callback.assert_not_called()
-
-    # But it should be called if force=True
-    listener.on_trigger(force=True)
-    for _ in range(50):
-        if callback.call_count:
-            break
-        time.sleep(0.02)
-    callback.assert_called_once_with("same text")
-
-
-# ---- Lifecycle --------------------------------------------------------
-
 @patch("select_to_speech.selection_listener._read_x11_selection", return_value=None)
 @patch("select_to_speech.selection_listener.subprocess.run")
 def test_start_baselines_existing_selections(mock_run, mock_x11):
     """start() seeds observed contents so pre-existing text is not 'fresh'."""
-    mock_run.side_effect = _fake_run(primary="pre-existing selection", clipboard="old copy")
+    mock_run.side_effect = _fake_run(
+        primary="pre-existing selection", clipboard="old copy"
+    )
 
     listener = _make_listener()
     with patch.object(listener._watches["wayland_primary"], "start") as watch_start:

@@ -16,7 +16,7 @@ except (ImportError, OSError):
 logging.basicConfig(
     level=logging.INFO,
     format="%(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
 
@@ -53,8 +53,8 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "desc_slurp_grim": "Fallback screen capture and selection tools on wlroots-based Wayland environments (e.g. Sway, Hyprland).",
         "desc_ocr_missing": "Required to draw and capture the rectangular screen region during OCR reading (Alt+R).",
         "desc_ocr_missing_summary": "Screen capture tools (KDE or wlroots).",
-        "legacy_found": '[⚠] Leftovers of an old per-user installation were found:',
-        "legacy_hint": 'They can shadow the installed package and waste disk space. Remove them with:',
+        "legacy_found": "[⚠] Leftovers of an old per-user installation were found:",
+        "legacy_hint": "They can shadow the installed package and waste disk space. Remove them with:",
     },
     "it": {
         "title": "SELECT-TO-SPEECH - CONTROLLO DIPENDENZE DI SISTEMA",
@@ -87,8 +87,8 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "desc_slurp_grim": "Strumenti di cattura schermo e selezione area di fallback su ambienti Wayland basati su wlroots (es. Sway, Hyprland).",
         "desc_ocr_missing": "Necessario per disegnare e catturare l'area rettangolare dello schermo durante la lettura OCR (Alt+R).",
         "desc_ocr_missing_summary": "Strumenti per la cattura dell'area di schermo (KDE o wlroots).",
-        "legacy_found": '[⚠] Trovati residui di una vecchia installazione per utente:',
-        "legacy_hint": 'Possono prevalere sul pacchetto installato e occupano spazio. Rimuovili con:',
+        "legacy_found": "[⚠] Trovati residui di una vecchia installazione per utente:",
+        "legacy_hint": "Possono prevalere sul pacchetto installato e occupano spazio. Rimuovili con:",
     },
     "fr": {
         "title": "SELECT-TO-SPEECH - VÉRIFICATION DES DÉPENDANCES SYSTÈME",
@@ -155,8 +155,8 @@ _CHECK_MESSAGES: dict[str, dict[str, str]] = {
         "desc_slurp_grim": "Herramientas de captura y selección de pantalla de respaldo en entornos Wayland basados en wlroots (ej. Sway, Hyprland).",
         "desc_ocr_missing": "Requerido para dibujar y capturar el área rectangular de la pantalla durante la lectura OCR (Alt+R).",
         "desc_ocr_missing_summary": "Herramientas para la captura del área de pantalla (KDE o wlroots).",
-        "legacy_found": '[⚠] Se encontraron restos de una antigua instalación por usuario:',
-        "legacy_hint": 'Pueden ocultar el paquete instalado y ocupan espacio en disco. Elimínelos con:',
+        "legacy_found": "[⚠] Se encontraron restos de una antigua instalación por usuario:",
+        "legacy_hint": "Pueden ocultar el paquete instalado y ocupan espacio en disco. Elimínelos con:",
     },
 }
 
@@ -174,6 +174,7 @@ def _detect_language(lang_override: str | None = None) -> str:
                 return prefix
     try:
         import locale
+
         loc = locale.getlocale(locale.LC_MESSAGES)[0] or locale.getlocale()[0]
         if loc:
             prefix = loc.split("_")[0].split(".")[0].lower()
@@ -189,9 +190,14 @@ def _check_portaudio() -> bool:
     if pyaudio is not None:
         return True
     import ctypes.util
+
     if ctypes.util.find_library("portaudio"):
         return True
-    for path in ["/usr/lib/libportaudio.so", "/usr/lib/libportaudio.so.2", "/lib/x86_64-linux-gnu/libportaudio.so.2"]:
+    for path in [
+        "/usr/lib/libportaudio.so",
+        "/usr/lib/libportaudio.so.2",
+        "/lib/x86_64-linux-gnu/libportaudio.so.2",
+    ]:
         if Path(path).exists():
             return True
     return False
@@ -200,15 +206,22 @@ def _check_portaudio() -> bool:
 def _check_pulseaudio() -> bool:
     """Check if libpulse or a running PulseAudio/PipeWire pulse socket is available."""
     import ctypes.util
+
     if ctypes.util.find_library("pulse"):
         return True
-    for path in ["/usr/lib/libpulse.so", "/usr/lib/libpulse.so.0", "/lib/x86_64-linux-gnu/libpulse.so.0"]:
+    for path in [
+        "/usr/lib/libpulse.so",
+        "/usr/lib/libpulse.so.0",
+        "/lib/x86_64-linux-gnu/libpulse.so.0",
+    ]:
         if Path(path).exists():
             return True
     return False
 
 
-LEGACY_UNINSTALL_URL = "https://raw.githubusercontent.com/francesco2727/select-to-speech/main/uninstall.sh"
+LEGACY_UNINSTALL_URL = (
+    "https://raw.githubusercontent.com/francesco2727/select-to-speech/main/uninstall.sh"
+)
 
 
 def find_legacy_install(home: Path | None = None) -> list[Path]:
@@ -253,14 +266,16 @@ def check_system_dependencies(lang: str | None = None) -> bool:
 
     # 1. Required Core Dependencies
     logger.info(msg["req_header"])
-    
+
     # wl-clipboard
     desc_wl = msg["desc_wl"]
     if shutil.which("wl-paste"):
         logger.info(f"  ✓ wl-paste ({msg['package_label']} wl-clipboard)")
         logger.info(f"    └─ {msg['purpose_label']} {desc_wl}")
     else:
-        logger.error(f"  ✗ wl-paste ({msg['package_label']} wl-clipboard) {msg['missing_req_tag']}")
+        logger.error(
+            f"  ✗ wl-paste ({msg['package_label']} wl-clipboard) {msg['missing_req_tag']}"
+        )
         logger.error(f"    └─ {msg['purpose_label']} {desc_wl}")
         missing_required.append(("wl-paste", "wl-clipboard", desc_wl))
 
@@ -273,7 +288,9 @@ def check_system_dependencies(lang: str | None = None) -> bool:
         logger.info(f"  ✓ portaudio ({msg['library_label']} libportaudio.so)")
         logger.info(f"    └─ {msg['purpose_label']} {desc_portaudio}")
     else:
-        logger.error(f"  ✗ portaudio ({msg['package_label']} portaudio) {msg['missing_req_tag']}")
+        logger.error(
+            f"  ✗ portaudio ({msg['package_label']} portaudio) {msg['missing_req_tag']}"
+        )
         logger.error(f"    └─ {msg['purpose_label']} {desc_portaudio}")
         missing_required.append(("portaudio", "portaudio", desc_portaudio))
 
@@ -282,6 +299,7 @@ def check_system_dependencies(lang: str | None = None) -> bool:
     has_kokoro_model = False
     try:
         from .voice_manager import is_kokoro_installed
+
         has_kokoro_model = is_kokoro_installed("kokoro-multi-lang-v1_0")
     except Exception:
         has_kokoro_model = False
@@ -290,7 +308,9 @@ def check_system_dependencies(lang: str | None = None) -> bool:
         logger.info(f"  ✓ Kokoro TTS ({msg['model_label']} kokoro-multi-lang-v1_0)")
         logger.info(f"    └─ {msg['purpose_label']} {desc_kokoro_model}")
     else:
-        logger.warning(f"  ⚠ Kokoro TTS ({msg['model_label']} kokoro-multi-lang-v1_0) {msg['missing_opt_tag']}")
+        logger.warning(
+            f"  ⚠ Kokoro TTS ({msg['model_label']} kokoro-multi-lang-v1_0) {msg['missing_opt_tag']}"
+        )
         logger.warning(f"    └─ {msg['purpose_label']} {desc_kokoro_model}")
         missing_models.append(("kokoro-multi-lang-v1_0", desc_kokoro_model))
 
@@ -301,7 +321,9 @@ def check_system_dependencies(lang: str | None = None) -> bool:
         logger.info(f"  ✓ libpulse / PulseAudio ({msg['library_label']})")
         logger.info(f"    └─ {msg['purpose_label']} {desc_pulse}")
     else:
-        logger.warning(f"  ⚠ libpulse ({msg['package_label']} libpulse) {msg['missing_opt_tag']}")
+        logger.warning(
+            f"  ⚠ libpulse ({msg['package_label']} libpulse) {msg['missing_opt_tag']}"
+        )
         logger.warning(f"    └─ {msg['purpose_label']} {desc_pulse}")
         missing_optional.append(("libpulse", "libpulse", desc_pulse))
 
@@ -315,7 +337,9 @@ def check_system_dependencies(lang: str | None = None) -> bool:
         logger.info(f"  ✓ tesseract ({msg['package_label']} tesseract)")
         logger.info(f"    └─ {msg['purpose_label']} {desc_tess}")
     else:
-        logger.warning(f"  ⚠ tesseract ({msg['package_label']} tesseract) {msg['missing_opt_tag']}")
+        logger.warning(
+            f"  ⚠ tesseract ({msg['package_label']} tesseract) {msg['missing_opt_tag']}"
+        )
         logger.warning(f"    └─ {msg['purpose_label']} {desc_tess}")
         missing_optional.append(("tesseract", "tesseract", desc_tess))
 
@@ -330,28 +354,51 @@ def check_system_dependencies(lang: str | None = None) -> bool:
                 timeout=3,
             )
             if res.returncode == 0:
-                lines = [l.strip() for l in res.stdout.splitlines() if l.strip()]
+                lines = [
+                    line.strip() for line in res.stdout.splitlines() if line.strip()
+                ]
                 langs = {
-                    l for l in lines
-                    if not l.lower().startswith("list of") and l.lower() != "osd"
+                    line
+                    for line in lines
+                    if not line.lower().startswith("list of") and line.lower() != "osd"
                 }
                 if "ita" in langs or "eng" in langs:
-                    logger.info(f"  ✓ tesseract language packs ({msg['langs_detected_label']} {', '.join(sorted(langs))})")
+                    logger.info(
+                        f"  ✓ tesseract language packs ({msg['langs_detected_label']} {', '.join(sorted(langs))})"
+                    )
                     logger.info(f"    └─ {msg['purpose_label']} {desc_langs}")
                 else:
-                    logger.warning(f"  ⚠ tesseract language packs ({msg['packages_label']} tesseract-data-ita tesseract-data-eng) {msg['missing_opt_tag']}")
+                    logger.warning(
+                        f"  ⚠ tesseract language packs ({msg['packages_label']} tesseract-data-ita tesseract-data-eng) {msg['missing_opt_tag']}"
+                    )
                     logger.warning(f"    └─ {msg['purpose_label']} {desc_langs}")
-                    missing_optional.append(("tesseract language packs", "tesseract-data-ita tesseract-data-eng", desc_langs))
+                    missing_optional.append(
+                        (
+                            "tesseract language packs",
+                            "tesseract-data-ita tesseract-data-eng",
+                            desc_langs,
+                        )
+                    )
         except Exception:
             pass
     else:
-        logger.warning(f"  ⚠ tesseract language packs ({msg['packages_label']} tesseract-data-ita tesseract-data-eng) {msg['missing_opt_tag']}")
+        logger.warning(
+            f"  ⚠ tesseract language packs ({msg['packages_label']} tesseract-data-ita tesseract-data-eng) {msg['missing_opt_tag']}"
+        )
         logger.warning(f"    └─ {msg['purpose_label']} {desc_langs}")
-        missing_optional.append(("tesseract language packs", "tesseract-data-ita tesseract-data-eng", desc_langs))
+        missing_optional.append(
+            (
+                "tesseract language packs",
+                "tesseract-data-ita tesseract-data-eng",
+                desc_langs,
+            )
+        )
 
     # spectacle (or slurp+grim)
     has_spectacle = shutil.which("spectacle") is not None
-    has_grim_slurp = shutil.which("grim") is not None and shutil.which("slurp") is not None
+    has_grim_slurp = (
+        shutil.which("grim") is not None and shutil.which("slurp") is not None
+    )
     desc_spectacle = msg["desc_spectacle"]
     desc_slurp_grim = msg["desc_slurp_grim"]
 
@@ -362,18 +409,30 @@ def check_system_dependencies(lang: str | None = None) -> bool:
         logger.info(f"  ✓ slurp & grim ({msg['packages_label']} slurp grim)")
         logger.info(f"    └─ {msg['purpose_label']} {desc_slurp_grim}")
     else:
-        logger.warning(f"  ⚠ spectacle (slurp + grim) ({msg['packages_label']} spectacle slurp grim) {msg['missing_opt_tag']}")
+        logger.warning(
+            f"  ⚠ spectacle (slurp + grim) ({msg['packages_label']} spectacle slurp grim) {msg['missing_opt_tag']}"
+        )
         logger.warning(f"    └─ {msg['purpose_label']} {msg['desc_ocr_missing']}")
-        missing_optional.append(("spectacle (slurp+grim)", "spectacle slurp grim", msg["desc_ocr_missing_summary"]))
+        missing_optional.append(
+            (
+                "spectacle (slurp+grim)",
+                "spectacle slurp grim",
+                msg["desc_ocr_missing_summary"],
+            )
+        )
 
     # Summary & Installation instructions
     if missing_required or missing_optional or missing_models:
-        logger.info("\n==================================================================")
+        logger.info(
+            "\n=================================================================="
+        )
         logger.info(f"           {msg['install_header']}")
-        logger.info("==================================================================")
-        
+        logger.info(
+            "=================================================================="
+        )
+
         if missing_required:
-            req_pkgs = sorted(list(set(pkg for _, pkg, _ in missing_required)))
+            req_pkgs = sorted({pkg for _, pkg, _ in missing_required})
             logger.error(f"\n{msg['missing_req_summary']}")
             for cmd, pkg, desc in missing_required:
                 logger.error(f"  • {cmd} ({pkg})")
@@ -389,10 +448,9 @@ def check_system_dependencies(lang: str | None = None) -> bool:
                 logger.warning(f"     select-to-speech --download --model {model_id}")
 
         if missing_optional:
-            all_opt = []
-            for _, pkg, _ in missing_optional:
-                all_opt.extend(pkg.split())
-            all_opt = sorted(list(set(all_opt)))
+            all_opt = sorted(
+                {name for _, pkg, _ in missing_optional for name in pkg.split()}
+            )
             logger.warning(f"\n{msg['missing_opt_summary']}")
             for cmd, pkg, desc in missing_optional:
                 logger.warning(f"  • {cmd} ({pkg})")
@@ -407,7 +465,9 @@ def check_system_dependencies(lang: str | None = None) -> bool:
         for path in legacy:
             logger.warning(f"  • {path}")
         logger.warning(f"  {msg['legacy_hint']}")
-        logger.warning(f"     curl -fsSL {LEGACY_UNINSTALL_URL} | bash -s -- --user-only")
+        logger.warning(
+            f"     curl -fsSL {LEGACY_UNINSTALL_URL} | bash -s -- --user-only"
+        )
 
     if missing_required:
         return False
@@ -445,13 +505,15 @@ def get_audio_devices() -> list[dict]:
                 continue
 
             if info["maxOutputChannels"] > 0:
-                devices.append({
-                    "id": i,
-                    "name": info["name"],
-                    "channels": info["maxOutputChannels"],
-                    "sample_rate": int(info["defaultSampleRate"]),
-                    "is_default": info["name"] == default_name,
-                })
+                devices.append(
+                    {
+                        "id": i,
+                        "name": info["name"],
+                        "channels": info["maxOutputChannels"],
+                        "sample_rate": int(info["defaultSampleRate"]),
+                        "is_default": info["name"] == default_name,
+                    }
+                )
     finally:
         p.terminate()
 
@@ -473,7 +535,9 @@ def list_audio_devices() -> None:
         logger.info(f"  Channels: {dev['channels']}")
         logger.info(f"  Sample Rate: {dev['sample_rate']} Hz\n")
 
-    logger.info("To use a specific device, edit ~/.config/select-to-speech/config.yaml:")
+    logger.info(
+        "To use a specific device, edit ~/.config/select-to-speech/config.yaml:"
+    )
     logger.info("  audio:")
     logger.info("    device_id: <device_number>\n")
 
@@ -492,7 +556,9 @@ def get_hardware_info() -> dict:
 
     total_threads = os.cpu_count() or 1
     # Optimal calculation: up to 6-8 threads, reserving cores for desktop/UI
-    optimal_threads = max(1, min(6, total_threads // 2 if total_threads > 4 else total_threads))
+    optimal_threads = max(
+        1, min(6, total_threads // 2 if total_threads > 4 else total_threads)
+    )
 
     return {
         "cpu_model": model_name,
@@ -505,7 +571,9 @@ def main_audio_devices(argv: list[str] | None = None) -> int:
     """CLI entry point for ``select-to-speech --audio-devices``."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="List Select-to-Speech audio output devices")
+    parser = argparse.ArgumentParser(
+        description="List Select-to-Speech audio output devices"
+    )
     parser.parse_args(argv)
     list_audio_devices()
     return 0
@@ -518,8 +586,13 @@ def main_check(lang: str | None = None, argv: list[str] | None = None) -> int:
     """
     if lang is None:
         import argparse
+
         parser = argparse.ArgumentParser(description="Select-to-Speech system checker")
-        parser.add_argument("--lang", choices=["en", "it", "fr", "es"], help="Override language for system check output (default: system locale or en)")
+        parser.add_argument(
+            "--lang",
+            choices=["en", "it", "fr", "es"],
+            help="Override language for system check output (default: system locale or en)",
+        )
         args, _ = parser.parse_known_args(argv)
         lang = args.lang
     is_ok = check_system_dependencies(lang=lang)
@@ -530,9 +603,15 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Select-to-Speech system checker")
-    parser.add_argument("--audio-devices", action="store_true", help="List audio devices")
-    parser.add_argument("--lang", choices=["en", "it", "fr", "es"], help="Override language for system check output (default: system locale or en)")
-    
+    parser.add_argument(
+        "--audio-devices", action="store_true", help="List audio devices"
+    )
+    parser.add_argument(
+        "--lang",
+        choices=["en", "it", "fr", "es"],
+        help="Override language for system check output (default: system locale or en)",
+    )
+
     args, _ = parser.parse_known_args()
 
     if args.audio_devices:

@@ -9,59 +9,73 @@ from select_to_speech.system_check import (
 
 def test_check_system_dependencies_all_present():
     """Test when all required, optional, and OCR packages are present"""
+
     def fake_which(cmd):
         return f"/usr/bin/{cmd}"
-    
-    with patch("select_to_speech.system_check.shutil.which", side_effect=fake_which), \
-         patch("select_to_speech.system_check.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout="List of available languages (2):\neng\nita\n")
+
+    with (
+        patch("select_to_speech.system_check.shutil.which", side_effect=fake_which),
+        patch("select_to_speech.system_check.subprocess.run") as mock_run,
+    ):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="List of available languages (2):\neng\nita\n"
+        )
         assert check_system_dependencies() is True
 
 
 def test_check_system_dependencies_missing_ocr_warns():
     """Test when OCR dependencies are missing (should still return True if required wl-paste is found)"""
+
     def fake_which(cmd):
         if cmd == "wl-paste":
             return "/usr/bin/wl-paste"
         return None
-        
+
     with patch("select_to_speech.system_check.shutil.which", side_effect=fake_which):
         assert check_system_dependencies() is True
 
 
 def test_check_system_dependencies_missing_required_fails():
     """Test when required wl-paste is missing (should return False)"""
+
     def fake_which(cmd):
         return None
-        
+
     with patch("select_to_speech.system_check.shutil.which", side_effect=fake_which):
         assert check_system_dependencies() is False
 
 
 def test_check_system_dependencies_missing_portaudio_fails():
     """Test when required portaudio library is missing (should return False)"""
+
     def fake_which(cmd):
         return f"/usr/bin/{cmd}"
 
-    with patch("select_to_speech.system_check.shutil.which", side_effect=fake_which), \
-         patch("select_to_speech.system_check._check_portaudio", return_value=False):
+    with (
+        patch("select_to_speech.system_check.shutil.which", side_effect=fake_which),
+        patch("select_to_speech.system_check._check_portaudio", return_value=False),
+    ):
         assert check_system_dependencies() is False
 
 
 def test_check_system_dependencies_missing_kokoro_model_warns():
     """Test when kokoro model is missing (optional warning, check still returns True if core deps present)"""
+
     def fake_which(cmd):
         return f"/usr/bin/{cmd}"
 
-    with patch("select_to_speech.system_check.shutil.which", side_effect=fake_which), \
-         patch("select_to_speech.system_check._check_portaudio", return_value=True), \
-         patch("select_to_speech.voice_manager.is_kokoro_installed", return_value=False):
+    with (
+        patch("select_to_speech.system_check.shutil.which", side_effect=fake_which),
+        patch("select_to_speech.system_check._check_portaudio", return_value=True),
+        patch("select_to_speech.voice_manager.is_kokoro_installed", return_value=False),
+    ):
         assert check_system_dependencies() is True
 
 
 def test_detect_language_and_multilingual_check():
     """Test language detection and explicit overrides (`en`, `it`, `fr`, `es`, default fallback)."""
     from select_to_speech.system_check import _detect_language
+
     assert _detect_language("it") == "it"
     assert _detect_language("fr_FR.UTF-8") == "fr"
     assert _detect_language("es_ES") == "es"
@@ -70,9 +84,13 @@ def test_detect_language_and_multilingual_check():
     def fake_which(cmd):
         return f"/usr/bin/{cmd}"
 
-    with patch("select_to_speech.system_check.shutil.which", side_effect=fake_which), \
-         patch("select_to_speech.system_check.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout="List of available languages (2):\neng\nita\n")
+    with (
+        patch("select_to_speech.system_check.shutil.which", side_effect=fake_which),
+        patch("select_to_speech.system_check.subprocess.run") as mock_run,
+    ):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="List of available languages (2):\neng\nita\n"
+        )
         assert check_system_dependencies(lang="fr") is True
         assert check_system_dependencies(lang="es") is True
 
@@ -80,7 +98,9 @@ def test_detect_language_and_multilingual_check():
 def test_get_audio_devices_without_default_output_device():
     """Audio listing should still work when the system has no default output device."""
     mock_pyaudio = MagicMock()
-    mock_pyaudio.get_default_output_device_info.side_effect = OSError("No Default Output Device Available")
+    mock_pyaudio.get_default_output_device_info.side_effect = OSError(
+        "No Default Output Device Available"
+    )
     mock_pyaudio.get_device_count.return_value = 2
     mock_pyaudio.get_device_info_by_index.side_effect = [
         {
@@ -129,13 +149,13 @@ def test_main_audio_devices_help(capsys):
 
 def test_get_hardware_info():
     from select_to_speech.system_check import get_hardware_info
+
     info = get_hardware_info()
     assert "cpu_model" in info
     assert "total_threads" in info
     assert "optimal_threads" in info
     assert info["total_threads"] >= 1
     assert 1 <= info["optimal_threads"] <= info["total_threads"]
-
 
 
 def test_find_legacy_install(tmp_path):

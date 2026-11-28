@@ -58,11 +58,14 @@ class OcrEngine:
                 timeout=3,
             )
             if res.returncode == 0:
-                lines = [l.strip() for l in res.stdout.splitlines() if l.strip()]
+                lines = [
+                    line.strip() for line in res.stdout.splitlines() if line.strip()
+                ]
                 # First line is usually "List of available languages (N):"
                 langs = {
-                    l for l in lines
-                    if not l.lower().startswith("list of") and l.lower() != "osd"
+                    line
+                    for line in lines
+                    if not line.lower().startswith("list of") and line.lower() != "osd"
                 }
                 self._available_langs = langs or None
                 return langs
@@ -89,10 +92,14 @@ class OcrEngine:
 
         # Fallback to 'eng' or 'ita' or first available
         if "eng" in available:
-            logger.warning(f"Requested Tesseract languages '{requested_langs}' not found, falling back to 'eng'")
+            logger.warning(
+                f"Requested Tesseract languages '{requested_langs}' not found, falling back to 'eng'"
+            )
             return "eng"
         if "ita" in available:
-            logger.warning(f"Requested Tesseract languages '{requested_langs}' not found, falling back to 'ita'")
+            logger.warning(
+                f"Requested Tesseract languages '{requested_langs}' not found, falling back to 'ita'"
+            )
             return "ita"
 
         fallback = next(iter(available), None)
@@ -102,7 +109,9 @@ class OcrEngine:
         )
         return fallback
 
-    def extract_text(self, image_path: Path | str, languages: Optional[str] = None) -> str:
+    def extract_text(
+        self, image_path: Path | str, languages: Optional[str] = None
+    ) -> str:
         """
         Extract text from an image file using Tesseract CLI.
 
@@ -141,7 +150,9 @@ class OcrEngine:
                 timeout=15,
             )
             if res.returncode != 0:
-                logger.warning(f"Tesseract exited with status {res.returncode}: {res.stderr}")
+                logger.warning(
+                    f"Tesseract exited with status {res.returncode}: {res.stderr}"
+                )
 
             cleaned = res.stdout.strip()
             logger.info(f"OCR extracted {len(cleaned)} characters from {img_path.name}")

@@ -4,7 +4,6 @@ import logging
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 
 logger = logging.getLogger(__name__)
@@ -45,19 +44,24 @@ class ScreenCapture:
 
         # 1. Prioritize KDE Spectacle (with -k for immediate capture on click-and-release)
         if cls.is_spectacle_available():
-            logger.info("Starting rectangular screen selection using KDE Spectacle (-k immediate capture)")
+            logger.info(
+                "Starting rectangular screen selection using KDE Spectacle (-k immediate capture)"
+            )
             cmd = [
                 "spectacle",
                 "-r",  # rectangular region
                 "-b",  # background (do not open GUI editor after capture)
                 "-n",  # non-notify
                 "-k",  # release-capture (accept region on click-and-release)
-                "-o",  str(out_file),
+                "-o",
+                str(out_file),
             ]
             try:
                 res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
                 if res.returncode != 0:
-                    logger.warning(f"Spectacle returned code {res.returncode}: {res.stderr}")
+                    logger.warning(
+                        f"Spectacle returned code {res.returncode}: {res.stderr}"
+                    )
             except subprocess.TimeoutExpired:
                 logger.warning("Screen capture with Spectacle timed out after 30s")
             except Exception as e:
@@ -73,15 +77,26 @@ class ScreenCapture:
         if cls.is_grim_slurp_available():
             logger.info("Trying slurp + grim fallback for rectangular screen selection")
             try:
-                slurp_res = subprocess.run(["slurp"], capture_output=True, text=True, timeout=30)
+                slurp_res = subprocess.run(
+                    ["slurp"], capture_output=True, text=True, timeout=30
+                )
                 if slurp_res.returncode != 0:
                     logger.info("Region selection cancelled")
                     return False
                 region = slurp_res.stdout.strip()
                 if not region:
                     return False
-                grim_res = subprocess.run(["grim", "-g", region, str(out_file)], capture_output=True, text=True, timeout=10)
-                if grim_res.returncode == 0 and out_file.exists() and out_file.stat().st_size > 0:
+                grim_res = subprocess.run(
+                    ["grim", "-g", region, str(out_file)],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if (
+                    grim_res.returncode == 0
+                    and out_file.exists()
+                    and out_file.stat().st_size > 0
+                ):
                     logger.info(f"Screen capture saved to {out_file}")
                     return True
             except subprocess.TimeoutExpired:
@@ -94,4 +109,3 @@ class ScreenCapture:
             "Please install slurp and grim (or KDE Spectacle): sudo pacman -S slurp grim spectacle"
         )
         return False
-

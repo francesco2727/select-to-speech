@@ -6,8 +6,7 @@ import select as _select
 import subprocess
 import threading
 import time
-from typing import Any, Callable, Optional
-
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +29,7 @@ _WATCH_RESPAWN_S = 5.0
 # ----------------------------------------------------------------------
 # X11 selection access (XWayland) via python-Xlib — replaces xclip
 # ----------------------------------------------------------------------
+
 
 def _wait_readable(d: Any, deadline: float) -> bool:
     """Return True when the X connection has data before ``deadline``."""
@@ -83,7 +83,9 @@ def _read_x11_incr(
     return b"".join(chunks)
 
 
-def _read_x11_selection(selection: str, timeout_s: float = _X11_READ_TIMEOUT_S) -> Optional[str]:
+def _read_x11_selection(
+    selection: str, timeout_s: float = _X11_READ_TIMEOUT_S
+) -> Optional[str]:
     """Read an X11 selection (``PRIMARY`` or ``CLIPBOARD``) via python-Xlib.
 
     Talks directly to the X server (XWayland), so no external helper such as
@@ -161,6 +163,7 @@ def _read_x11_selection(selection: str, timeout_s: float = _X11_READ_TIMEOUT_S) 
 # ----------------------------------------------------------------------
 # Wayland selection change watch (wl-clipboard --watch)
 # ----------------------------------------------------------------------
+
 
 class _SelectionWatch:
     """Timestamps selection changes via ``wl-paste --watch``.
@@ -264,17 +267,8 @@ class WaylandSelectionListener:
     so pressing the hotkey twice still replays the same text.
     """
 
-    def __init__(
-        self,
-        on_selection_change: Callable[[str], None],
-    ):
-        """
-        Initialize the selection listener.
-
-        Args:
-            on_selection_change: Callback called when user explicitly triggers playback
-        """
-        self.on_selection_change = on_selection_change
+    def __init__(self):
+        # Text of the last selection read aloud, maintained by the caller
         self.last_selection = ""
         self.is_running = False
         self._lock = threading.Lock()
@@ -300,11 +294,13 @@ class WaylandSelectionListener:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _get_wayland_primary(self) -> Optional[str]:
-        """Return the Wayland primary selection via ``wl-paste``, or None."""
+    @staticmethod
+    def _run_wl_paste(primary: bool) -> Optional[str]:
+        """Return a Wayland selection (primary or clipboard) via ``wl-paste``, or None."""
+        kind = "primary" if primary else "clipboard"
         try:
             result = subprocess.run(
-                ["wl-paste", "--primary"],
+                ["wl-paste", "--primary"] if primary else ["wl-paste"],
                 capture_output=True,
                 text=True,
                 timeout=1,
@@ -312,36 +308,26 @@ class WaylandSelectionListener:
             if result.returncode == 0:
                 return result.stdout
         except FileNotFoundError:
-            logger.error(
-                "wl-paste not found. This is required for Wayland clipboard access.\n"
-                "Install wl-clipboard on Arch Linux: sudo pacman -S wl-clipboard\n"
-                "Or run: python -m select_to_speech.system_check"
-            )
+            # Both sources are read on every trigger: report the missing tool once.
+            if primary:
+                logger.error(
+                    "wl-paste not found. This is required for Wayland clipboard access.\n"
+                    "Install wl-clipboard on Arch Linux: sudo pacman -S wl-clipboard\n"
+                    "Or run: python -m select_to_speech.system_check"
+                )
         except subprocess.TimeoutExpired:
-            logger.debug("Timeout retrieving Wayland primary selection")
+            logger.debug(f"Timeout retrieving Wayland {kind} selection")
         except Exception as e:
-            logger.debug(f"Error retrieving Wayland selection: {e}")
+            logger.debug(f"Error retrieving Wayland {kind} selection: {e}")
         return None
+
+    def _get_wayland_primary(self) -> Optional[str]:
+        """Return the Wayland primary selection via ``wl-paste``, or None."""
+        return self._run_wl_paste(primary=True)
 
     def _get_wayland_clipboard(self) -> Optional[str]:
         """Return the Wayland clipboard selection via ``wl-paste``, or None."""
-        try:
-            result = subprocess.run(
-                ["wl-paste"],
-                capture_output=True,
-                text=True,
-                timeout=1,
-            )
-            if result.returncode == 0:
-                return result.stdout
-        except FileNotFoundError:
-            # Already logged in _get_wayland_primary if wl-paste is missing
-            pass
-        except subprocess.TimeoutExpired:
-            logger.debug("Timeout retrieving Wayland clipboard selection")
-        except Exception as e:
-            logger.debug(f"Error retrieving Wayland clipboard: {e}")
-        return None
+        return self._run_wl_paste(primary=False)
 
     def _get_x11_primary(self) -> Optional[str]:
         """Return the X11 PRIMARY selection via python-Xlib, or None."""
@@ -364,7 +350,7 @@ class WaylandSelectionListener:
             }
         except RuntimeError as e:
             logger.debug(f"Selection listener executor shut down or unavailable: {e}")
-            return {name: None for name in _SOURCE_PRIORITY}
+            return dict.fromkeys(_SOURCE_PRIORITY)
 
         contents: dict[str, Optional[str]] = {}
         for name, future in futures.items():
@@ -427,14 +413,8 @@ class WaylandSelectionListener:
             else:
                 candidates.append((stored_ts, priority, name, text))
 
-        winner: Optional[tuple[float, int, str, str]] = None
-        winner_score: Optional[tuple[float, int]] = None
-        for ts, priority, name, text in candidates:
-            # Higher timestamp wins; on ties the lower priority index wins.
-            score = (ts, -priority)
-            if winner_score is None or score > winner_score:
-                winner_score = score
-                winner = (ts, priority, name, text)
+        # Higher timestamp wins; on ties the lower priority index wins.
+        winner = max(candidates, key=lambda c: (c[0], -c[1]), default=None)
 
         with self._lock:
             self._last_gather_ts = now
@@ -455,44 +435,6 @@ class WaylandSelectionListener:
         _, _, source, text = winner
         logger.debug(f"Using selection source: {source}")
         return text
-
-    def on_trigger(self, force: bool = False) -> None:
-        """
-        Called when keyboard shortcut is triggered.
-
-        Retrieves the current primary selection and passes it to the callback in a background thread.
-
-        Args:
-            force: If True, triggers the callback even if the selection hasn't changed.
-        """
-        threading.Thread(
-            target=self._process_trigger,
-            args=(force,),
-            daemon=True
-        ).start()
-
-    def _process_trigger(self, force: bool) -> None:
-        """Actually retrieves and dispatches the selection."""
-        selection = self.get_primary_selection()
-
-        if selection:
-            # Only process if selection is not empty
-            text = selection.strip()
-            with self._lock:
-                last_sel = self.last_selection
-                should_dispatch = bool(text and (text != last_sel or force))
-                if should_dispatch:
-                    self.last_selection = text
-
-            if should_dispatch:
-                logger.debug(f"Selection captured: {len(text)} chars (force={force})")
-                self.on_selection_change(text)
-            elif text == last_sel:
-                logger.debug("Selection unchanged, skipping")
-            else:
-                logger.warning("No text selected or clipboard is empty.")
-        else:
-            logger.warning("No text selected or clipboard is empty.")
 
     def start(self) -> None:
         """Start the selection listener"""

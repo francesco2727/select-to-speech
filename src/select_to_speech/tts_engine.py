@@ -1,24 +1,19 @@
 """Text-to-Speech engine implementations using Sherpa-ONNX."""
 
-import io
 import logging
 import queue
 import re
 import threading
-import time
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from pathlib import Path
 from typing import Iterator, Optional, Tuple, Union
 
 import emoji
 import numpy as np
-import wave
 
 from .config import VoiceConfig, get_data_dir
 from .voice_manager import (
     DEFAULT_PIPER_PRECISION,
-    ID_TO_SPEAKER,
     KOKORO_MODELS,
     SPEAKER_TO_ID,
     download_piper,
@@ -34,35 +29,17 @@ from .voice_manager import (
 logger = logging.getLogger(__name__)
 
 
-def _retry_synthesis(func, max_retries: int = 3, base_delay: float = 0.5):
-    """Call func() up to max_retries times with exponential backoff. Re-raises on final failure."""
-    last_exc: Exception = RuntimeError("No attempts made")
-    for attempt in range(max_retries):
-        try:
-            return func()
-        except Exception as exc:
-            last_exc = exc
-            if attempt < max_retries - 1:
-                delay = min(base_delay * (2 ** attempt), 4.0)
-                logger.warning(
-                    f"TTS synthesis attempt {attempt + 1}/{max_retries} failed, "
-                    f"retrying in {delay:.1f}s: {exc}"
-                )
-                time.sleep(delay)
-    raise last_exc
-
-
 # Kokoro voice-name prefixes by language
-_KOKORO_LANG_PREFIXES: dict[str, list[str]] = {
-    "en": ["af_", "am_", "bf_", "bm_"],
-    "es": ["ef_", "em_"],
-    "fr": ["ff_"],
-    "hi": ["hf_", "hm_"],
-    "it": ["if_", "im_"],
-    "ja": ["jf_", "jm_"],
-    "ko": [],
-    "pt": ["pf_", "pm_"],
-    "zh": ["zf_", "zm_"],
+_KOKORO_LANG_PREFIXES: dict[str, tuple[str, ...]] = {
+    "en": ("af_", "am_", "bf_", "bm_"),
+    "es": ("ef_", "em_"),
+    "fr": ("ff_",),
+    "hi": ("hf_", "hm_"),
+    "it": ("if_", "im_"),
+    "ja": ("jf_", "jm_"),
+    "ko": (),
+    "pt": ("pf_", "pm_"),
+    "zh": ("zf_", "zm_"),
 }
 
 # Kokoro lang codes passed to espeak/sherpa GenerationConfig.extra["lang"]
@@ -328,7 +305,18 @@ _SYMBOL_WORDS: dict[str, dict[str, str]] = {
 }
 
 
-# Precompiled regular expressions for text preprocessing and chunking
+# Typographic quotes, dashes and ellipsis → their plain ASCII spelling (one pass)
+_TYPOGRAPHY_TABLE = str.maketrans(
+    {
+        **dict.fromkeys("\u2019\u2018\u02bc\u02bb\u00b4\u0060", "'"),
+        **dict.fromkeys("\u201c\u201d\u00ab\u00bb", '"'),
+        "\u2014": " - ",
+        "\u2013": " - ",
+        "\u2026": "...",
+    }
+)
+
+# Precompiled regular expressions for text preprocessing
 _RE_EMOJI_COLON = re.compile(r":([^:]+):")
 _RE_DATE_PATTERNS = [
     re.compile(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b"),
@@ -360,8 +348,6 @@ _RE_WHITESPACE = re.compile(r"\s+")
 _RE_SANITIZE_CHARS = re.compile(r"[^\w\s.,!?;:\'\"/-]")
 _RE_NEWLINE_WITH_PUNCT = re.compile(r"([.!?])\s*\n+")
 _RE_NEWLINE_NO_PUNCT = re.compile(r"([^.!?\s])\s*\n+")
-_RE_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
-_RE_WEAK_SPLIT = re.compile(r"(?<=[,;:—])\s+")
 
 
 class BaseTTSEngine(ABC):
@@ -381,12 +367,8 @@ class BaseTTSEngine(ABC):
         if not text:
             return text
 
-        # Normalize typographical apostrophes and quotes
-        for q in ("\u2019", "\u2018", "\u02bc", "\u02bb", "\u00b4", "\u0060"):
-            text = text.replace(q, "'")
-        for q in ("\u201c", "\u201d", "\u00ab", "\u00bb"):
-            text = text.replace(q, '"')
-        text = text.replace("\u2014", " - ").replace("\u2013", " - ").replace("\u2026", "...")
+        # Normalize typographical apostrophes, quotes, dashes and ellipsis
+        text = text.translate(_TYPOGRAPHY_TABLE)
 
         lang_key = (language or "").split("-")[0].split("_")[0].lower() or "en"
         # Languages without a word table (e.g. Polish with a Piper voice) keep their
@@ -402,19 +384,23 @@ class BaseTTSEngine(ABC):
                 demojized = emoji.replace_emoji(text, replace=" ")
         else:
             demojized = emoji.replace_emoji(text, replace=" ")
-        text = _RE_EMOJI_COLON.sub(lambda m: " " + m.group(1).replace("_", " ") + " ", demojized)
+        text = _RE_EMOJI_COLON.sub(
+            lambda m: " " + m.group(1).replace("_", " ") + " ", demojized
+        )
 
         if words is None:
             return text
 
         # Mask dates to prevent their separators from being replaced by math operations
         date_placeholders: dict[str, str] = {}
+
+        def _mask_date(match: re.Match) -> str:
+            placeholder = f"__DATE_{len(date_placeholders)}__"
+            date_placeholders[placeholder] = match.group(0)
+            return placeholder
+
         for pattern in _RE_DATE_PATTERNS:
-            def repl(match: re.Match) -> str:
-                placeholder = f"__DATE_{len(date_placeholders)}__"
-                date_placeholders[placeholder] = match.group(0)
-                return placeholder
-            text = pattern.sub(repl, text)
+            text = pattern.sub(_mask_date, text)
 
         # Replace dots in domains/filenames
         text = _RE_DOT.sub(f" {words['dot']} ", text)
@@ -471,16 +457,17 @@ class BaseTTSEngine(ABC):
 
         return text
 
-    def _sanitize_text(self, text: str, language: Optional[str] = None, already_preprocessed: bool = False) -> str:
+    def _sanitize_text(
+        self,
+        text: str,
+        language: Optional[str] = None,
+        already_preprocessed: bool = False,
+    ) -> str:
         """Sanitize text for TTS processing."""
         if not already_preprocessed:
             text = self.preprocess_text(text, language)
 
-        for q in ("\u2019", "\u2018", "\u02bc", "\u02bb", "\u00b4", "\u0060"):
-            text = text.replace(q, "'")
-        for q in ("\u201c", "\u201d", "\u00ab", "\u00bb"):
-            text = text.replace(q, '"')
-        text = text.replace("\u2014", " - ").replace("\u2013", " - ").replace("\u2026", "...")
+        text = text.translate(_TYPOGRAPHY_TABLE)
 
         # Turn line breaks into periods or spaces with natural pauses
         text = _RE_NEWLINE_WITH_PUNCT.sub(r"\1 ", text)
@@ -493,64 +480,6 @@ class BaseTTSEngine(ABC):
         text = text.strip()
         logger.debug(f"Sanitized: '{text[:100]}{'...' if len(text) > 100 else ''}'")
         return text
-
-    def _chunk_text(self, text: str, max_chars: int = 80, language: Optional[str] = None, already_preprocessed: bool = False) -> list[str]:
-        """Split text into logical, speakable chunks for streaming TTS."""
-        text = _RE_NEWLINE_WITH_PUNCT.sub(r"\1 ", text)
-        text = _RE_NEWLINE_NO_PUNCT.sub(r"\1. ", text)
-
-        text = self._sanitize_text(text, language=language, already_preprocessed=already_preprocessed)
-
-        raw_sentences = _RE_SENTENCE_SPLIT.split(text)
-        chunks = []
-
-        def _split_and_add_weak(sentence: str):
-            if len(sentence) <= max_chars:
-                if sentence:
-                    chunks.append(sentence)
-                return
-
-            weak_parts = _RE_WEAK_SPLIT.split(sentence)
-            current_chunk = ""
-
-            def _add_piece(piece: str):
-                nonlocal current_chunk
-                piece = piece.strip()
-                if not piece:
-                    return
-                if len(piece) <= max_chars:
-                    if len(current_chunk) + len(piece) + 1 <= max_chars:
-                        current_chunk = f"{current_chunk} {piece}".strip()
-                    else:
-                        if current_chunk:
-                            chunks.append(current_chunk)
-                        current_chunk = piece
-                else:
-                    words = piece.split()
-                    for w in words:
-                        if len(current_chunk) + len(w) + 1 <= max_chars:
-                            current_chunk = f"{current_chunk} {w}".strip()
-                        else:
-                            if current_chunk:
-                                chunks.append(current_chunk)
-                            while len(w) > max_chars:
-                                chunks.append(w[:max_chars])
-                                w = w[max_chars:]
-                            current_chunk = w
-
-            for part in weak_parts:
-                _add_piece(part)
-
-            if current_chunk:
-                chunks.append(current_chunk)
-
-        for sentence in raw_sentences:
-            sentence = sentence.strip()
-            if not sentence:
-                continue
-            _split_and_add_weak(sentence)
-
-        return chunks
 
     def _language_models(self) -> dict:
         """Language → voice map of the active engine."""
@@ -571,16 +500,14 @@ class BaseTTSEngine(ABC):
         fallback = models.get(default_lang) if default_lang else None
         if not fallback:
             fallback = next((v for v in models.values() if v), "")
-        logger.warning(f"No voice configured for language '{language}', using '{fallback}'")
+        logger.warning(
+            f"No voice configured for language '{language}', using '{fallback}'"
+        )
         return fallback
 
     def warmup(self) -> bool:
         """Pre-warm TTS model/buffers in background if supported."""
         return True
-
-    @abstractmethod
-    def synthesize(self, text: str, language: Optional[str] = None, speed: float = 1.0, volume: float = 1.0, phoneme_lang: Optional[str] = None) -> Optional[Tuple[bytes, int]]:
-        pass
 
     @abstractmethod
     def synthesize_stream(
@@ -619,14 +546,15 @@ def _import_sherpa_onnx():
         logger.error(
             "sherpa-onnx %s is not supported: starting from v2.0.0 espeak-ng G2P was removed, "
             "so non-English languages (e.g. Italian) cannot be phonemized and will be garbled. "
-            "Install sherpa-onnx < 2.0.0.", sherpa_version or ">=2"
+            "Install sherpa-onnx < 2.0.0.",
+            sherpa_version or ">=2",
         )
         return None
     return sherpa_onnx
 
 
 class _SherpaEngine(BaseTTSEngine):
-    """Shared Sherpa-ONNX synthesis (batch and streaming) for Kokoro and Piper.
+    """Shared Sherpa-ONNX streaming synthesis for Kokoro and Piper.
 
     Subclasses implement :meth:`_prepare_generation`, returning the loaded
     ``OfflineTts`` and its ``GenerationConfig`` for a language.
@@ -642,6 +570,7 @@ class _SherpaEngine(BaseTTSEngine):
         if cfg_threads > 0:
             return cfg_threads
         from .system_check import get_hardware_info
+
         return get_hardware_info().get("optimal_threads", 4)
 
     @abstractmethod
@@ -652,59 +581,6 @@ class _SherpaEngine(BaseTTSEngine):
         speed: float,
     ) -> Optional[Tuple[object, object, str]]:
         """Return ``(tts, gen_config, description)``, or None if no model is usable."""
-
-    def synthesize(
-        self,
-        text: str,
-        language: Optional[str] = None,
-        speed: float = 1.0,
-        volume: float = 1.0,
-        phoneme_lang: Optional[str] = None,
-    ) -> Optional[Tuple[bytes, int]]:
-        if not text or not text.strip():
-            return None
-
-        prepared = self._prepare_generation(language, phoneme_lang, speed)
-        if prepared is None:
-            return None
-        tts, gen_config, desc = prepared
-
-        text = self._sanitize_text(text, language=language)
-        if not text:
-            return None
-
-        all_samples = []
-        sample_rate = 24000
-
-        for chunk in self._chunk_text(text, language=language, already_preprocessed=True):
-            if not chunk.strip():
-                continue
-            with self._lock:
-                audio = tts.generate(chunk, gen_config)
-            if audio and len(audio.samples) > 0:
-                all_samples.append(np.array(audio.samples, dtype=np.float32))
-                sample_rate = audio.sample_rate
-
-        if not all_samples:
-            return None
-
-        samples = np.concatenate(all_samples)
-        if volume != 1.0:
-            samples = np.clip(samples * volume, -1.0, 1.0)
-        else:
-            samples = np.clip(samples, -1.0, 1.0)
-
-        pcm16_bytes = (samples * 32767.0).astype(np.int16).tobytes()
-        with io.BytesIO() as output:
-            with wave.open(output, "wb") as wav_file:
-                wav_file.setnchannels(1)
-                wav_file.setsampwidth(2)
-                wav_file.setframerate(sample_rate)
-                wav_file.writeframes(pcm16_bytes)
-            audio_bytes = output.getvalue()
-
-        logger.info(f"Synthesized {len(text)} chars to {len(audio_bytes)} bytes at {sample_rate}Hz ({desc})")
-        return audio_bytes, sample_rate
 
     def synthesize_stream(
         self,
@@ -725,10 +601,12 @@ class _SherpaEngine(BaseTTSEngine):
         sample_rate = tts.sample_rate
 
         # Queue to pass raw float32 audio chunks produced by Sherpa C++ callback to this generator
-        audio_chunk_queue: queue.Queue[Optional[Tuple[np.ndarray, int]]] = queue.Queue(maxsize=16)
+        audio_chunk_queue: queue.Queue[Optional[Tuple[np.ndarray, int]]] = queue.Queue(
+            maxsize=16
+        )
         synthesis_error: list[Optional[Exception]] = [None]
 
-        def _on_samples(samples: np.ndarray, progress: float) -> int:
+        def _on_samples(samples: np.ndarray, _progress: float) -> int:
             if stop_event is not None and stop_event.is_set():
                 return 0  # Stop C++ generation immediately
 
@@ -745,7 +623,9 @@ class _SherpaEngine(BaseTTSEngine):
         def _worker():
             try:
                 # Sanitize text without splitting into artificial small chunks
-                clean_text = self._sanitize_text(text, language=language, already_preprocessed=True)
+                clean_text = self._sanitize_text(
+                    text, language=language, already_preprocessed=True
+                )
                 if not clean_text:
                     return
 
@@ -753,7 +633,9 @@ class _SherpaEngine(BaseTTSEngine):
                     tts.generate(clean_text, gen_config, callback=_on_samples)
             except Exception as e:
                 synthesis_error[0] = e
-                logger.error(f"Error in Sherpa-ONNX streaming generation: {e}", exc_info=True)
+                logger.error(
+                    f"Error in Sherpa-ONNX streaming generation: {e}", exc_info=True
+                )
             finally:
                 audio_chunk_queue.put(None)  # Signal EOF to generator
 
@@ -779,14 +661,18 @@ class _SherpaEngine(BaseTTSEngine):
         if synthesis_error[0] is not None:
             raise synthesis_error[0]
 
-    def release_model(self, engine: str, model_id: str, precision: Optional[str] = None) -> None:
+    def release_model(
+        self, engine: str, model_id: str, precision: Optional[str] = None
+    ) -> None:
         """Drop a loaded model whose files were deleted from disk."""
 
     def warmup(self) -> bool:
         """Pre-warm the default-language model so the first request starts fast."""
         try:
             if not self._is_default_model_installed():
-                logger.debug("TTS model for the default language not downloaded yet, skipping warmup")
+                logger.debug(
+                    "TTS model for the default language not downloaded yet, skipping warmup"
+                )
                 return False
             prepared = self._prepare_generation(self.voice_config.language, None, 1.0)
             if prepared is None:
@@ -846,14 +732,19 @@ class KokoroEngine(_SherpaEngine):
                     "Resetting Sherpa-ONNX session for lazy reload."
                 )
                 self.model_id = new_model_id
-                self.model_dir = self.voices_dir / KOKORO_MODELS[self.model_id]["dir_name"]
+                self.model_dir = (
+                    self.voices_dir / KOKORO_MODELS[self.model_id]["dir_name"]
+                )
                 self.tts = None
             else:
-                logger.debug(f"Kokoro voice config updated (session retained for '{self.model_id}').")
+                logger.debug(
+                    f"Kokoro voice config updated (session retained for '{self.model_id}')."
+                )
 
     def ensure_model_downloaded(self) -> bool:
         """Download and extract Sherpa Kokoro model archive if missing."""
         from . import voice_manager
+
         if voice_manager.is_kokoro_installed(self.model_id):
             return True
         logger.info(f"Kokoro model missing — downloading {self.model_id}...")
@@ -914,7 +805,9 @@ class KokoroEngine(_SherpaEngine):
                     silence_scale=0.2,
                 )
                 self.tts = sherpa_onnx.OfflineTts(tts_config)
-                logger.info(f"Sherpa-ONNX Kokoro TTS initialized successfully ({threads} threads).")
+                logger.info(
+                    f"Sherpa-ONNX Kokoro TTS initialized successfully ({threads} threads)."
+                )
         return True
 
     def _resolve_speaker_and_lang(
@@ -923,12 +816,18 @@ class KokoroEngine(_SherpaEngine):
         phoneme_lang: Optional[str] = None,
     ) -> Tuple[int, str]:
         """Resolve speaker integer ID and language code for sherpa GenerationConfig."""
-        voice_name = self.get_model_for_language(language or getattr(self.voice_config, "language", "en"))
+        voice_name = self.get_model_for_language(
+            language or getattr(self.voice_config, "language", "en")
+        )
 
         speaker_id = SPEAKER_TO_ID.get(voice_name, 3)  # Default fallback 3 ('af_heart')
 
         effective_lang = phoneme_lang or language
-        lang_code = _KOKORO_LANG_CODES.get(effective_lang, "en-us") if effective_lang else "en-us"
+        lang_code = (
+            _KOKORO_LANG_CODES.get(effective_lang, "en-us")
+            if effective_lang
+            else "en-us"
+        )
 
         return speaker_id, lang_code
 
@@ -947,7 +846,9 @@ class KokoroEngine(_SherpaEngine):
     def _is_default_model_installed(self) -> bool:
         return is_kokoro_installed(self.model_id)
 
-    def release_model(self, engine: str, model_id: str, precision: Optional[str] = None) -> None:
+    def release_model(
+        self, engine: str, model_id: str, precision: Optional[str] = None
+    ) -> None:
         if engine == "kokoro" and model_id == self.model_id:
             with self._lock:
                 self.tts = None
@@ -969,31 +870,43 @@ class PiperEngine(_SherpaEngine):
 
     def __init__(self, voice_config: VoiceConfig):
         super().__init__(voice_config)
-        self._models: "OrderedDict[tuple[str, str], object]" = OrderedDict()
+        self._models: OrderedDict[tuple[str, str], object] = OrderedDict()
 
     @property
     def precision(self) -> str:
-        return getattr(self.voice_config, "piper_precision", DEFAULT_PIPER_PRECISION) or DEFAULT_PIPER_PRECISION
+        return (
+            getattr(self.voice_config, "piper_precision", DEFAULT_PIPER_PRECISION)
+            or DEFAULT_PIPER_PRECISION
+        )
 
     def update_config(self, voice_config: VoiceConfig) -> None:
         with self._lock:
             old = self.voice_config
             self.voice_config = voice_config
             changed = (
-                getattr(old, "num_threads", 0) != getattr(voice_config, "num_threads", 0)
-                or getattr(old, "provider", "cpu") != getattr(voice_config, "provider", "cpu")
-                or getattr(old, "piper_precision", None) != getattr(voice_config, "piper_precision", None)
+                getattr(old, "num_threads", 0)
+                != getattr(voice_config, "num_threads", 0)
+                or getattr(old, "provider", "cpu")
+                != getattr(voice_config, "provider", "cpu")
+                or getattr(old, "piper_precision", None)
+                != getattr(voice_config, "piper_precision", None)
             )
             if changed:
-                logger.info("Piper threads/provider/precision changed — unloading cached voices.")
+                logger.info(
+                    "Piper threads/provider/precision changed — unloading cached voices."
+                )
                 self._models.clear()
 
     def _resolve_voice(self, language: Optional[str]) -> Optional[Tuple[str, int]]:
-        ref = self.get_model_for_language(language or getattr(self.voice_config, "language", "en"))
+        ref = self.get_model_for_language(
+            language or getattr(self.voice_config, "language", "en")
+        )
         if not ref:
             return None
         key, sid = parse_voice_ref(ref)
-        if key not in load_piper_catalog() and not is_piper_installed(key, self.precision):
+        if key not in load_piper_catalog() and not is_piper_installed(
+            key, self.precision
+        ):
             logger.error(f"Unknown Piper voice '{key}'")
             return None
         return key, sid
@@ -1025,7 +938,9 @@ class PiperEngine(_SherpaEngine):
 
         threads = self._get_effective_threads()
         provider = getattr(self.voice_config, "provider", "cpu") or "cpu"
-        logger.info(f"Initializing Sherpa-ONNX Piper voice {key} ({precision}, {threads} threads, provider='{provider}')...")
+        logger.info(
+            f"Initializing Sherpa-ONNX Piper voice {key} ({precision}, {threads} threads, provider='{provider}')..."
+        )
         vits_config = sherpa_onnx.OfflineTtsVitsModelConfig(
             model=str(model_file),
             lexicon="",
@@ -1077,11 +992,17 @@ class PiperEngine(_SherpaEngine):
         resolved = self._resolve_voice(self.voice_config.language)
         return resolved is not None and is_piper_installed(resolved[0], self.precision)
 
-    def release_model(self, engine: str, model_id: str, precision: Optional[str] = None) -> None:
+    def release_model(
+        self, engine: str, model_id: str, precision: Optional[str] = None
+    ) -> None:
         if engine != "piper":
             return
         with self._lock:
-            for cache_key in [k for k in self._models if k[0] == model_id and (precision is None or k[1] == precision)]:
+            for cache_key in [
+                k
+                for k in self._models
+                if k[0] == model_id and (precision is None or k[1] == precision)
+            ]:
                 del self._models[cache_key]
 
     def stop(self) -> None:
@@ -1092,25 +1013,14 @@ class PiperEngine(_SherpaEngine):
 
 def tts_engine_class(config: VoiceConfig) -> type[BaseTTSEngine]:
     """Engine class for the configured ``voice.engine``."""
-    return PiperEngine if getattr(config, "engine", "kokoro") == "piper" else KokoroEngine
+    return (
+        PiperEngine if getattr(config, "engine", "kokoro") == "piper" else KokoroEngine
+    )
 
 
 def get_tts_engine(config: VoiceConfig) -> BaseTTSEngine:
     """Factory function to get the configured TTS engine"""
     return tts_engine_class(config)(config)
-
-
-def get_available_models(engine: str = "kokoro") -> list[str]:
-    """Scan the data directory for installed models."""
-    voices_dir = get_data_dir() / "voices"
-    if not voices_dir.exists():
-        return []
-
-    return [
-        m_id
-        for m_id, info in KOKORO_MODELS.items()
-        if (voices_dir / info["dir_name"]).is_dir()
-    ]
 
 
 def get_kokoro_voices(language: str | None = None) -> list[str]:
@@ -1123,20 +1033,12 @@ def get_kokoro_voices(language: str | None = None) -> list[str]:
     if language is None:
         return all_voices
 
-    prefixes = _KOKORO_LANG_PREFIXES.get(language, [])
+    prefixes = _KOKORO_LANG_PREFIXES.get(language, ())
     if not prefixes:
         return []
-    return [v for v in all_voices if any(v.startswith(p) for p in prefixes)]
+    return [v for v in all_voices if v.startswith(prefixes)]
 
 
 def kokoro_languages() -> list[str]:
     """Languages with at least one Kokoro voice."""
     return [lang for lang in _KOKORO_LANG_PREFIXES if get_kokoro_voices(lang)]
-
-
-def get_voices_for_language(engine: str, language: str) -> list[str]:
-    """Return the voice names (Kokoro speakers or Piper voice keys) available for *language*."""
-    if engine == "piper":
-        from .voice_manager import get_piper_voices
-        return [v["id"] for v in get_piper_voices(language)]
-    return get_kokoro_voices(language)

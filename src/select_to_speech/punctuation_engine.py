@@ -5,7 +5,6 @@ Model supported:
   Languages: English (en) and Chinese (zh).
 """
 
-import io
 import logging
 import shutil
 import tarfile
@@ -19,7 +18,6 @@ from .config import get_data_dir
 
 logger = logging.getLogger(__name__)
 
-PUNCT_MODEL_ID = "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8"
 PUNCT_MODEL_INFO = {
     "name": "CT-Transformer (ZH/EN, INT8, ~62 MB)",
     "archive": "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2",
@@ -75,7 +73,9 @@ def download_punct_model(
                         if progress_cb:
                             progress_cb(downloaded, total)
 
-        logger.info(f"Punctuation archive downloaded ({downloaded} bytes). Extracting...")
+        logger.info(
+            f"Punctuation archive downloaded ({downloaded} bytes). Extracting..."
+        )
         if target_dir.exists():
             shutil.rmtree(target_dir)
 
@@ -90,13 +90,13 @@ def download_punct_model(
         if is_punct_model_installed():
             logger.info("Neural punctuation model installed successfully.")
             return True
-        else:
-            logger.error("Punctuation model extraction completed, but model file was not found.")
-            return False
+        logger.error(
+            "Punctuation model extraction completed, but model file was not found."
+        )
+        return False
     except Exception as e:
         logger.error(f"Failed to download punctuation model: {e}", exc_info=True)
-        if archive_path.exists():
-            archive_path.unlink(missing_ok=True)
+        archive_path.unlink(missing_ok=True)
         return False
 
 

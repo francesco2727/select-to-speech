@@ -26,16 +26,19 @@ def dispatch(argv: list[str] | None = None) -> int:
     if "--check" in args:
         args.remove("--check")
         from select_to_speech.system_check import main_check
+
         return main_check(argv=args)
 
     if "--audio-devices" in args:
         args.remove("--audio-devices")
         from select_to_speech.system_check import main_audio_devices
+
         return main_audio_devices(args)
 
     if "--download" in args:
         args.remove("--download")
         from select_to_speech.voice_manager import download_kokoro_cli
+
         download_kokoro_cli(args)
         return 0
 
@@ -44,6 +47,7 @@ def dispatch(argv: list[str] | None = None) -> int:
         return 0
 
     from select_to_speech.main import main
+
     return main()
 
 

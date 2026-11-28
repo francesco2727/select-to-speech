@@ -1,6 +1,5 @@
 """Configuration management for select-to-speech"""
 
-import os
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -11,7 +10,9 @@ from pydantic import BaseModel, Field
 class AudioConfig(BaseModel):
     """Audio playback configuration"""
 
-    device_id: Optional[int] = Field(None, description="Audio device ID (None for default)")
+    device_id: Optional[int] = Field(
+        None, description="Audio device ID (None for default)"
+    )
     speed: float = Field(1.0, ge=0.5, le=2.0, description="Speech speed multiplier")
     pitch: float = Field(1.0, ge=0.5, le=2.0, description="Speech pitch multiplier")
     volume: float = Field(1.0, ge=0.0, le=2.0, description="Audio volume multiplier")
@@ -22,7 +23,9 @@ class AudioConfig(BaseModel):
 class VoiceConfig(BaseModel):
     """Voice configuration"""
 
-    engine: Literal["kokoro", "piper"] = Field("kokoro", description="TTS engine: 'kokoro' or 'piper'")
+    engine: Literal["kokoro", "piper"] = Field(
+        "kokoro", description="TTS engine: 'kokoro' or 'piper'"
+    )
     model: str = Field("kokoro-multi-lang-v1_0", description="Kokoro model ID")
     language: str = Field("it", description="Default language code")
     language_models: dict[str, str] = Field(
@@ -36,7 +39,7 @@ class VoiceConfig(BaseModel):
             "pt": "",
             "zh": "",
         },
-        description="Kokoro: map of language codes to speaker names"
+        description="Kokoro: map of language codes to speaker names",
     )
     piper_language_models: dict[str, str] = Field(
         default_factory=dict,
@@ -45,28 +48,48 @@ class VoiceConfig(BaseModel):
     piper_precision: Literal["int8", "fp16", "fp32"] = Field(
         "int8", description="Piper model precision to download and load"
     )
-    num_threads: int = Field(0, ge=0, le=64, description="Threads for neural inference (0 = Auto-detect optimal)")
+    num_threads: int = Field(
+        0,
+        ge=0,
+        le=64,
+        description="Threads for neural inference (0 = Auto-detect optimal)",
+    )
     provider: str = Field("cpu", description="Execution provider: 'cpu', 'cuda', etc.")
 
     def active_language_models(self) -> dict[str, str]:
         """Language → voice map of the active engine."""
-        return self.piper_language_models if self.engine == "piper" else self.language_models
+        return (
+            self.piper_language_models
+            if self.engine == "piper"
+            else self.language_models
+        )
 
 
 class KeyboardConfig(BaseModel):
     """Keyboard shortcut configuration"""
 
     modifier_key: str = Field("alt", description="Modifier key: 'alt', 'ctrl', 'shift'")
-    trigger_key: str = Field("esc", description="Trigger key when combined with modifier")
-    pause_key: str = Field("w", description="Pause/Resume toggle key when combined with modifier")
-    stop_key: str = Field("s", description="Explicit stop key when combined with modifier")
-    ocr_key: str = Field("r", description="OCR Screen Capture key when combined with modifier")
+    trigger_key: str = Field(
+        "esc", description="Trigger key when combined with modifier"
+    )
+    pause_key: str = Field(
+        "w", description="Pause/Resume toggle key when combined with modifier"
+    )
+    stop_key: str = Field(
+        "s", description="Explicit stop key when combined with modifier"
+    )
+    ocr_key: str = Field(
+        "r", description="OCR Screen Capture key when combined with modifier"
+    )
 
 
 class OcrConfig(BaseModel):
     """OCR configuration"""
 
-    language: str = Field("ita+eng", description="Language code(s) for Tesseract OCR (e.g., 'ita+eng', 'eng')")
+    language: str = Field(
+        "ita+eng",
+        description="Language code(s) for Tesseract OCR (e.g., 'ita+eng', 'eng')",
+    )
 
 
 class AppConfig(BaseModel):
@@ -77,15 +100,19 @@ class AppConfig(BaseModel):
     keyboard: KeyboardConfig = Field(default_factory=KeyboardConfig)
     ocr: OcrConfig = Field(default_factory=OcrConfig)
     debug: bool = Field(False, description="Enable debug logging")
-    gui_language: str = Field("auto", description="GUI language: 'auto', 'en', 'it', 'es', 'fr'")
-    theme_mode: str = Field("system", description="Theme mode: 'dark', 'light', 'system'")
-    text_normalization: bool = Field(True, description="Enable smart formatting, line unwrap, and de-hyphenation")
-    neural_punctuation: bool = Field(False, description="Enable neural punctuation restoration (Sherpa-ONNX CT-Transformer, EN/ZH)")
-
-    class Config:
-        """Pydantic config"""
-
-        yaml_loader = yaml.SafeLoader
+    gui_language: str = Field(
+        "auto", description="GUI language: 'auto', 'en', 'it', 'es', 'fr'"
+    )
+    theme_mode: str = Field(
+        "system", description="Theme mode: 'dark', 'light', 'system'"
+    )
+    text_normalization: bool = Field(
+        True, description="Enable smart formatting, line unwrap, and de-hyphenation"
+    )
+    neural_punctuation: bool = Field(
+        False,
+        description="Enable neural punctuation restoration (Sherpa-ONNX CT-Transformer, EN/ZH)",
+    )
 
 
 def get_config_dir() -> Path:

@@ -3,9 +3,11 @@
 import functools
 import json
 import logging
+import os
 import re
 import shutil
 import tarfile
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -181,7 +183,9 @@ def _download_and_extract(
                         if progress_cb is not None:
                             progress_cb(downloaded_total, total_size)
 
-            logger.info("Downloaded %s (%d bytes)", archive_name, archive_path.stat().st_size)
+            logger.info(
+                "Downloaded %s (%d bytes)", archive_name, archive_path.stat().st_size
+            )
             download_success = True
             break
         except Exception as exc:
@@ -196,7 +200,6 @@ def _download_and_extract(
                 archive_path.unlink()
             if attempt == max_retries - 1:
                 return False
-            import time
             time.sleep(2)
 
     if not download_success or not archive_path.exists():
@@ -293,7 +296,9 @@ def load_piper_catalog() -> dict[str, dict]:
         data = json.loads(_PIPER_CATALOG_PATH.read_text(encoding="utf-8"))
         return data.get("voices", {})
     except (OSError, ValueError) as exc:
-        logger.error("Could not load the Piper voice catalog %s: %s", _PIPER_CATALOG_PATH, exc)
+        logger.error(
+            "Could not load the Piper voice catalog %s: %s", _PIPER_CATALOG_PATH, exc
+        )
         return {}
 
 
@@ -303,11 +308,6 @@ def parse_voice_ref(ref: str) -> tuple[str, int]:
     if sep and sid.isdigit():
         return key, int(sid)
     return key, 0
-
-
-def format_voice_ref(key: str, speaker_id: int = 0) -> str:
-    """Build the voice reference stored in ``piper_language_models``."""
-    return f"{key}#{speaker_id}" if speaker_id else key
 
 
 def resolve_piper_precision(key: str, precision: str) -> str:
@@ -382,7 +382,9 @@ def delete_piper(key: str, precision: str = DEFAULT_PIPER_PRECISION) -> bool:
         shutil.rmtree(model_dir)
         logger.info("Deleted %s", model_dir)
         return True
-    logger.warning("No Piper voice directory found to delete for %s (%s)", key, precision)
+    logger.warning(
+        "No Piper voice directory found to delete for %s (%s)", key, precision
+    )
     return False
 
 
@@ -414,31 +416,46 @@ def get_piper_languages() -> list[str]:
     return sorted({v["language"] for v in load_piper_catalog().values()})
 
 
-def get_piper_voices(language: str, precision: str = DEFAULT_PIPER_PRECISION) -> list[dict]:
+def get_piper_voices(
+    language: str, precision: str = DEFAULT_PIPER_PRECISION
+) -> list[dict]:
     """Piper voices for *language*, with size and install state for *precision*."""
     voices = []
     for key, info in load_piper_catalog().items():
         if info.get("language") != language:
             continue
         effective = resolve_piper_precision(key, precision)
-        voices.append({
-            "id": key,
-            "name": info.get("name", key),
-            "locale": info.get("locale", ""),
-            "quality": info.get("quality"),
-            "precision": effective,
-            "size_bytes": info.get("sizes", {}).get(effective, 0),
-            "installed": is_piper_installed(key, effective),
-            "speakers": get_piper_speakers(key, effective),
-        })
+        voices.append(
+            {
+                "id": key,
+                "name": info.get("name", key),
+                "locale": info.get("locale", ""),
+                "quality": info.get("quality"),
+                "precision": effective,
+                "size_bytes": info.get("sizes", {}).get(effective, 0),
+                "installed": is_piper_installed(key, effective),
+                "speakers": get_piper_speakers(key, effective),
+            }
+        )
     return voices
 
 
 # ── Installed models (both engines) ───────────────────────────────────────────
 
 
-def _dir_size(path: Path) -> int:
-    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+def _dir_size(path: Path | str) -> int:
+    """Total size of the regular files under *path* (one stat per file, via scandir)."""
+    total = 0
+    try:
+        with os.scandir(path) as entries:
+            for entry in entries:
+                if entry.is_dir(follow_symlinks=False):
+                    total += _dir_size(entry.path)
+                elif entry.is_file():
+                    total += entry.stat().st_size
+    except OSError:
+        pass
+    return total
 
 
 def list_installed_models() -> list[dict]:
@@ -448,14 +465,16 @@ def list_installed_models() -> list[dict]:
     for model_id, info in KOKORO_MODELS.items():
         model_dir = voices_dir / info["dir_name"]
         if model_dir.is_dir():
-            installed.append({
-                "engine": "kokoro",
-                "id": model_id,
-                "precision": None,
-                "name": info["name"],
-                "language": None,
-                "size_bytes": _dir_size(model_dir),
-            })
+            installed.append(
+                {
+                    "engine": "kokoro",
+                    "id": model_id,
+                    "precision": None,
+                    "name": info["name"],
+                    "language": None,
+                    "size_bytes": _dir_size(model_dir),
+                }
+            )
     catalog = load_piper_catalog()
     for model_dir in sorted(voices_dir.glob("vits-piper-*")):
         match = _PIPER_DIR_RE.match(model_dir.name)
@@ -463,14 +482,16 @@ def list_installed_models() -> list[dict]:
             continue
         key = match["key"]
         info = catalog.get(key, {})
-        installed.append({
-            "engine": "piper",
-            "id": key,
-            "precision": match["precision"] or "fp32",
-            "name": info.get("name", key),
-            "language": info.get("language"),
-            "size_bytes": _dir_size(model_dir),
-        })
+        installed.append(
+            {
+                "engine": "piper",
+                "id": key,
+                "precision": match["precision"] or "fp32",
+                "name": info.get("name", key),
+                "language": info.get("language"),
+                "size_bytes": _dir_size(model_dir),
+            }
+        )
     return installed
 
 
@@ -514,12 +535,12 @@ def download_kokoro_cli(argv: list[str] | None = None) -> None:
                 filled_length = int(bar_length * pct // 100)
                 bar = "█" * filled_length + "-" * (bar_length - filled_length)
                 sys.stdout.write(
-                    f"\rProgress: |{bar}| {pct}% ({downloaded / (1024*1024):.1f}/{total / (1024*1024):.1f} MB)"
+                    f"\rProgress: |{bar}| {pct}% ({downloaded / (1024 * 1024):.1f}/{total / (1024 * 1024):.1f} MB)"
                 )
                 sys.stdout.flush()
                 last_pct = pct
         else:
-            sys.stdout.write(f"\rDownloaded: {downloaded / (1024*1024):.1f} MB")
+            sys.stdout.write(f"\rDownloaded: {downloaded / (1024 * 1024):.1f} MB")
             sys.stdout.flush()
 
     try:

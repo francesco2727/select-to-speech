@@ -22,10 +22,20 @@ from pathlib import Path
 import requests
 
 RELEASE_API = "https://api.github.com/repos/k2-fsa/sherpa-onnx/releases/tags/tts-models"
-PIPER_VOICES_JSON = "https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json"
-OUTPUT = Path(__file__).resolve().parents[1] / "src" / "select_to_speech" / "data" / "piper_voices.json"
+PIPER_VOICES_JSON = (
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json"
+)
+OUTPUT = (
+    Path(__file__).resolve().parents[1]
+    / "src"
+    / "select_to_speech"
+    / "data"
+    / "piper_voices.json"
+)
 
-_ARCHIVE_RE = re.compile(r"^vits-piper-(?P<key>.+?)(?:-(?P<precision>int8|fp16))?\.tar\.bz2$")
+_ARCHIVE_RE = re.compile(
+    r"^vits-piper-(?P<key>.+?)(?:-(?P<precision>int8|fp16))?\.tar\.bz2$"
+)
 _QUALITIES = ("x_low", "low", "medium", "high")
 
 
@@ -43,7 +53,12 @@ def _parse_key(key: str) -> dict:
                 break
         if quality:
             break
-    return {"language": language, "locale": locale, "name": name or key, "quality": quality}
+    return {
+        "language": language,
+        "locale": locale,
+        "name": name or key,
+        "quality": quality,
+    }
 
 
 def entry_is_standard(key: str, entry: dict) -> bool:
@@ -66,10 +81,14 @@ def build_catalog(assets: list[dict], upstream: dict) -> dict:
     # `…female_medium`: keep the standard `-quality` spelling only.
     by_identity: dict[tuple, list[str]] = {}
     for key, entry in voices.items():
-        by_identity.setdefault((entry["locale"], entry["name"], entry["quality"]), []).append(key)
+        by_identity.setdefault(
+            (entry["locale"], entry["name"], entry["quality"]), []
+        ).append(key)
     for keys in by_identity.values():
         if len(keys) > 1:
-            keep = next((k for k in keys if entry_is_standard(k, voices[k])), sorted(keys)[0])
+            keep = next(
+                (k for k in keys if entry_is_standard(k, voices[k])), sorted(keys)[0]
+            )
             for k in keys:
                 if k != keep:
                     del voices[k]
@@ -78,7 +97,9 @@ def build_catalog(assets: list[dict], upstream: dict) -> dict:
         info = upstream.get(key)
         if info and info.get("num_speakers", 1) > 1:
             id_map = info.get("speaker_id_map") or {}
-            entry["speakers"] = [name for name, _ in sorted(id_map.items(), key=lambda kv: kv[1])]
+            entry["speakers"] = [
+                name for name, _ in sorted(id_map.items(), key=lambda kv: kv[1])
+            ]
 
     return {
         "generated": datetime.date.today().isoformat(),
@@ -94,10 +115,15 @@ def main() -> int:
 
     catalog = build_catalog(release.json().get("assets", []), upstream.json())
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(json.dumps(catalog, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
+    OUTPUT.write_text(
+        json.dumps(catalog, ensure_ascii=False, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
 
     languages = sorted({v["language"] for v in catalog["voices"].values()})
-    print(f"Wrote {len(catalog['voices'])} voices in {len(languages)} languages to {OUTPUT}")
+    print(
+        f"Wrote {len(catalog['voices'])} voices in {len(languages)} languages to {OUTPUT}"
+    )
     print("Languages:", " ".join(languages))
     return 0
 

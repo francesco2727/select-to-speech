@@ -11,7 +11,9 @@ logger = logging.getLogger(__name__)
 
 
 @functools.lru_cache(maxsize=32)
-def _cached_tone(freq: float, duration_s: float, volume: float = 0.15, sample_rate: int = 44100) -> np.ndarray:
+def _cached_tone(
+    freq: float, duration_s: float, volume: float = 0.15, sample_rate: int = 44100
+) -> np.ndarray:
     """Generate and cache a smooth sine wave tone with attack and decay envelope."""
     n_samples = int(sample_rate * duration_s)
     if n_samples <= 0:
@@ -30,8 +32,7 @@ def _cached_tone(freq: float, duration_s: float, volume: float = 0.15, sample_ra
     if decay_samples > 0:
         envelope[-decay_samples:] = np.linspace(1.0, 0.0, decay_samples)
 
-    samples = (signal * envelope * volume * 32767).astype(np.int16)
-    return samples
+    return (signal * envelope * volume * 32767).astype(np.int16)
 
 
 class SoundFeedback:
@@ -41,7 +42,13 @@ class SoundFeedback:
     _pa: Optional[pyaudio.PyAudio] = None
 
     @classmethod
-    def _generate_tone(cls, freq: float, duration_s: float, volume: float = 0.15, sample_rate: int = 44100) -> np.ndarray:
+    def _generate_tone(
+        cls,
+        freq: float,
+        duration_s: float,
+        volume: float = 0.15,
+        sample_rate: int = 44100,
+    ) -> np.ndarray:
         """Generate a smooth sine wave tone with attack and decay envelope."""
         return _cached_tone(freq, duration_s, volume, sample_rate)
 
@@ -55,6 +62,7 @@ class SoundFeedback:
     @classmethod
     def _play_audio_bytes(cls, audio_data: bytes, sample_rate: int = 44100) -> None:
         """Play PCM 16-bit audio bytes in a thread-safe manner."""
+
         def _worker():
             with cls._lock:
                 stream = None
@@ -64,7 +72,7 @@ class SoundFeedback:
                         format=pyaudio.paInt16,
                         channels=1,
                         rate=sample_rate,
-                        output=True
+                        output=True,
                     )
                     stream.write(audio_data)
                 except Exception as e:

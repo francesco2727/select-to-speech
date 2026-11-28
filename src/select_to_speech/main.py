@@ -23,7 +23,6 @@ from .screen_capture import ScreenCapture
 from .sound_feedback import SoundFeedback
 
 
-
 # ISO 639-1 code → lingua Language enum, for every language Kokoro or Piper can speak
 # that lingua can detect. Piper's Kurdish, Luxembourgish, Malayalam and Nepali are
 # not in lingua: they work as the default language only. Packaged builds embed only
@@ -70,7 +69,9 @@ _LINGUA_LANGUAGES: dict[str, Language] = {
     "zh": Language.CHINESE,
 }
 # lingua Language → our language code (inverse of the map above, e.g. BOKMAL → "no")
-_LINGUA_TO_CODE: dict[Language, str] = {lang: code for code, lang in _LINGUA_LANGUAGES.items()}
+_LINGUA_TO_CODE: dict[Language, str] = {
+    lang: code for code, lang in _LINGUA_LANGUAGES.items()
+}
 
 logger = logging.getLogger(__name__)
 
@@ -96,24 +97,15 @@ class SelectToSpeechApp:
         self.audio_player.ducker.enabled = self.config.audio.ducking
         self.ocr_engine = OcrEngine()
         from .punctuation_engine import NeuralPunctuationEngine
+
         threads = getattr(self.config.voice, "num_threads", 0) or 2
         provider = getattr(self.config.voice, "provider", "cpu") or "cpu"
-        self.punctuation_engine = NeuralPunctuationEngine(num_threads=threads, provider=provider)
+        self.punctuation_engine = NeuralPunctuationEngine(
+            num_threads=threads, provider=provider
+        )
         self._lingua_detector = self._build_lingua_detector()
-        self.selection_listener = WaylandSelectionListener(
-            on_selection_change=self._on_text_selected,
-        )
-        self.keyboard_handler = KeyboardHandler(
-            on_play=self._on_shortcut_pressed,
-            on_pause=self._on_pause_pressed,
-            on_stop=self._on_stop_pressed,
-            on_ocr=self._on_ocr_pressed,
-            modifier=self.config.keyboard.modifier_key,
-            trigger_key=self.config.keyboard.trigger_key,
-            pause_key=self.config.keyboard.pause_key,
-            stop_key=self.config.keyboard.stop_key,
-            ocr_key=self.config.keyboard.ocr_key,
-        )
+        self.selection_listener = WaylandSelectionListener()
+        self.keyboard_handler = self._make_keyboard_handler()
 
         self.should_exit = False
         self._process_thread: Optional[threading.Thread] = None
@@ -124,7 +116,9 @@ class SelectToSpeechApp:
         self._last_stop_time: float = 0.0
 
         # Pre-warm TTS engine in background daemon thread
-        threading.Thread(target=self.tts_engine.warmup, daemon=True, name="TTS-Warmup").start()
+        threading.Thread(
+            target=self.tts_engine.warmup, daemon=True, name="TTS-Warmup"
+        ).start()
 
         # Signal handlers are installed only by run() (standalone loop). When embedded in
         # the FastAPI server, uvicorn owns SIGTERM/SIGINT: overriding them here would make
@@ -133,12 +127,12 @@ class SelectToSpeechApp:
     def _setup_logging(self) -> None:
         """Setup logging configuration"""
         level = logging.DEBUG if self.config.debug else logging.INFO
-        
+
         # Setup file logging with rotation (5MB max per file, 2 backups)
         log_dir = Path.home() / ".local" / "state" / "select-to-speech"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / "app.log"
-        
+
         handlers: list[logging.Handler] = [
             RotatingFileHandler(
                 log_file,
@@ -158,6 +152,21 @@ class SelectToSpeechApp:
             force=True,
         )
 
+    def _make_keyboard_handler(self) -> KeyboardHandler:
+        """Build the hotkey listener for the current keyboard configuration."""
+        keys = self.config.keyboard
+        return KeyboardHandler(
+            on_play=self._on_shortcut_pressed,
+            on_pause=self._on_pause_pressed,
+            on_stop=self._on_stop_pressed,
+            on_ocr=self._on_ocr_pressed,
+            modifier=keys.modifier_key,
+            trigger_key=keys.trigger_key,
+            pause_key=keys.pause_key,
+            stop_key=keys.stop_key,
+            ocr_key=keys.ocr_key,
+        )
+
     def _signal_handler(self, signum, frame) -> None:
         """Handle system signals for graceful shutdown"""
         logger.info(f"Received signal {signum}, shutting down...")
@@ -167,6 +176,7 @@ class SelectToSpeechApp:
         """Reload configuration and update running handlers/components"""
         logger.info("Reloading configuration...")
         old_engine = getattr(self.config.voice, "engine", "kokoro")
+        old_keyboard = self.config.keyboard
         self.config = config
 
         # 1. Update TTS engine config (a new engine when switching Kokoro <-> Piper)
@@ -174,7 +184,9 @@ class SelectToSpeechApp:
             logger.info(f"Switching TTS engine: {old_engine} -> {config.voice.engine}")
             self.tts_engine.stop()
             self.tts_engine = get_tts_engine(config.voice)
-            threading.Thread(target=self.tts_engine.warmup, daemon=True, name="TTS-Warmup").start()
+            threading.Thread(
+                target=self.tts_engine.warmup, daemon=True, name="TTS-Warmup"
+            ).start()
         else:
             self.tts_engine.update_config(config.voice)
         threads = getattr(config.voice, "num_threads", 0) or 2
@@ -188,43 +200,44 @@ class SelectToSpeechApp:
             self.audio_player = AudioPlayer(config.audio.device_id)
         self.audio_player.ducker.enabled = config.audio.ducking
 
-        # 3. Update keyboard shortcuts (restart listener with new keys)
-        logger.info("Recreating keyboard handler with new shortcuts...")
-        self.keyboard_handler.stop()
-        self.keyboard_handler = KeyboardHandler(
-            on_play=self._on_shortcut_pressed,
-            on_pause=self._on_pause_pressed,
-            on_stop=self._on_stop_pressed,
-            on_ocr=self._on_ocr_pressed,
-            modifier=config.keyboard.modifier_key,
-            trigger_key=config.keyboard.trigger_key,
-            pause_key=config.keyboard.pause_key,
-            stop_key=config.keyboard.stop_key,
-            ocr_key=config.keyboard.ocr_key,
-        )
-        self.keyboard_handler.start()
+        # 3. Restart the keyboard listener only when a shortcut actually changed: the GUI
+        #    saves on every tweak, and each restart briefly leaves the hotkeys unbound.
+        if config.keyboard != old_keyboard:
+            logger.info("Recreating keyboard handler with new shortcuts...")
+            self.keyboard_handler.stop()
+            self.keyboard_handler = self._make_keyboard_handler()
+            self.keyboard_handler.start()
 
-        # 4. Rebuild the lingua detector in case language_models config changed
-        self._lingua_detector = self._build_lingua_detector()
-        
+        # 4. Rebuild the lingua detector only when the set of languages changed
+        if self._detector_languages() != self._lingua_languages:
+            self._lingua_detector = self._build_lingua_detector()
+
         logger.info("Configuration successfully reloaded")
 
-    def _build_lingua_detector(self):
-        """Build a lingua detector only for languages with a configured voice model."""
-        configured_langs = [
+    def _detector_languages(self) -> list[Language]:
+        """Languages lingua must tell apart: those with a configured voice, plus the default."""
+        languages = [
             _LINGUA_LANGUAGES[code]
             for code, model in self.config.voice.active_language_models().items()
             if model and code in _LINGUA_LANGUAGES
         ]
-        default_lang = getattr(self.config.voice, "language", "en")
-        if default_lang in _LINGUA_LANGUAGES and _LINGUA_LANGUAGES[default_lang] not in configured_langs:
-            configured_langs.append(_LINGUA_LANGUAGES[default_lang])
-        if len(configured_langs) < 2:
-            # Ensure at least English + Italian (or all supported if neither) so detection works
+        default_lang = _LINGUA_LANGUAGES.get(
+            getattr(self.config.voice, "language", "en")
+        )
+        if default_lang is not None and default_lang not in languages:
+            languages.append(default_lang)
+        if len(languages) < 2:
+            # Ensure at least English + Italian so detection has something to compare
             for fallback_code in ("en", "it"):
-                if fallback_code in _LINGUA_LANGUAGES and _LINGUA_LANGUAGES[fallback_code] not in configured_langs:
-                    configured_langs.append(_LINGUA_LANGUAGES[fallback_code])
-        return LanguageDetectorBuilder.from_languages(*configured_langs).build()
+                fallback = _LINGUA_LANGUAGES[fallback_code]
+                if fallback not in languages:
+                    languages.append(fallback)
+        return languages
+
+    def _build_lingua_detector(self):
+        """Build a lingua detector only for languages with a configured voice model."""
+        self._lingua_languages = self._detector_languages()
+        return LanguageDetectorBuilder.from_languages(*self._lingua_languages).build()
 
     def _detect_language(self, text: str) -> Optional[str]:
         """Detect language of the text using confidence scoring against default language."""
@@ -232,17 +245,23 @@ class SelectToSpeechApp:
         if len(stripped) < 20:
             return None
         try:
-            confidences = self._lingua_detector.compute_language_confidence_values(stripped)
+            confidences = self._lingua_detector.compute_language_confidence_values(
+                stripped
+            )
             if not confidences:
                 return None
 
             top = confidences[0]
-            top_code = _LINGUA_TO_CODE.get(top.language, top.language.iso_code_639_1.name.lower())
+            top_code = _LINGUA_TO_CODE.get(
+                top.language, top.language.iso_code_639_1.name.lower()
+            )
             default_code = getattr(self.config.voice, "language", "en")
 
             # If top language matches the user's default language, accept it directly
             if top_code == default_code:
-                logger.debug(f"Detected language '{top_code}' matches default language (confidence: {top.value:.2f})")
+                logger.debug(
+                    f"Detected language '{top_code}' matches default language (confidence: {top.value:.2f})"
+                )
                 return top_code
 
             # Find confidence for default language
@@ -254,14 +273,15 @@ class SelectToSpeechApp:
 
             # Only switch away from default language if detection is confident and distinct
             if top.value >= 0.70 and (top.value - default_conf) >= 0.25:
-                logger.debug(f"Detected language '{top_code}' (confidence: {top.value:.2f} vs default {default_conf:.2f})")
-                return top_code
-            else:
                 logger.debug(
-                    f"Language detection inconclusive (top: {top_code} {top.value:.2f}, default: {default_code} {default_conf:.2f}). "
-                    f"Falling back to default language '{default_code}'."
+                    f"Detected language '{top_code}' (confidence: {top.value:.2f} vs default {default_conf:.2f})"
                 )
-                return default_code
+                return top_code
+            logger.debug(
+                f"Language detection inconclusive (top: {top_code} {top.value:.2f}, default: {default_code} {default_conf:.2f}). "
+                f"Falling back to default language '{default_code}'."
+            )
+            return default_code
         except Exception as e:
             logger.warning(f"Language detection failed: {e}")
         return None
@@ -315,14 +335,18 @@ class SelectToSpeechApp:
     def _process_shortcut(self) -> None:
         """Process the shortcut press in a background thread"""
         with self._shortcut_lock:
-            is_playing = self.audio_player.is_playing or (self._process_thread and self._process_thread.is_alive())
+            is_playing = self.audio_player.is_playing or (
+                self._process_thread and self._process_thread.is_alive()
+            )
 
             current_selection = self.selection_listener.get_primary_selection()
             current_text = current_selection.strip() if current_selection else ""
 
             # If currently playing and the selection hasn't changed, do nothing
             if is_playing and current_text == self.selection_listener.last_selection:
-                logger.info("Playing and selection unchanged. Ignoring trigger (use stop shortcut to stop).")
+                logger.info(
+                    "Playing and selection unchanged. Ignoring trigger (use stop shortcut to stop)."
+                )
                 return
 
             # Stop current playback if needed
@@ -357,7 +381,9 @@ class SelectToSpeechApp:
             return
         self._last_stop_time = now
 
-        if self.audio_player.is_playing or (self._process_thread and self._process_thread.is_alive()):
+        if self.audio_player.is_playing or (
+            self._process_thread and self._process_thread.is_alive()
+        ):
             logger.info("Explicit stop requested...")
             self._stop_event.set()
             self.audio_player.stop()
@@ -368,7 +394,9 @@ class SelectToSpeechApp:
     def _on_ocr_pressed(self) -> None:
         """Callback when OCR screen capture shortcut is pressed"""
         if self._ocr_thread and self._ocr_thread.is_alive():
-            logger.info("OCR screen capture already in progress, ignoring extra shortcut press.")
+            logger.info(
+                "OCR screen capture already in progress, ignoring extra shortcut press."
+            )
             return
 
         logger.info("OCR screen capture shortcut triggered...")
@@ -379,7 +407,9 @@ class SelectToSpeechApp:
                 f"announcing it in the default language '{default_lang}'."
             )
             self._on_text_selected(
-                ocr_missing_message(default_lang), play_feedback=False, language=default_lang
+                ocr_missing_message(default_lang),
+                play_feedback=False,
+                language=default_lang,
             )
             return
 
@@ -393,10 +423,14 @@ class SelectToSpeechApp:
                 success = ScreenCapture.capture_region(out_path)
                 if success:
                     text = self.ocr_engine.extract_text(
-                        out_path, languages=getattr(self.config, "ocr", None) and self.config.ocr.language
+                        out_path,
+                        languages=getattr(self.config, "ocr", None)
+                        and self.config.ocr.language,
                     )
                     if text and text.strip():
-                        logger.info(f"OCR extracted text ({len(text)} chars), starting playback...")
+                        logger.info(
+                            f"OCR extracted text ({len(text)} chars), starting playback..."
+                        )
                         if getattr(self.config.audio, "sound_feedback", True):
                             SoundFeedback.play_ocr_success()
                         self._on_text_selected(text, play_feedback=False)
@@ -415,10 +449,8 @@ class SelectToSpeechApp:
         self._ocr_thread = threading.Thread(target=_capture_and_read, daemon=True)
         self._ocr_thread.start()
 
-
     def _run_synthesis(
         self,
-        text: str,
         segments: list,
         language: str,
         audio_queue: queue.Queue,
@@ -429,13 +461,13 @@ class SelectToSpeechApp:
         Thread target: synthesize all segments into audio_queue, then put None (EOF).
 
         Args:
-            text: Original full text (unused here, kept for logging context)
             segments: List of (segment_text, voice_lang, phoneme_lang) tuples
             language: Dominant language code (used for fallback retry)
             audio_queue: Queue to put audio chunks into
             stop_event: Event signalling synthesis should stop
             error_holder: Single-element list; error_holder[0] is set on exception
         """
+
         def _enqueue(chunk_data: bytes) -> bool:
             while not stop_event.is_set():
                 try:
@@ -506,10 +538,13 @@ class SelectToSpeechApp:
         # 1. Apply heuristic text normalization (unwrap lines, de-hyphenate, list pauses)
         if getattr(self.config, "text_normalization", True):
             from .text_normalizer import normalize_text_for_tts
+
             text = normalize_text_for_tts(text)
 
         # 2. Apply neural punctuation restoration if enabled (CT-Transformer for EN/ZH)
-        if getattr(self.config, "neural_punctuation", False) and hasattr(self, "punctuation_engine"):
+        if getattr(self.config, "neural_punctuation", False) and hasattr(
+            self, "punctuation_engine"
+        ):
             text = self.punctuation_engine.add_punctuation(text, language=language)
 
         # 3. Preprocess text to expand math symbols, emojis, and domain/filename dots
@@ -547,15 +582,20 @@ class SelectToSpeechApp:
 
         threading.Thread(
             target=self._run_synthesis,
-            args=(text, segments, language, audio_queue, stop_event, error_holder),
+            args=(segments, language, audio_queue, stop_event, error_holder),
             daemon=True,
         ).start()
 
-        success = self.audio_player.play_stream(audio_queue, pitch=self.config.audio.pitch)
+        success = self.audio_player.play_stream(
+            audio_queue, pitch=self.config.audio.pitch
+        )
 
         if error_holder[0] is not None:
             logger.error(f"TTS generation failed: {error_holder[0]}")
-            if getattr(self.config.audio, "sound_feedback", True) and not stop_event.is_set():
+            if (
+                getattr(self.config.audio, "sound_feedback", True)
+                and not stop_event.is_set()
+            ):
                 SoundFeedback.play_error()
             return False
 
@@ -565,7 +605,10 @@ class SelectToSpeechApp:
 
         if not success:
             logger.error("Stream playback failed")
-            if getattr(self.config.audio, "sound_feedback", True) and not stop_event.is_set():
+            if (
+                getattr(self.config.audio, "sound_feedback", True)
+                and not stop_event.is_set()
+            ):
                 SoundFeedback.play_error()
             return False
 
@@ -615,6 +658,7 @@ class SelectToSpeechApp:
 def main() -> int:
     """Start the backend daemon (CLI subcommands are dispatched in entrypoint.py)."""
     from select_to_speech.api.server import run_server
+
     try:
         res = run_server()
         return res if isinstance(res, int) else 0

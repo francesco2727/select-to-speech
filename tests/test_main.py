@@ -1,29 +1,32 @@
 import pytest
 from unittest.mock import MagicMock, patch
 import threading
-import queue
 
 import sys
-sys.path.insert(0, '/home/francescov/develop/select-to-speach/src')
+
+sys.path.insert(0, "/home/francescov/develop/select-to-speach/src")
 
 from select_to_speech.main import SelectToSpeechApp
 from select_to_speech.config import AppConfig, VoiceConfig, AudioConfig, KeyboardConfig
+
 
 @pytest.fixture
 def mock_app():
     config = AppConfig(
         voice=VoiceConfig(engine="kokoro"),
         audio=AudioConfig(),
-        keyboard=KeyboardConfig()
+        keyboard=KeyboardConfig(),
     )
-    
-    with patch('select_to_speech.main.WaylandSelectionListener'), \
-         patch('select_to_speech.main.KeyboardHandler'), \
-         patch('select_to_speech.main.get_tts_engine'), \
-         patch('select_to_speech.main.AudioPlayer'):
-        
+
+    with (
+        patch("select_to_speech.main.WaylandSelectionListener"),
+        patch("select_to_speech.main.KeyboardHandler"),
+        patch("select_to_speech.main.get_tts_engine"),
+        patch("select_to_speech.main.AudioPlayer"),
+    ):
         app = SelectToSpeechApp(config)
         return app
+
 
 def test_app_initialization(mock_app):
     assert mock_app.tts_engine is not None
@@ -31,31 +34,35 @@ def test_app_initialization(mock_app):
     assert mock_app.selection_listener is not None
     assert mock_app.keyboard_handler is not None
 
+
 def test_on_text_selected(mock_app):
     mock_app._process_thread = MagicMock()
     mock_app._process_thread.is_alive.return_value = False
-    
-    with patch('threading.Thread') as mock_thread, \
-         patch('select_to_speech.main.SoundFeedback'):
+
+    with (
+        patch("threading.Thread") as mock_thread,
+        patch("select_to_speech.main.SoundFeedback"),
+    ):
         mock_app._on_text_selected("Read this text")
-        
+
         mock_app.audio_player.stop.assert_called_once()
         mock_thread.assert_called_once()
         mock_thread.return_value.start.assert_called_once()
-        
+
         # Stop event should be cleared before processing
         assert not mock_app._stop_event.is_set()
 
+
 def test_process_text(mock_app):
     stop_event = threading.Event()
-    
+
     mock_app.tts_engine.synthesize_stream.return_value = iter([(b"audio", 22050)])
     mock_app.audio_player.play_stream.return_value = True
-    
-    with patch.object(mock_app, '_detect_language', return_value="en"):
+
+    with patch.object(mock_app, "_detect_language", return_value="en"):
         # Process text runs background threads, since we mock play_stream and synthesize_stream, it should work
         result = mock_app.process_text("Hello there", stop_event)
-        
+
         assert result is True
         # Verify the language fallback and playback
         mock_app.audio_player.play_stream.assert_called_once()
@@ -65,13 +72,15 @@ def test_reload_config(mock_app):
     new_config = AppConfig(
         voice=VoiceConfig(model="kokoro-v1.0-fp16"),
         audio=AudioConfig(device_id=2, ducking=False),
-        keyboard=KeyboardConfig(modifier_key="control", trigger_key="F1")
+        keyboard=KeyboardConfig(modifier_key="control", trigger_key="F1"),
     )
-    
-    with patch('select_to_speech.main.KeyboardHandler'), \
-         patch('select_to_speech.main.AudioPlayer') as mock_audio_player_cls:
+
+    with (
+        patch("select_to_speech.main.KeyboardHandler"),
+        patch("select_to_speech.main.AudioPlayer"),
+    ):
         mock_app.reload_config(new_config)
-        
+
         mock_app.tts_engine.update_config.assert_called_once_with(new_config.voice)
         assert mock_app.config == new_config
 
@@ -79,14 +88,14 @@ def test_reload_config(mock_app):
 def test_reload_config_ducking_without_device_change(mock_app):
     mock_app.audio_player.device_id = None
     mock_app.audio_player.ducker.enabled = True
-    
+
     new_config = AppConfig(
         voice=VoiceConfig(model="kokoro-v1.0"),
         audio=AudioConfig(device_id=None, ducking=False),
-        keyboard=KeyboardConfig()
+        keyboard=KeyboardConfig(),
     )
-    
-    with patch('select_to_speech.main.KeyboardHandler'):
+
+    with patch("select_to_speech.main.KeyboardHandler"):
         mock_app.reload_config(new_config)
         assert mock_app.audio_player.ducker.enabled is False
 
@@ -105,16 +114,16 @@ def test_on_stop_pressed(mock_app):
 def test_process_shortcut_with_new_selection(mock_app):
     mock_app.audio_player.is_playing = False
     mock_app.selection_listener.get_primary_selection.return_value = "New text to read"
-    
-    with patch.object(mock_app, '_on_text_selected') as mock_selected:
+
+    with patch.object(mock_app, "_on_text_selected") as mock_selected:
         mock_app._process_shortcut()
-        
+
         assert mock_app.selection_listener.last_selection == "New text to read"
         mock_selected.assert_called_once_with("New text to read", play_feedback=True)
 
 
 def test_process_shortcut_debounced(mock_app):
-    with patch('threading.Thread') as mock_thread:
+    with patch("threading.Thread") as mock_thread:
         mock_app._on_shortcut_pressed()
         mock_thread.assert_called_once()
 
@@ -131,17 +140,18 @@ def test_detect_language_confidence_and_default_fallback(mock_app):
     assert mock_app._detect_language("ciao come va") is None
 
     # Italian text with borrowed English words shouldn't switch away from default "it"
-    italian_with_loanwords = "cono che devi proprio farti fuori se vuoi fare il rock in qualche modo"
+    italian_with_loanwords = (
+        "cono che devi proprio farti fuori se vuoi fare il rock in qualche modo"
+    )
     detected = mock_app._detect_language(italian_with_loanwords)
     assert detected == "it"
 
     # Definite English sentence should detect "en"
-    english_text = "This is a full English sentence explaining software design principles."
+    english_text = (
+        "This is a full English sentence explaining software design principles."
+    )
     detected_en = mock_app._detect_language(english_text)
     assert detected_en == "en"
-
-
-
 
 
 def test_init_does_not_override_signal_handlers():
@@ -157,11 +167,17 @@ def test_init_does_not_override_signal_handlers():
 
     previous = signal.signal(signal.SIGTERM, sentinel)
     try:
-        config = AppConfig(voice=VoiceConfig(engine="kokoro"), audio=AudioConfig(), keyboard=KeyboardConfig())
-        with patch('select_to_speech.main.WaylandSelectionListener'), \
-             patch('select_to_speech.main.KeyboardHandler'), \
-             patch('select_to_speech.main.get_tts_engine'), \
-             patch('select_to_speech.main.AudioPlayer'):
+        config = AppConfig(
+            voice=VoiceConfig(engine="kokoro"),
+            audio=AudioConfig(),
+            keyboard=KeyboardConfig(),
+        )
+        with (
+            patch("select_to_speech.main.WaylandSelectionListener"),
+            patch("select_to_speech.main.KeyboardHandler"),
+            patch("select_to_speech.main.get_tts_engine"),
+            patch("select_to_speech.main.AudioPlayer"),
+        ):
             SelectToSpeechApp(config)
         assert signal.getsignal(signal.SIGTERM) is sentinel
     finally:
@@ -172,10 +188,12 @@ def test_ocr_without_tesseract_speaks_reminder_in_default_language(mock_app):
     from select_to_speech.ocr_engine import OCR_MISSING_MESSAGES
 
     mock_app.config.voice.language = "it"
-    with patch.object(mock_app.ocr_engine, 'is_ready', return_value=False), \
-         patch.object(mock_app, '_on_text_selected') as on_text, \
-         patch('select_to_speech.main.ScreenCapture') as capture, \
-         patch('select_to_speech.main.SoundFeedback'):
+    with (
+        patch.object(mock_app.ocr_engine, "is_ready", return_value=False),
+        patch.object(mock_app, "_on_text_selected") as on_text,
+        patch("select_to_speech.main.ScreenCapture") as capture,
+        patch("select_to_speech.main.SoundFeedback"),
+    ):
         mock_app._on_ocr_pressed()
 
     capture.capture_region.assert_not_called()
@@ -185,12 +203,15 @@ def test_ocr_without_tesseract_speaks_reminder_in_default_language(mock_app):
 
 
 def test_forced_language_skips_detection(mock_app):
-    with patch.object(mock_app, '_detect_language') as detect:
-        language, _ = mock_app._prepare_synthesis("Ciao", threading.Event(), language="it")
+    with patch.object(mock_app, "_detect_language") as detect:
+        language, _ = mock_app._prepare_synthesis(
+            "Ciao", threading.Event(), language="it"
+        )
     detect.assert_not_called()
     assert language == "it"
 
 
 def test_ocr_missing_message_falls_back_to_english():
     from select_to_speech.ocr_engine import ocr_missing_message, OCR_MISSING_MESSAGES
+
     assert ocr_missing_message("xx") == OCR_MISSING_MESSAGES["en"]

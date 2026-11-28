@@ -1341,8 +1341,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     }
   }
 
-  Timer? get saveTimer => _saveTimer;
-
   void _scheduleSave() {
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 500), () {
@@ -1379,12 +1377,9 @@ class _SettingsScreenState extends State<SettingsScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    if (_saveTimer?.isActive ?? false) {
-      _saveTimer?.cancel();
-      _saveConfigSilent();
-    } else {
-      _saveTimer?.cancel();
-    }
+    final hasPendingSave = _saveTimer?.isActive ?? false;
+    _saveTimer?.cancel();
+    if (hasPendingSave) _saveConfigSilent();
     try {
       _trayIcon?.dispose();
       _trayMenu?.dispose();

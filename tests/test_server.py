@@ -1,6 +1,4 @@
-import os
 import socket
-import tempfile
 import threading
 import pytest
 from unittest.mock import patch, MagicMock
@@ -18,7 +16,7 @@ def test_is_server_running_stale_socket(tmp_path):
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.bind(sock_path)
     s.close()
-    
+
     assert not is_server_running(sock_path)
 
 
@@ -33,7 +31,9 @@ def test_is_server_running_active(tmp_path):
             conn, _ = server_sock.accept()
             req = conn.recv(1024)
             if b"GET /status" in req:
-                conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 15\r\n\r\n{\"status\":\"ok\"}")
+                conn.sendall(
+                    b'HTTP/1.1 200 OK\r\nContent-Length: 15\r\n\r\n{"status":"ok"}'
+                )
             conn.close()
         except Exception:
             pass
@@ -53,10 +53,13 @@ def test_run_server_already_running():
         assert res == 0
 
 
-@pytest.mark.parametrize("installed,langs,expected", [
-    (False, set(), {"installed": False, "languages": []}),
-    (True, {"ita", "eng"}, {"installed": True, "languages": ["eng", "ita"]}),
-])
+@pytest.mark.parametrize(
+    "installed,langs,expected",
+    [
+        (False, set(), {"installed": False, "languages": []}),
+        (True, {"ita", "eng"}, {"installed": True, "languages": ["eng", "ita"]}),
+    ],
+)
 def test_ocr_status(installed, langs, expected):
     import select_to_speech.api.server as server
 

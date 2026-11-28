@@ -1,6 +1,5 @@
 """Unit tests for text normalization and neural punctuation restoration."""
 
-import pytest
 from select_to_speech.text_normalizer import (
     dehyphenate,
     normalize_bullets_and_lists,
@@ -59,7 +58,10 @@ Questo è il secondo paragrafo."""
     res = unwrap_lines(raw)
     paragraphs = res.split("\n\n")
     assert len(paragraphs) == 2
-    assert paragraphs[0] == "Questo è un paragrafo che va a capo su più righe perché la finestra è stretta."
+    assert (
+        paragraphs[0]
+        == "Questo è un paragrafo che va a capo su più righe perché la finestra è stretta."
+    )
     assert paragraphs[1] == "Questo è il secondo paragrafo."
 
     # Poetry or independent lines starting with capital letters
@@ -67,7 +69,10 @@ Questo è il secondo paragrafo."""
 Se vuoi fare il rock in qualche modo
 Che ti portiamo i fiori"""
     verse_res = unwrap_lines(verse_raw)
-    assert verse_res == "Dicono che devi proprio farti fuori. Se vuoi fare il rock in qualche modo. Che ti portiamo i fiori."
+    assert (
+        verse_res
+        == "Dicono che devi proprio farti fuori. Se vuoi fare il rock in qualche modo. Che ti portiamo i fiori."
+    )
 
 
 def test_normalize_text_for_tts_pipeline():
