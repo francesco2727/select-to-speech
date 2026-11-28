@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [v0.5.2] - 2026-11-15
 
 ### Added
 - **License**: the project is now released under the GNU General Public License v3.0 or later. The text is in `LICENSE`, the SPDX identifier `GPL-3.0-or-later` is set in `pyproject.toml` and in the native packages, which install the license in `/usr/share/licenses/select-to-speech/`, and the README has a License section that also lists the voice model licenses.
