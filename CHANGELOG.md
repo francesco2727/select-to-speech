@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v0.5.2] - 2026-11-15
+## [v0.5.3] - 2026-11-28
 
 ### Added
 - **License**: the project is now released under the GNU General Public License v3.0 or later. The text is in `LICENSE`, the SPDX identifier `GPL-3.0-or-later` is set in `pyproject.toml` and in the native packages, which install the license in `/usr/share/licenses/select-to-speech/`, and the README has a License section that also lists the voice model licenses.
@@ -20,9 +20,6 @@ All notable changes to this project will be documented in this file.
 - **Language Detection for Every Piper Language**: lingua now detects the 39 languages that Kokoro or Piper can speak (previously 10), using those with a voice in the active engine. The slim release build (`packaging/build-lingua.sh`) embeds the same list, so the backend package grows. Korean, which no engine speaks, was dropped.
 - **No Symbols Read in English for Other Languages**: math and currency symbols are spelled out only for languages with a word table (en, it, es, fr, de, pt, ja, zh, hi, ko). Other languages keep them instead of hearing them in English, and emojis are dropped when the language has no emoji names.
 - **Navigation Header Without Logo**: the settings sidebar header shows only the app name and "Settings", without the icon in its tinted box.
-- **Friendlier Voice Names**: The voice dropdowns now show just the name (`Sara` instead of `if_sara`); English voices add the accent in parentheses (`Nova (American)`, `Emma (British)`). Stored config values are unchanged.
-- **Adaptive Tray Icon**: On Linux the tray icon is now monochrome: white when the system theme is dark and black when it is light, and it switches live when the theme changes (`select_to_speech_tray_icon_light.png` / `_dark.png`, rendered from the matching `.svg`). The colored `select_to_speech_tray_icon.svg` remains the application icon.
-- **Release Notes from the Changelog**: The release workflow now copies the tag's `CHANGELOG.md` section into the GitHub release body (`body_path` in `.github/workflows/release.yml`), so the release page shows the formatted changelog entries alongside the auto-generated `Full Changelog` comparison link. Tags without a changelog section still publish, with only the generated notes.
 - **Tray Icon Without `libayatana-appindicator`**: The GUI now uses `tray_manager` 0.9 from pub.dev instead of the local `tray_manager_patched` fork. On Linux its `nativeapi` core exports the icon as a StatusNotifierItem over D-Bus by itself, so the packages no longer depend on `libayatana-appindicator`, `build-gui.sh` no longer needs `patchelf`, and `select-to-speech --check` no longer checks for it (it wrongly reported it missing on Fedora and Debian/Ubuntu, where the library is not under `/usr/lib`). The tray icon is now a 128 px PNG (white/black for dark/light themes) sent to the panel as a pixmap. Building the GUI needs Flutter 3.50 and the X11/Xi development files; `install-local.sh` checks for them.
 - **GitHub Actions on Node.js 24**: The release workflow uses the Node 24 majors of its actions (`checkout@v7`, `upload-artifact@v7`, `download-artifact@v8`, `cache@v6`, `setup-python@v7`, `astral-sh/setup-uv@v10.4.0`, `softprops/action-gh-release@v3`), removing the Node.js 20 deprecation warnings.
 - **Lighter Settings Saves**: the GUI saves the configuration on every tweak, and each save used to restart the global hotkey listener and rebuild the language detector. The listener is now restarted only when a shortcut changes, and the detector is rebuilt only when the set of languages with a voice changes, so moving a slider no longer leaves the hotkeys briefly unbound.
@@ -36,11 +33,19 @@ All notable changes to this project will be documented in this file.
 - **End of Reading Cut Off When Pitch Is Not 1.0**: with a pitch other than 1.0, the last ~1 second of every reading was never played (with both Kokoro and Piper), because the Pedalboard `PitchShift` latency stayed in the plugin buffer when the stream ended (`reset=False`). Each sentence chunk is now processed with `reset=True`, which compensates the latency and returns the whole chunk. The non-streaming `play()` had the same issue and is fixed too.
 - **Fallback Voice for Languages Without a Voice**: when a language had no voice assigned, Kokoro looked up the model id (`kokoro-multi-lang-v1_0`) as a speaker name and always fell back to `af_heart`. It now uses the default language's voice.
 - **OCR Tab When Tesseract Is Not Installed**: the OCR tab now says that Tesseract is not installed and that it and its language packs are needed for OCR (with a pointer to `select-to-speech --check`), instead of the generic "no languages found" notice. The list of Tesseract languages is no longer cached while empty, so installing Tesseract or a language pack is picked up without restarting the daemon.
+- **`uninstall.sh` Stops the Running `install-local.sh` App**: it deleted the launchers and desktop entries but left the tray app running, because the GUI is started through the `~/.local/bin/select-to-speech-gui` symlink and its command line never contained the resolved bundle path the script was matching. It now also matches the launcher path (GUI first, so it can't respawn the backend).
+
+## [v0.5.2] - 2026-11-15
+
+### Changed
+- **Friendlier Voice Names**: The voice dropdowns now show just the name (`Sara` instead of `if_sara`); English voices add the accent in parentheses (`Nova (American)`, `Emma (British)`). Stored config values are unchanged.
+- **Adaptive Tray Icon**: On Linux the tray icon is now monochrome: white when the system theme is dark and black when it is light, and it switches live when the theme changes (`select_to_speech_tray_icon_light.svg` / `_dark.svg`). The colored `select_to_speech_tray_icon.svg` remains the application icon.
+- **Release Notes from the Changelog**: The release workflow now copies the tag's `CHANGELOG.md` section into the GitHub release body (`body_path` in `.github/workflows/release.yml`), so the release page shows the formatted changelog entries alongside the auto-generated `Full Changelog` comparison link. Tags without a changelog section still publish, with only the generated notes.
+
+### Fixed
 - **`install-local.sh` Checks for PortAudio Headers**: `uv sync` failed with `portaudio.h: No such file or directory` when building `pyaudio` without the PortAudio development package. The script now checks for it up front and prints the install command for Arch, Debian/Ubuntu and Fedora; the README documents the build requirements.
 - **Application Icon in Menu and Taskbar**: Plasma showed the Breeze "select" (cursor) icon instead of the app icon, because KDE strips dash-separated suffixes from icon names (`select-to-speech` → `select`) and finds the Breeze icon before the hicolor theme. The icon is now named `com.selecttospeech.gui` (matching the application id) and the SVG no longer has the legacy `DOCTYPE` header.
 - **`uninstall.sh` Now Removes the Installed Package**: it only cleaned per-user leftovers and left the native package installed. It now also removes the `select-to-speech` package via pacman/apt/dnf (with `sudo`); `--user-only` restores the previous behavior and is used by `install.sh` when migrating from an old per-user install.
-
-- **`uninstall.sh` Stops the Running `install-local.sh` App**: it deleted the launchers and desktop entries but left the tray app running, because the GUI is started through the `~/.local/bin/select-to-speech-gui` symlink and its command line never contained the resolved bundle path the script was matching. It now also matches the launcher path (GUI first, so it can't respawn the backend).
 
 ## [v0.5.1] - 2026-11-08
 
