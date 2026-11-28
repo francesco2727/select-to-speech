@@ -15,6 +15,7 @@ description: |
   shortcut, with automatic language detection and offline Kokoro neural voices.
 vendor: Select-to-Speech
 homepage: https://github.com/francesco2727/select-to-speech
+license: GPL-3.0-or-later
 
 # Runtime libraries the bundles load from the system (everything else is bundled):
 #   wl-paste                -> selection capture on Wayland
@@ -93,6 +94,9 @@ contents:
     type: config|noreplace
   - src: src/ui/images/select_to_speech_tray_icon.svg
     dst: /usr/share/icons/hicolor/scalable/apps/com.selecttospeech.gui.svg
+  - src: LICENSE
+    dst: /usr/share/licenses/select-to-speech/LICENSE
+    type: doc
 
 deb:
   compression: zstd

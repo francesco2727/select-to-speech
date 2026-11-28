@@ -227,3 +227,11 @@ Application logs are written to:
 ```
 ~/.local/state/select-to-speech/app.log
 ```
+
+---
+
+## License
+
+Select-to-Speech is free software, released under the [GNU General Public License v3.0 or later](LICENSE) (`GPL-3.0-or-later`).
+
+The voice models are not part of this repository and keep their own licenses: the Kokoro models are released under Apache-2.0, and each Piper voice has the license stated in its model card (see the [Piper voices](https://huggingface.co/rhasspy/piper-voices) catalog).
